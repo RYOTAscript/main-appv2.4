@@ -1,0 +1,81 @@
+:root {
+  --bg0: #06060c;
+  --bg1: #0c0c16;
+  --bg2: #16162a;
+  --bg3: #1e1e36;
+  --line: #252538;
+  --line2: #32324a;
+  --green: #00ffa3;
+  --red: #ff4d6a;
+  --blue: #4d9eff;
+  --purple: #d14dff;
+  --dim: #a1a1b5;
+  --dim2: #63637e;
+  --white: #ffffff;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+.overlay {
+  width: 175px;
+  height: 125px;
+  background: rgba(13, 13, 13, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: move;
+  -webkit-app-region: drag;
+}
+
+.close {
+  font-size: 10px;
+  color: var(--dim);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.body {
+  padding: 8px 10px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.label {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--dim2);
+  width: 28px;
+}
+
+.value {
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  font-weight: 700;
+}

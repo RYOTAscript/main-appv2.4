@@ -1,0 +1,50 @@
+{
+  "name": "main-app",
+  "version": "2.5.3",
+  "description": "Personal gaming & productivity launcher",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --publish never",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "ryota",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^42.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.launcher.app",
+    "productName": "Launcher",
+    "files": [
+      "main.js",
+      "main.html",
+      "preload.js",
+      "logger.js",
+      "icons/**/*"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Launcher"
+    }
+  }
+}

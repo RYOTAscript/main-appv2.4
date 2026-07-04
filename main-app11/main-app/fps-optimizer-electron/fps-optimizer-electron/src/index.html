@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>FPS Optimizer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-ring"><span>⚡</span></div>
+        <div class="logo-title">FPS OPTIMIZER</div>
+        <div class="logo-version">v3.0.0</div>
+        <div style="font-size: 9px; color: #666; font-family: monospace; margin-top: 4px;">made by ryota</div>
+      </div>
+      <div class="divider"></div>
+      <nav class="nav" id="nav">
+        <div class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">⊞</span>
+          <span class="nav-label">Dashboard</span>
+        </div>
+        <div class="nav-item" data-page="gaming">
+          <span class="nav-icon">◈</span>
+          <span class="nav-label">Gaming</span>
+        </div>
+        <div class="nav-item" data-page="power">
+          <span class="nav-icon">⚡</span>
+          <span class="nav-label">Power</span>
+        </div>
+        <div class="nav-item" data-page="memory">
+          <span class="nav-icon">▣</span>
+          <span class="nav-label">Memory</span>
+        </div>
+        <div class="nav-item" data-page="network">
+          <span class="nav-icon">◎</span>
+          <span class="nav-label">Network</span>
+        </div>
+        <div class="nav-item" data-page="battery">
+          <span class="nav-icon">◐</span>
+          <span class="nav-label">Battery</span>
+        </div>
+        <div class="nav-item" data-page="restore">
+          <span class="nav-icon">↩</span>
+          <span class="nav-label">Restore</span>
+        </div>
+        <div class="nav-item" data-page="logs">
+          <span class="nav-icon">☰</span>
+          <span class="nav-label">Activity</span>
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="status-dot" id="statusDot"></div>
+        <span class="status-text" id="statusText">Ready</span>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="content">
+      <!-- DASHBOARD -->
+      <div class="page active" id="page-dashboard">
+        <div class="page-header">
+          <h1>Dashboard</h1>
+          <p>Real-time system performance and status</p>
+        </div>
+        <div class="page-divider"></div>
+
+        <div class="section-title">Performance Metrics</div>
+        <div class="grid grid-4" id="dashMetrics">
+          <div class="card spark-card">
+            <div class="card-top"></div>
+            <div class="card-accent" style="background:var(--blue)"></div>
+            <div class="card-body">
+              <div class="spark-label">CPU</div>
+              <div class="spark-value" style="color:var(--blue)"><span id="valCpu">0</span><span
+                  class="spark-suffix">%</span></div>
+              <canvas class="spark-canvas" id="sparkCpu" width="200" height="32"></canvas>
+            </div>
+          </div>
+          <div class="card spark-card">
+            <div class="card-top"></div>
+            <div class="card-accent" style="background:var(--purple)"></div>
+            <div class="card-body">
+              <div class="spark-label">GPU</div>
+              <div class="spark-value" style="color:var(--purple)"><span id="valGpu">0</span><span
+                  class="spark-suffix">%</span></div>
+              <canvas class="spark-canvas" id="sparkGpu" width="200" height="32"></canvas>
+            </div>
+          </div>
+          <div class="card spark-card">
+            <div class="card-top"></div>
+            <div class="card-accent" style="background:var(--green)"></div>
+            <div class="card-body">
+              <div class="spark-label">RAM Used</div>
+              <div class="spark-value" style="color:var(--green)"><span id="valRam">0</span><span
+                  class="spark-suffix">%</span></div>
+              <canvas class="spark-canvas" id="sparkRam" width="200" height="32"></canvas>
+            </div>
+          </div>
+          <div class="card spark-card">
+            <div class="card-top"></div>
+            <div class="card-accent" style="background:var(--orange)"></div>
+            <div class="card-body">
+              <div class="spark-label">Disk C:</div>
+              <div class="spark-value" style="color:var(--orange)"><span id="valDisk">0</span><span
+                  class="spark-suffix">%</span></div>
+              <canvas class="spark-canvas" id="sparkDisk" width="200" height="32"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">System Resources</div>
+        <div class="grid grid-4" id="dashResources">
+          <div class="card">
+            <div class="card-accent" style="background:var(--lime)"></div>
+            <div class="card-body">
+              <div class="info-label">Available RAM</div>
+              <div class="info-value" style="color:var(--lime)"><span id="valAvail">0</span> GB</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-accent" style="background:var(--yellow)"></div>
+            <div class="card-body">
+              <div class="info-label">Active Procs</div>
+              <div class="info-value" style="color:var(--yellow)" id="valProcs">–</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-accent" style="background:var(--cyan)"></div>
+            <div class="card-body">
+              <div class="info-label">Network ↓</div>
+              <div class="info-value" style="color:var(--cyan)"><span id="valNetDown">0</span> MB</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-accent" style="background:var(--cyan)"></div>
+            <div class="card-body">
+              <div class="info-label">Network ↑</div>
+              <div class="info-value" style="color:var(--cyan)"><span id="valNetUp">0</span> MB</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">System Status</div>
+        <div class="grid grid-3">
+          <div class="card info-card">
+            <div class="card-accent" style="background:var(--yellow)"></div>
+            <div class="card-body">
+              <div class="info-label">Power Plan</div>
+              <div class="info-value" id="valPlan">Unknown</div>
+            </div>
+          </div>
+          <div class="card info-card">
+            <div class="card-accent" style="background:var(--green)"></div>
+            <div class="card-body">
+              <div class="info-label">Game Mode</div>
+              <div class="info-value" id="valGameMode">✗ OFF</div>
+            </div>
+          </div>
+          <div class="card info-card">
+            <div class="card-accent" style="background:var(--cyan)"></div>
+            <div class="card-body">
+              <div class="info-label">Uptime</div>
+              <div class="info-value" id="valUptime">N/A</div>
+            </div>
+          </div>
+        </div>
+
+
+
+        <div class="section-title">Optimization Progress</div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="padding:12px 16px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span id="progLabel" style="font-size:9px;font-weight:700;color:var(--text)">Ready</span>
+              <span id="progPct" style="font-size:9px;color:var(--green)">0%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progFill" style="background:var(--green);width:0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">Quick Actions</div>
+        <div class="grid grid-2">
+          <div class="qa-btn" style="color:var(--green);background:var(--bg2)" onclick="runBoost('none')">⚡ Optimise
+            Only</div>
+          <div class="qa-btn" style="color:var(--blue);background:var(--bg2)" onclick="runBoost('standard')">⚡ Run All
+          </div>
+          <div class="qa-btn" style="color:var(--yellow);background:var(--bg2)" onclick="runBoost('discord')">⚡ Discord
+            Only</div>
+          <div class="qa-btn" style="color:var(--red);background:var(--bg2)" onclick="runBoost('nuke')">☠ Kill
+            Everything</div>
+        </div>
+
+
+
+        <div class="section-title">Live Monitoring</div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-top"></div>
+          <div class="card-accent" style="background:var(--green)"></div>
+          <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div class="card-title">Live FPS Overlay</div>
+              <div class="card-desc">Always-on-top draggable HUD · FPS estimate · GPU % · CPU %</div>
+            </div>
+            <div class="action-btn" id="overlayBtn" style="background:var(--bg3);color:var(--green)"
+              onclick="toggleOverlay()">● FPS Overlay</div>
+          </div>
+        </div>
+
+        <div class="section-title">System Readiness</div>
+        <div class="readiness-box" id="readinessBox" style="margin-bottom:16px">Running initial diagnostics...</div>
+
+        <div id="resultPanel"></div>
+      </div>
+
+      <!-- GAMING -->
+      <div class="page" id="page-gaming">
+        <div class="page-header">
+          <h1>Gaming</h1>
+          <p>App cleanup and kill modes</p>
+        </div>
+        <div class="page-divider"></div>
+
+        <div class="section-title">App Cleanup</div>
+        <div class="card action-card" onclick="confirmKill('standard')">
+          <div class="action-left">
+            <div class="action-title">Kill Background Apps</div>
+            <div class="action-desc">Keeps Discord · Spotify · Nvidia · Medal · Claude · Valorant · Riot · Antigravity ·
+              Siege · Ubisoft — kills everything else</div>
+          </div>
+          <div class="action-btn" style="background:var(--red);color:var(--bg0)">RUN</div>
+        </div>
+
+        <div class="section-title">Kill Modes</div>
+        <div class="card action-card" onclick="confirmKill('discord')">
+          <div class="action-left">
+            <div class="action-title">Keep Discord Only</div>
+            <div class="action-desc">Kills everything except Discord, Valorant and system processes</div>
+          </div>
+          <div class="action-btn" style="background:var(--yellow);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="confirmKill('nuke')">
+          <div class="action-left">
+            <div class="action-title">Kill Absolutely Everything</div>
+            <div class="action-desc">Terminates every non-system app including Discord</div>
+          </div>
+          <div class="action-btn" style="background:var(--red);color:var(--bg0)">RUN</div>
+        </div>
+
+        <div class="section-title">Game Mode</div>
+        <div class="card">
+          <div class="toggle-row" onclick="toggleGameMode()">
+            <div>
+              <div class="toggle-label">Windows Game Mode</div>
+              <div class="toggle-desc" id="gmDesc">Currently OFF</div>
+            </div>
+            <div class="toggle-switch" id="gmSwitch"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POWER -->
+      <div class="page" id="page-power">
+        <div class="page-header">
+          <h1>Power</h1>
+          <p>Performance plans and CPU tuning</p>
+        </div>
+        <div class="page-divider"></div>
+
+        <div class="section-title">Power Plans</div>
+        <div class="card action-card" onclick="runAction('ultimate')">
+          <div class="action-left">
+            <div class="action-title">Ultimate Performance</div>
+            <div class="action-desc">Unlocks the hidden Windows Ultimate Performance plan</div>
+          </div>
+          <div class="action-btn" style="background:var(--green);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="runAction('high')">
+          <div class="action-left">
+            <div class="action-title">High Performance</div>
+            <div class="action-desc">Standard high-performance plan</div>
+          </div>
+          <div class="action-btn" style="background:var(--green);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="runAction('balanced')">
+          <div class="action-left">
+            <div class="action-title">Balanced (Restore)</div>
+            <div class="action-desc">Reverts to balanced plan after gaming</div>
+          </div>
+          <div class="action-btn" style="background:var(--dim);color:var(--bg0)">RUN</div>
+        </div>
+
+        <div class="section-title">CPU Scheduling</div>
+        <div class="card action-card" onclick="runAction('cpuPriority')">
+          <div class="action-left">
+            <div class="action-title">CPU → Game Priority</div>
+            <div class="action-desc">GPU priority 8 + High scheduling category for games</div>
+          </div>
+          <div class="action-btn" style="background:var(--yellow);color:var(--bg0)">RUN</div>
+        </div>
+
+        <div class="section-title">GPU</div>
+        <div class="card action-card" onclick="runAction('hags')">
+          <div class="action-left">
+            <div class="action-title">Enable HAGS</div>
+            <div class="action-desc">Hardware-Accelerated GPU Scheduling — needs reboot</div>
+          </div>
+          <div class="action-btn" style="background:var(--purple);color:var(--bg0)">RUN</div>
+        </div>
+      </div>
+
+      <!-- MEMORY -->
+      <div class="page" id="page-memory">
+        <div class="page-header">
+          <h1>Memory</h1>
+          <p>RAM management and temp cleanup</p>
+        </div>
+        <div class="page-divider"></div>
+
+        <div class="section-title">RAM</div>
+        <div class="card action-card" onclick="runAction('clearStandby')">
+          <div class="action-left">
+            <div class="action-title">Release Standby RAM</div>
+            <div class="action-desc">Calls working set trimming to flush standby list</div>
+          </div>
+          <div class="action-btn" style="background:var(--blue);color:var(--bg0)">RUN</div>
+        </div>
+
+        <div class="section-title">Disk & Services</div>
+        <div class="card action-card" onclick="runAction('clearTemp')">
+          <div class="action-left">
+            <div class="action-title">Clear Temp Files</div>
+            <div class="action-desc">Wipes %TEMP% and C:\Windows\Temp</div>
+          </div>
+          <div class="action-btn" style="background:var(--blue);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="runAction('disableSuperfetch')">
+          <div class="action-left">
+            <div class="action-title">Disable Superfetch</div>
+            <div class="action-desc">Stops SysMain — reduces SSD stutter</div>
+          </div>
+          <div class="action-btn" style="background:var(--blue);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="runAction('enableSuperfetch')">
+          <div class="action-left">
+            <div class="action-title">Re-enable Superfetch</div>
+            <div class="action-desc">Restarts SysMain service</div>
+          </div>
+          <div class="action-btn" style="background:var(--dim);color:var(--bg0)">RUN</div>
+        </div>
+      </div>
+
+      <!-- NETWORK -->
+      <div class="page" id="page-network">
+        <div class="page-header">
+          <h1>Network</h1>
+          <p>Latency and DNS tweaks</p>
+        </div>
+        <div class="page-divider"></div>
+
+        <div class="section-title">DNS & Latency</div>
+        <div class="card action-card" onclick="runAction('flushDns')">
+          <div class="action-left">
+            <div class="action-title">Flush DNS Cache</div>
+            <div class="action-desc">Clears resolver cache — fixes stale DNS lag spikes</div>
+          </div>
+          <div class="action-btn" style="background:var(--cyan);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="runAction('optimize')">
+          <div class="action-left">
+            <div class="action-title">Low-Latency Network</div>
+            <div class="action-desc">Disables Nagle algorithm + raises throttling index</div>
+          </div>
+          <div class="action-btn" style="background:var(--cyan);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="runAction('reset')">
+          <div class="action-left">
+            <div class="action-title">Reset Network (Restore)</div>
+            <div class="action-desc">Reverts network tweaks to Windows defaults</div>
+          </div>
+          <div class="action-btn" style="background:var(--dim);color:var(--bg0)">RUN</div>
+        </div>
+      </div>
+
+      <!-- BATTERY -->
+      <div class="page" id="page-battery">
+        <div class="page-header">
+          <h1>Battery</h1>
+          <p>Maximum power saving</p>
+        </div>
+        <div class="page-divider"></div>
+
+        <div class="section-title">Battery Saver</div>
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-top"></div>
+          <div class="card-accent" style="background:var(--lime)"></div>
+          <div class="card-body" style="display:flex;align-items:center;gap:16px">
+            <div style="font-size:26px">🔋</div>
+            <div style="flex:1">
+              <div class="card-title">Battery Saver Mode</div>
+              <div class="card-desc">Throttles CPU to 50% · dims screen · stops background services<br>disables
+                Bluetooth · kills non-Teams apps · switches to power saver plan</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div class="action-btn" style="background:var(--lime);color:var(--bg0)" onclick="batterySave()">Activate
+              </div>
+              <div class="action-btn" style="background:var(--bg3);color:var(--lime)" onclick="batteryRevert()">Revert
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RESTORE -->
+      <div class="page" id="page-restore">
+        <div class="page-header">
+          <h1>Restore</h1>
+          <p>Revert all tweaks after gaming</p>
+        </div>
+        <div class="page-divider"></div>
+
+        <div class="section-title">Windows</div>
+        <div class="card action-card" onclick="runAction('restoreVisual')">
+          <div class="action-left">
+            <div class="action-title">Restore Visual Effects</div>
+          </div>
+          <div class="action-btn" style="background:var(--dim);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="runAction('restoreMouse')">
+          <div class="action-left">
+            <div class="action-title">Restore Mouse Settings</div>
+          </div>
+          <div class="action-btn" style="background:var(--dim);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="runAction('enableGameBar')">
+          <div class="action-left">
+            <div class="action-title">Restore Xbox Game Bar</div>
+          </div>
+          <div class="action-btn" style="background:var(--dim);color:var(--bg0)">RUN</div>
+        </div>
+
+        <div class="section-title">Services</div>
+        <div class="card action-card" onclick="runAction('enableSearch')">
+          <div class="action-left">
+            <div class="action-title">Re-enable Search Indexer</div>
+          </div>
+          <div class="action-btn" style="background:var(--dim);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="runAction('enableSuperfetch')">
+          <div class="action-left">
+            <div class="action-title">Re-enable Superfetch</div>
+          </div>
+          <div class="action-btn" style="background:var(--dim);color:var(--bg0)">RUN</div>
+        </div>
+
+        <div class="section-title">Power & Network</div>
+        <div class="card action-card" onclick="runAction('setBalanced')">
+          <div class="action-left">
+            <div class="action-title">Balanced Power Plan</div>
+          </div>
+          <div class="action-btn" style="background:var(--dim);color:var(--bg0)">RUN</div>
+        </div>
+        <div class="card action-card" onclick="runAction('resetNetwork')">
+          <div class="action-left">
+            <div class="action-title">Reset Network</div>
+          </div>
+          <div class="action-btn" style="background:var(--dim);color:var(--bg0)">RUN</div>
+        </div>
+      </div>
+
+      <!-- LOGS -->
+      <div class="page" id="page-logs">
+        <div class="page-header">
+          <h1>Activity Log</h1>
+          <p>History of system changes and boost events</p>
+        </div>
+        <div class="page-divider"></div>
+        <div class="log-box" id="logBox"></div>
+      </div>
+    </main>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Electron build output
+dist/
+
+# Machine-specific Claude settings
+.claude/settings.local.json
+
+# Logs
+*.log
+main-crash.log
+
+# OS cruft
+Thumbs.db
+.DS_Store

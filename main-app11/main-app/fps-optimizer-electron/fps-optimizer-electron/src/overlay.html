@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <style>
+    :root {
+      --bg0: #06060c;
+      --bg1: #0c0c16;
+      --bg2: #16162a;
+      --bg3: #1e1e36;
+      --line: #252538;
+      --line2: #32324a;
+      --green: #00ffa3;
+      --red: #ff4d6a;
+      --blue: #4d9eff;
+      --purple: #d14dff;
+      --dim: #a1a1b5;
+      --dim2: #63637e;
+      --white: #ffffff;
+    }
+  </style>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+
+<body>
+  <div class="overlay">
+    <div class="header">
+      <div style="font-size:9px; font-weight:800; color:var(--dim)">FPS HUD</div>
+      <div class="close" onclick="closeOverlay()">✕</div>
+    </div>
+    <div class="body">
+      <div class="row">
+        <span class="label">FPS</span>
+        <span class="value" id="valFps" style="color:var(--green)">~165</span>
+      </div>
+      <div class="row">
+        <span class="label">GPU</span>
+        <span class="value" id="valGpu" style="color:var(--purple)">0%</span>
+      </div>
+      <div class="row">
+        <span class="label">CPU</span>
+        <span class="value" id="valCpu" style="color:var(--blue)">0%</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    window.electronAPI.onOverlayData((data) => {
+      document.getElementById('valFps').textContent = '~' + Math.round(data.fps);
+      document.getElementById('valGpu').textContent = Math.round(data.gpu) + '%';
+      document.getElementById('valCpu').textContent = Math.round(data.cpu) + '%';
+    });
+    function closeOverlay() {
+      window.electronAPI.toggleOverlay();
+    }
+  </script>
+</body>
+
+</html>
