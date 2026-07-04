@@ -82,7 +82,7 @@ function safeFetch(url, options = {}) {
 }
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v2.5.3';
+const APP_VERSION = 'v2.5.5';
 
 // ── Crash handling (this is what removes the Windows "System Error" dialog) ──
 // The renderer very occasionally dies with STATUS_STACK_BUFFER_OVERRUN (0xC0000409)
@@ -313,6 +313,22 @@ if (!gotSingleInstanceLock) {
     return false;
   }
 
+  // Builds the exact { path, args } we register with the OS when autostart is enabled.
+  // On Windows, getLoginItemSettings() only reports openAtLogin: true when queried with
+  // the SAME path AND args that setLoginItemSettings() used — so apply and detect MUST
+  // share this, otherwise the OS check always comes back false. This mismatch was the
+  // original bug: registration used args ['--startup'] but the query passed no args.
+  function getAutoStartLaunchOptions() {
+    const exePath = app.getPath('exe');
+    const args = [];
+    const isDevElectron = /electron(?:\.exe)?$/i.test(path.basename(exePath));
+    if (!app.isPackaged && isDevElectron) {
+      args.push(app.getAppPath());
+    }
+    args.push('--startup');
+    return { path: exePath, args };
+  }
+
   // Our own record of whether the user wants autostart on, independent of whatever
   // the OS currently has registered. app.setLoginItemSettings() registers with the OS
   // (Windows Registry Run key / macOS Login Items / Linux autostart entry), which is
@@ -328,15 +344,13 @@ if (!gotSingleInstanceLock) {
     } catch (e) {
       logger.error('Failed to read autostart config', e);
     }
-    // No config yet (first run after this update, or a fresh install) — fall back to
-    // whatever the OS currently has registered instead of assuming "off". Otherwise a
-    // user who already had autostart enabled under the old code (which never wrote
-    // this file) would have it silently disabled the next time the app launches.
-    try {
-      return app.getLoginItemSettings({ path: app.getPath('exe') }).openAtLogin;
-    } catch (e) {
-      return false;
-    }
+    // No config yet (first run after this update, or a fresh install) — default to
+    // ENABLED so the launcher starts on boot out of the box. app.whenReady() persists
+    // this to autostart-config.json and registers it with Windows on this very launch,
+    // so it's a one-time default: if the user later turns it off in Settings that
+    // choice is saved and honored from then on. An existing OS registration under older
+    // code is already "on" too, so defaulting on preserves that case as well.
+    return true;
   }
 
   function saveAutoStartConfig(enabled) {
@@ -352,16 +366,7 @@ if (!gotSingleInstanceLock) {
   // to re-assert it from the saved config.
   function applyAutoStartSetting(enabled) {
     try {
-      const exePath = app.getPath('exe');
-      const args = [];
-      const isDevElectron = /electron(?:\.exe)?$/i.test(path.basename(exePath));
-      if (!app.isPackaged && isDevElectron) {
-        args.push(app.getAppPath());
-      }
-      if (enabled) {
-        args.push('--startup');
-      }
-      const options = { openAtLogin: enabled, path: exePath, args };
+      const options = { openAtLogin: enabled, ...getAutoStartLaunchOptions() };
       app.setLoginItemSettings(options);
       logger.success('Auto start applied', { enabled, options });
       return true;
@@ -728,14 +733,13 @@ Start-Sleep -Milliseconds 300
 
   ipcMain.handle('get-focus-hotkey', () => focusHotkey);
 
-  ipcMain.handle('get-autostart', () => {
-    try {
-      return app.getLoginItemSettings({ path: app.getPath('exe') }).openAtLogin;
-    } catch (e) {
-      logger.error('get-autostart failed', e);
-      return getAutoStartConfig(); // fall back to our own saved intent if the OS query fails
-    }
-  });
+  // Report our own persisted intent, not a live OS query. The app re-asserts the OS
+  // registration from this same config on every launch (see app.whenReady), so it's the
+  // reliable source of truth — and it avoids the Windows getLoginItemSettings path/args
+  // matching pitfall that made the toggle always read back as "off" after a restart.
+  // getAutoStartConfig() still falls back to (and persists) the live OS state on first
+  // run, so an existing "enabled" registration is detected rather than assumed off.
+  ipcMain.handle('get-autostart', () => getAutoStartConfig());
 
   ipcMain.handle('get-close-windows-startup', () => getCloseWindowsStartup());
 

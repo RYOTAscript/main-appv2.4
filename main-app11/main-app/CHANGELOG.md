@@ -5,6 +5,52 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [2.5.5] — 2026-07-05
+
+### Changed
+
+- **The launcher now starts on boot out of the box.** Auto start on boot was already
+  fully wired up (it registers with Windows and re-asserts on every launch), but it
+  shipped **off** by default, so a fresh install never actually launched at startup until
+  you found the toggle in Settings and turned it on. First run now defaults the setting to
+  **enabled**: the app registers itself with Windows startup and comes up automatically
+  after you log in. This is a one-time default — the toggle in **Settings → Behavior**
+  still works exactly as before, and if you turn it off there your choice is saved to
+  `autostart-config.json` and honored on every launch afterward.
+
+### Files changed
+
+- `main.js` — `getAutoStartConfig()` first-run default is now `true` instead of falling
+  back to "off"; `APP_VERSION` → v2.5.5.
+- `main.html` — version strings → v2.5.5.
+- `package.json` — `version` → 2.5.5.
+- `CHANGELOG.md` — this entry.
+
+---
+
+## [2.5.4] — 2026-07-05
+
+### Fixed
+
+- **"Auto start on boot (show window)" toggle no longer resets to off after a restart.**
+  The setting *was* being saved and re-registered with Windows every launch, but the
+  Settings toggle read its state back with a live OS query (`getLoginItemSettings`) that
+  passed a different `path`/`args` combination than the one used to register it. On
+  Windows the two must match exactly, so the query always returned `false` and the toggle
+  showed **off** on every restart even when autostart was active. The toggle now reflects
+  the app's own persisted intent (`autostart-config.json`), which is the same value it
+  re-asserts to the OS on each launch, and it still detects and adopts an existing OS
+  registration on first run. Registration and detection now share one helper so their
+  `path`/`args` can never drift apart again.
+
+### Files changed
+
+- `main.js` — added `getAutoStartLaunchOptions()` shared helper; `get-autostart` now
+  returns the persisted config; `getAutoStartConfig()` first-run OS fallback queries with
+  matching args.
+
+---
+
 ## [2.5.3] — 2026-07-04
 
 ### Added
