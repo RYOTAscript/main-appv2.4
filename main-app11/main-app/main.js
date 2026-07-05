@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, globalShortcut, dialog, Menu, Tray, session, desktopCapturer, crashReporter } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, globalShortcut, dialog, Menu, Tray, session, desktopCapturer, crashReporter, safeStorage, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -82,7 +82,7 @@ function safeFetch(url, options = {}) {
 }
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v2.5.3';
+const APP_VERSION = 'v2.8.0';
 
 // ── Crash handling (this is what removes the Windows "System Error" dialog) ──
 // The renderer very occasionally dies with STATUS_STACK_BUFFER_OVERRUN (0xC0000409)
@@ -246,6 +246,15 @@ if (!gotSingleInstanceLock) {
       }, 300);
     });
 
+    // The mic-mute overlay is a second, always-alive BrowserWindow, so Electron's
+    // 'window-all-closed' event never fires from closing just the main window --
+    // it only fires once every window (including the hidden overlay) is gone. Quit
+    // explicitly here so closing the main window always closes the whole app.
+    mainWindow.on('closed', () => {
+      mainWindow = null;
+      app.quit();
+    });
+
     mainWindow.loadFile('main.html');
     mainWindow.show();
 
@@ -259,13 +268,8 @@ if (!gotSingleInstanceLock) {
 
     const trayIcon = path.join(__dirname, 'icons', 'main.ico');
     appTray = new Tray(trayIcon);
-    const trayMenu = Menu.buildFromTemplate([
-      { label: 'Show main', type: 'normal', click: () => { focusMainWindow(); } },
-      { label: 'Quit', type: 'normal', click: () => { app.quit(); } }
-    ]);
-
     appTray.setToolTip('main launcher');
-    appTray.setContextMenu(trayMenu);
+    appTray.setContextMenu(buildTrayMenu());
     appTray.on('double-click', () => focusMainWindow());
     logger.success('System tray icon created');
   }
@@ -295,7 +299,7 @@ if (!gotSingleInstanceLock) {
   }
 
   function focusMainWindow() {
-    if (!mainWindow) return;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
     if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
@@ -311,6 +315,22 @@ if (!gotSingleInstanceLock) {
       logger.error('Failed to read close-windows-startup config', e);
     }
     return false;
+  }
+
+  // Builds the exact { path, args } we register with the OS when autostart is enabled.
+  // On Windows, getLoginItemSettings() only reports openAtLogin: true when queried with
+  // the SAME path AND args that setLoginItemSettings() used — so apply and detect MUST
+  // share this, otherwise the OS check always comes back false. This mismatch was the
+  // original bug: registration used args ['--startup'] but the query passed no args.
+  function getAutoStartLaunchOptions() {
+    const exePath = app.getPath('exe');
+    const args = [];
+    const isDevElectron = /electron(?:\.exe)?$/i.test(path.basename(exePath));
+    if (!app.isPackaged && isDevElectron) {
+      args.push(app.getAppPath());
+    }
+    args.push('--startup');
+    return { path: exePath, args };
   }
 
   // Our own record of whether the user wants autostart on, independent of whatever
@@ -332,8 +352,9 @@ if (!gotSingleInstanceLock) {
     // whatever the OS currently has registered instead of assuming "off". Otherwise a
     // user who already had autostart enabled under the old code (which never wrote
     // this file) would have it silently disabled the next time the app launches.
+    // Query with the same path/args we register with so the OS match succeeds.
     try {
-      return app.getLoginItemSettings({ path: app.getPath('exe') }).openAtLogin;
+      return app.getLoginItemSettings(getAutoStartLaunchOptions()).openAtLogin;
     } catch (e) {
       return false;
     }
@@ -352,16 +373,7 @@ if (!gotSingleInstanceLock) {
   // to re-assert it from the saved config.
   function applyAutoStartSetting(enabled) {
     try {
-      const exePath = app.getPath('exe');
-      const args = [];
-      const isDevElectron = /electron(?:\.exe)?$/i.test(path.basename(exePath));
-      if (!app.isPackaged && isDevElectron) {
-        args.push(app.getAppPath());
-      }
-      if (enabled) {
-        args.push('--startup');
-      }
-      const options = { openAtLogin: enabled, path: exePath, args };
+      const options = { openAtLogin: enabled, ...getAutoStartLaunchOptions() };
       app.setLoginItemSettings(options);
       logger.success('Auto start applied', { enabled, options });
       return true;
@@ -657,6 +669,9 @@ Start-Sleep -Milliseconds 300
     logger.success('Focus hotkey registered', { accelerator: focusHotkey });
     // Register default Spotify shortcuts until renderer sends its config
     registerSpotifyShortcutsFromConfig(SPOTIFY_SHORTCUTS);
+    // Register the default mic-mute hotkey until renderer sends its saved binding
+    // (or unregisters it, if the Mic Mute mini-widget is disabled in Settings)
+    registerMicMuteHotkey(DEFAULT_MIC_MUTE_HOTKEY);
     // Minimize other windows on startup if both autostart AND close-windows-startup
     // are enabled. The old approach checked process.argv.includes('--startup'), but
     // on Windows the registry Run key doesn't pass args reliably, so that check
@@ -682,6 +697,13 @@ Start-Sleep -Milliseconds 300
     if (spotifyConfig.clientId && spotifyTokens?.access_token) {
       logger.success('Spotify config loaded on startup', { hasClientId: !!spotifyConfig.clientId, hasToken: !!spotifyTokens?.access_token });
     }
+
+    // Query the real mic-mute state so the tray checkbox and on-window badge don't
+    // default to a wrong assumption on startup.
+    queryMicMuteState().then((muted) => {
+      if (appTray) appTray.setContextMenu(buildTrayMenu());
+      logger.log('Mic mute state queried on startup', 'INFO', { muted });
+    }).catch((e) => logger.error('Failed to query mic mute state on startup', e));
   });
 
   app.on('second-instance', () => focusMainWindow());
@@ -697,6 +719,33 @@ Start-Sleep -Milliseconds 300
   app.on('window-all-closed', () => {
     logger.system('All windows closed — quitting');
     if (process.platform !== 'darwin') app.quit();
+  });
+
+  // Leaving the mic muted or the overlay running after the app exits would strand
+  // the user with a muted mic and no way to see/toggle it — so unmute and tear the
+  // overlay down before the app is actually allowed to quit.
+  let quitCleanupDone = false;
+  app.on('before-quit', (event) => {
+    if (quitCleanupDone) return;
+    event.preventDefault();
+    (async () => {
+      try {
+        if (micMuted === true) {
+          const result = await runMicMuteScript('toggle');
+          if (result !== null) micMuted = result;
+          logger.log('Mic unmuted on app quit', 'INFO', { muted: micMuted });
+        }
+      } catch (e) {
+        logger.error('Failed to unmute mic on quit', e);
+      }
+      micMuteOverlayEnabled = false;
+      if (micMuteOverlayWindow && !micMuteOverlayWindow.isDestroyed()) {
+        micMuteOverlayWindow.destroy();
+      }
+      micMuteOverlayWindow = null;
+      quitCleanupDone = true;
+      app.quit();
+    })();
   });
 
   app.on('will-quit', () => {
@@ -728,14 +777,13 @@ Start-Sleep -Milliseconds 300
 
   ipcMain.handle('get-focus-hotkey', () => focusHotkey);
 
-  ipcMain.handle('get-autostart', () => {
-    try {
-      return app.getLoginItemSettings({ path: app.getPath('exe') }).openAtLogin;
-    } catch (e) {
-      logger.error('get-autostart failed', e);
-      return getAutoStartConfig(); // fall back to our own saved intent if the OS query fails
-    }
-  });
+  // Report our own persisted intent, not a live OS query. The app re-asserts the OS
+  // registration from this same config on every launch (see app.whenReady), so it's the
+  // reliable source of truth — and it avoids the Windows getLoginItemSettings path/args
+  // matching pitfall that made the toggle always read back as "off" after a restart.
+  // getAutoStartConfig() still falls back to (and persists) the live OS state on first
+  // run, so an existing "enabled" registration is detected rather than assumed off.
+  ipcMain.handle('get-autostart', () => getAutoStartConfig());
 
   ipcMain.handle('get-close-windows-startup', () => getCloseWindowsStartup());
 
@@ -864,6 +912,220 @@ Start-Sleep -Milliseconds 300
     return { success: true };
   });
 
+  // ── MINI WIDGETS: MIC MUTE ──
+  // First widget in the "Mini Widgets" framework. Windows has no CLI for toggling the
+  // default microphone's mute state, so this generates a .ps1 that uses COM interop
+  // against the public Core Audio API (IMMDeviceEnumerator/IMMDevice/IAudioEndpointVolume,
+  // documented in mmdeviceapi.h/endpointvolume.h) — the same technique many open-source
+  // Windows audio-control tools use. Follows the same ensure/version-gated script pattern
+  // as ensureMinimizeWindowsScript/ensureMediaPlayScript above.
+  const MIC_MUTE_SCRIPT = path.join(userDataPath, 'mic-mute-toggle.ps1');
+  const MIC_MUTE_SCRIPT_VERSION = 1;
+  const DEFAULT_MIC_MUTE_HOTKEY = 'Control+Shift+M';
+  let micMuted = null; // null = not yet queried from the OS
+  let micMuteHotkeyAccel = null;
+  let micMuteOverlayWindow = null;
+  let micMuteOverlayEnabled = false;
+
+  // A transparent, click-through window sized to the whole primary display so the
+  // mic-mute badge (drawn in its top-left corner) stays visible above every other
+  // window on the desktop -- not just while the app itself is focused or visible.
+  function createMicMuteOverlayWindow() {
+    if (micMuteOverlayWindow) return micMuteOverlayWindow;
+    const { x, y, width, height } = screen.getPrimaryDisplay().bounds;
+    micMuteOverlayWindow = new BrowserWindow({
+      x, y, width, height,
+      frame: false,
+      transparent: true,
+      backgroundColor: '#00000000',
+      hasShadow: false,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      focusable: false,
+      skipTaskbar: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: path.join(__dirname, 'mic-mute-overlay-preload.js')
+      }
+    });
+    micMuteOverlayWindow.setAlwaysOnTop(true, 'screen-saver');
+    micMuteOverlayWindow.setIgnoreMouseEvents(true);
+    micMuteOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    micMuteOverlayWindow.loadFile(path.join(__dirname, 'mic-mute-overlay.html'));
+    micMuteOverlayWindow.webContents.on('did-finish-load', () => {
+      if (micMuteOverlayWindow) micMuteOverlayWindow.webContents.send('mic-mute-overlay-state', micMuted === true);
+    });
+    micMuteOverlayWindow.on('closed', () => { micMuteOverlayWindow = null; });
+    return micMuteOverlayWindow;
+  }
+
+  // The overlay badge should only be visible on screen while the mic is actually
+  // muted -- it stays hidden the rest of the time, even when the widget is enabled.
+  function updateMicMuteOverlayState() {
+    if (!micMuteOverlayEnabled || !micMuteOverlayWindow) return;
+    const isMuted = micMuted === true;
+    micMuteOverlayWindow.webContents.send('mic-mute-overlay-state', isMuted);
+    if (isMuted) {
+      micMuteOverlayWindow.showInactive();
+    } else {
+      micMuteOverlayWindow.hide();
+    }
+  }
+
+  async function setMicMuteOverlayEnabled(enabled) {
+    micMuteOverlayEnabled = !!enabled;
+    if (micMuteOverlayEnabled) {
+      if (micMuted === null) await queryMicMuteState();
+      createMicMuteOverlayWindow();
+      updateMicMuteOverlayState();
+    } else if (micMuteOverlayWindow) {
+      micMuteOverlayWindow.hide();
+    }
+    return micMuteOverlayEnabled;
+  }
+
+  function ensureMicMuteScript() {
+    const versionFile = `${MIC_MUTE_SCRIPT}.version`;
+    const current = fs.existsSync(versionFile) ? fs.readFileSync(versionFile, 'utf8').trim() : '';
+    if (fs.existsSync(MIC_MUTE_SCRIPT) && current === String(MIC_MUTE_SCRIPT_VERSION)) return;
+
+    const script = `Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+[ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IMMDeviceEnumerator {
+    int NotImpl1();
+    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppEndpoint);
+}
+
+[ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IMMDevice {
+    int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+}
+
+[ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IAudioEndpointVolume {
+    int NotImpl1();
+    int NotImpl2();
+    int GetChannelCount();
+    int SetMasterVolumeLevel();
+    int SetMasterVolumeLevelScalar();
+    int GetMasterVolumeLevel();
+    int GetMasterVolumeLevelScalar();
+    int SetChannelVolumeLevel();
+    int SetChannelVolumeLevelScalar();
+    int GetChannelVolumeLevel();
+    int GetChannelVolumeLevelScalar();
+    int SetMute([MarshalAs(UnmanagedType.Bool)] bool isMuted, ref Guid pguidEventContext);
+    int GetMute([MarshalAs(UnmanagedType.Bool)] out bool isMuted);
+}
+
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+public class MMDeviceEnumeratorComObject { }
+
+public static class MicMute {
+    static IAudioEndpointVolume GetVolumeControl() {
+        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+        IMMDevice device;
+        enumerator.GetDefaultAudioEndpoint(1, 0, out device);
+        Guid iidVol = typeof(IAudioEndpointVolume).GUID;
+        object volObj;
+        device.Activate(ref iidVol, 0, IntPtr.Zero, out volObj);
+        return (IAudioEndpointVolume)volObj;
+    }
+    public static bool GetMuted() {
+        bool muted;
+        GetVolumeControl().GetMute(out muted);
+        return muted;
+    }
+    public static bool ToggleMuted() {
+        var vol = GetVolumeControl();
+        bool muted;
+        vol.GetMute(out muted);
+        Guid ctx = Guid.Empty;
+        vol.SetMute(!muted, ref ctx);
+        return !muted;
+    }
+}
+"@
+
+$action = $args[0]
+if ($action -eq "toggle") {
+    $result = [MicMute]::ToggleMuted()
+} else {
+    $result = [MicMute]::GetMuted()
+}
+$result.ToString().ToLower()
+`;
+    fs.writeFileSync(MIC_MUTE_SCRIPT, script, 'utf8');
+    fs.writeFileSync(versionFile, String(MIC_MUTE_SCRIPT_VERSION), 'utf8');
+  }
+
+  async function runMicMuteScript(action) {
+    ensureMicMuteScript();
+    const { ok, stdout, stderr } = await runCmd(`powershell -NoProfile -ExecutionPolicy Bypass -File "${MIC_MUTE_SCRIPT}" ${action}`);
+    if (!ok) {
+      logger.error('Mic mute script failed', new Error(stderr || 'unknown error'), { action });
+      return null;
+    }
+    return stdout.trim().toLowerCase() === 'true';
+  }
+
+  async function queryMicMuteState() {
+    const result = await runMicMuteScript('status');
+    if (result !== null) micMuted = result;
+    return micMuted;
+  }
+
+  function buildTrayMenu() {
+    return Menu.buildFromTemplate([
+      { label: 'Show main', type: 'normal', click: () => { focusMainWindow(); } },
+      { label: 'Mute Microphone', type: 'checkbox', checked: micMuted === true, click: () => { toggleMicMute(); } },
+      { label: 'Quit', type: 'normal', click: () => { app.quit(); } }
+    ]);
+  }
+
+  async function toggleMicMute() {
+    const result = await runMicMuteScript('toggle');
+    if (result === null) return micMuted;
+    micMuted = result;
+    if (appTray) appTray.setContextMenu(buildTrayMenu());
+    updateMicMuteOverlayState();
+    logger.log('Mic mute toggled', 'INFO', { muted: micMuted });
+    return micMuted;
+  }
+
+  function registerMicMuteHotkey(accelerator) {
+    if (micMuteHotkeyAccel) globalShortcut.unregister(micMuteHotkeyAccel);
+    if (!accelerator) {
+      micMuteHotkeyAccel = null;
+      return true;
+    }
+    if (!globalShortcut.register(accelerator, () => { toggleMicMute(); })) {
+      if (micMuteHotkeyAccel) globalShortcut.register(micMuteHotkeyAccel, () => { toggleMicMute(); });
+      logger.error('Mic mute hotkey registration failed', null, { accelerator });
+      return false;
+    }
+    micMuteHotkeyAccel = accelerator;
+    return true;
+  }
+
+  ipcMain.handle('mic-mute-toggle', () => toggleMicMute());
+
+  ipcMain.handle('mic-mute-status', async () => {
+    if (micMuted === null) await queryMicMuteState();
+    return micMuted;
+  });
+
+  ipcMain.handle('register-mic-mute-hotkey', (_event, accelerator) => registerMicMuteHotkey(accelerator));
+
+  ipcMain.handle('set-mic-mute-overlay-enabled', (_event, enabled) => setMicMuteOverlayEnabled(enabled));
+
   // ── SPOTIFY WEB API INTEGRATION ──
   const SPOTIFY_CONFIG_PATH = path.join(userDataPath, 'spotify-config.json');
   const SPOTIFY_TOKENS_PATH = path.join(userDataPath, 'spotify-tokens.json');
@@ -876,10 +1138,48 @@ Start-Sleep -Milliseconds 300
   let lastRefreshAttemptTime = 0;
   const REFRESH_RETRY_COOLDOWN_MS = 15000; // Reduced from 30s to 15s for better responsiveness
 
+  // The Spotify client ID and OAuth tokens used to be written to disk as plain
+  // JSON, readable by anything with filesystem access to this machine. These
+  // two helpers route every read/write through Electron's safeStorage, which
+  // encrypts with the OS keychain (DPAPI on Windows) so the files are only
+  // decryptable by this app on this machine.
+  function encryptedWriteJSON(filePath, obj) {
+    const json = JSON.stringify(obj, null, 2);
+    if (app.isReady() && safeStorage.isEncryptionAvailable()) {
+      fs.writeFileSync(filePath, safeStorage.encryptString(json));
+    } else {
+      // OS encryption isn't ready yet (called before the 'ready' event) or isn't
+      // supported on this machine (no keychain/libsecret). Fall back to plaintext
+      // so the feature keeps working rather than silently losing the save.
+      logger.warn('safeStorage unavailable, writing Spotify data as plaintext', { path: filePath });
+      fs.writeFileSync(filePath, json, 'utf8');
+    }
+  }
+
+  function encryptedReadJSON(filePath) {
+    const raw = fs.readFileSync(filePath);
+    try {
+      // Legacy pre-encryption files, and the plaintext fallback above, are plain
+      // UTF-8 JSON — try that first so no separate migration path is needed.
+      return { data: JSON.parse(raw.toString('utf8')), plaintext: true };
+    } catch (e) {
+      // Not valid JSON text, so it must be a safeStorage-encrypted buffer.
+    }
+    if (!app.isReady() || !safeStorage.isEncryptionAvailable()) {
+      throw new Error('Spotify data on disk is encrypted but OS encryption is not ready yet');
+    }
+    return { data: JSON.parse(safeStorage.decryptString(raw)), plaintext: false };
+  }
+
   function loadSpotifyConfig() {
     try {
       if (fs.existsSync(SPOTIFY_CONFIG_PATH)) {
-        spotifyConfig = JSON.parse(fs.readFileSync(SPOTIFY_CONFIG_PATH, 'utf8'));
+        const { data, plaintext } = encryptedReadJSON(SPOTIFY_CONFIG_PATH);
+        spotifyConfig = data;
+        if (plaintext && app.isReady() && safeStorage.isEncryptionAvailable()) {
+          logger.log('Migrating Spotify config to encrypted storage', 'INFO');
+          saveSpotifyConfig();
+        }
       }
     } catch (e) {
       logger.error('Failed to load Spotify config', e);
@@ -888,7 +1188,7 @@ Start-Sleep -Milliseconds 300
 
   function saveSpotifyConfig() {
     try {
-      fs.writeFileSync(SPOTIFY_CONFIG_PATH, JSON.stringify(spotifyConfig, null, 2), 'utf8');
+      encryptedWriteJSON(SPOTIFY_CONFIG_PATH, spotifyConfig);
     } catch (e) {
       logger.error('Failed to save Spotify config', e);
     }
@@ -897,8 +1197,13 @@ Start-Sleep -Milliseconds 300
   function loadSpotifyTokens() {
     try {
       if (fs.existsSync(SPOTIFY_TOKENS_PATH)) {
-        spotifyTokens = JSON.parse(fs.readFileSync(SPOTIFY_TOKENS_PATH, 'utf8'));
+        const { data, plaintext } = encryptedReadJSON(SPOTIFY_TOKENS_PATH);
+        spotifyTokens = data;
         logger.debug?.('Spotify tokens loaded from disk', { hasAccessToken: !!spotifyTokens?.access_token, expiresAt: spotifyTokens?.expires_at, now: Date.now() });
+        if (plaintext && app.isReady() && safeStorage.isEncryptionAvailable()) {
+          logger.log('Migrating Spotify tokens to encrypted storage', 'INFO');
+          saveSpotifyTokens();
+        }
         return true;
       } else {
         logger.debug?.('Spotify tokens file does not exist at', { path: SPOTIFY_TOKENS_PATH });
@@ -912,7 +1217,7 @@ Start-Sleep -Milliseconds 300
   function saveSpotifyTokens() {
     try {
       if (spotifyTokens) {
-        fs.writeFileSync(SPOTIFY_TOKENS_PATH, JSON.stringify(spotifyTokens, null, 2), 'utf8');
+        encryptedWriteJSON(SPOTIFY_TOKENS_PATH, spotifyTokens);
       }
     } catch (e) {
       logger.error('Failed to save Spotify tokens', e);
@@ -1015,9 +1320,16 @@ Start-Sleep -Milliseconds 300
       logger.debug?.('safeFetch returned', { endpoint, status: response.status });
       
       if (response.status === 401) {
+        // Cap retries — if the refreshed token still gets a 401 (e.g. a scope
+        // mismatch that refreshing can never fix), retrying unconditionally with
+        // the same retryCount would recurse forever and hang the app.
+        if (retryCount >= 1) {
+          logger.error('Spotify API still returning 401 after token refresh — giving up', null, { endpoint });
+          return { _error: true, status: 401 };
+        }
         logger.warn('Spotify API returned 401, attempting token refresh', { endpoint });
         if (await refreshSpotifyToken()) {
-          return await spotifyApiRequest(endpoint, method, body, retryCount);
+          return await spotifyApiRequest(endpoint, method, body, retryCount + 1);
         }
         return null;
       }
@@ -1337,6 +1649,53 @@ Start-Sleep -Milliseconds 300
     return { ok: false, status: 404 };
   });
 
+  // ── Spotify Extras: Sleep Timer ──
+  let sleepTimerHandle = null;
+  let sleepTimerEndsAt = null;
+
+  function clearSleepTimerState() {
+    if (sleepTimerHandle) clearTimeout(sleepTimerHandle);
+    sleepTimerHandle = null;
+    sleepTimerEndsAt = null;
+  }
+
+  async function startSleepTimer(minutes) {
+    const mins = Number(minutes);
+    if (!Number.isFinite(mins) || mins <= 0) return { active: false, endsAt: null };
+    clearSleepTimerState();
+    sleepTimerEndsAt = Date.now() + mins * 60000;
+    sleepTimerHandle = setTimeout(async () => {
+      try {
+        await spotifyApiRequest('/me/player/pause', 'PUT');
+        logger.log('Sleep timer elapsed — paused Spotify playback', 'INFO');
+      } catch (e) {
+        logger.error('Sleep timer pause failed', e);
+      }
+      sleepTimerHandle = null;
+      sleepTimerEndsAt = null;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('spotify-sleep-timer-ended');
+      }
+    }, mins * 60000);
+    logger.log('Sleep timer started', 'INFO', { minutes: mins });
+    return { active: true, endsAt: sleepTimerEndsAt };
+  }
+
+  function cancelSleepTimer() {
+    const wasActive = !!sleepTimerHandle;
+    clearSleepTimerState();
+    if (wasActive) logger.log('Sleep timer cancelled', 'INFO');
+    return { active: false, endsAt: null };
+  }
+
+  function getSleepTimerStatus() {
+    return { active: !!sleepTimerHandle, endsAt: sleepTimerEndsAt };
+  }
+
+  ipcMain.handle('spotify-sleep-timer-start', (_event, minutes) => startSleepTimer(minutes));
+  ipcMain.handle('spotify-sleep-timer-cancel', () => cancelSleepTimer());
+  ipcMain.handle('spotify-sleep-timer-status', () => getSleepTimerStatus());
+
   ipcMain.handle('spotify-control', async (_event, action) => {
     let endpoint;
     let method = 'PUT';
@@ -1507,6 +1866,7 @@ Start-Sleep -Milliseconds 300
   ipcMain.handle('enable-all-hotkeys', () => {
     registerFocusHotkey(focusHotkey);
     registerSpotifyShortcutsFromConfig(registeredSpotifyShortcuts);
+    if (micMuteHotkeyAccel) registerMicMuteHotkey(micMuteHotkeyAccel);
     logger.log('All hotkeys re-enabled');
     return { success: true };
   });

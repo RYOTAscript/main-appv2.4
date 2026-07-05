@@ -5,6 +5,269 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [2.8.0] — 2026-07-05
+
+### Added
+
+- **Spotify Extras settings section, starting with a Sleep Timer.** A new
+  "Spotify Extras" block in Settings (below Spotify Integration) is home to
+  small Spotify quality-of-life features going forward. The first one is a
+  Sleep Timer: pick 10/15/30/45/60/90 minutes and hit Start — Spotify
+  playback pauses automatically when the timer runs out, with a live
+  countdown and a Cancel button while it's running. The timer keeps running
+  in the background even if Settings is closed, and survives a renderer
+  auto-reload.
+
+### Files changed
+
+- `main.js` — added sleep timer state (`startSleepTimer()`,
+  `cancelSleepTimer()`, `getSleepTimerStatus()`) and the
+  `spotify-sleep-timer-start`/`-cancel`/`-status` IPC handlers; pushes
+  `spotify-sleep-timer-ended` to the renderer when the timer elapses.
+- `preload.js` — added `startSpotifySleepTimer`, `cancelSpotifySleepTimer`,
+  `getSpotifySleepTimerStatus`, `onSpotifySleepTimerEnded` passthroughs.
+- `main.html` — added the "Spotify Extras" settings section and its
+  countdown/start/cancel UI logic; wired into `openSettings()` and
+  `window.onload`.
+
+---
+
+## [2.7.3] — 2026-07-05
+
+### Added
+
+- **Mic auto-unmutes and the overlay shuts down when the app quits.** If the
+  mic was muted via the Mic Mute widget, closing the app (window close, tray
+  Quit, or Alt+F4) now unmutes it and destroys the overlay window as part of
+  shutdown — so the app never exits leaving your microphone muted with no
+  way to see or undo it.
+
+### Fixed
+
+- **Closing the main window no longer leaves the app running in the
+  background.** The mic-mute overlay is a second, always-alive
+  `BrowserWindow`, which meant Electron's `window-all-closed` event never
+  fired from closing just the main window (it only fires once *every*
+  window, including the hidden overlay, is gone) — so the process, tray
+  icon, and mic mute state all silently lingered after the window closed.
+  The main window now explicitly quits the whole app when it's closed.
+
+### Files changed
+
+- `main.js` — added a `before-quit` handler that unmutes the mic (if muted)
+  and destroys the mic-mute overlay window before the app is allowed to
+  finish quitting; the main window's `closed` event now explicitly calls
+  `app.quit()` instead of relying on `window-all-closed`.
+
+---
+
+## [2.7.2] — 2026-07-05
+
+### Changed
+
+- **Mic Mute overlay now only appears while the mic is actually muted.**
+  Previously the overlay badge was shown (as "MIC LIVE" or "MIC MUTED")
+  the entire time the widget was enabled in Settings. It now stays hidden
+  until you mute, then appears with "MIC MUTED", and disappears again the
+  moment you unmute — nothing is drawn on screen while the mic is live.
+
+### Fixed
+
+- **Crash on relaunch while the app was quitting.** If a new launch was
+  started in the brief window while a previous instance was still shutting
+  down (e.g. closing the window and immediately reopening the app), the
+  dying instance's single-instance handler tried to focus its own main
+  window after it had already been destroyed, throwing an uncaught
+  `Object has been destroyed` exception. `focusMainWindow()` now checks
+  `isDestroyed()` before touching the window.
+
+### Files changed
+
+- `main.js` — `updateMicMuteOverlayState()` now shows/hides the overlay
+  window based on mute state instead of always keeping it visible while
+  enabled; `setMicMuteOverlayEnabled()` no longer force-shows the window
+  on enable. `focusMainWindow()` now guards against an already-destroyed
+  `mainWindow` before calling its methods.
+
+---
+
+## [2.7.1] — 2026-07-05
+
+### Changed
+
+- **Mic Mute indicator moved from an in-window badge to a system-wide overlay.**
+  The status badge no longer lives next to the logo inside the app window — it's
+  now drawn by a separate, transparent, click-through overlay window sized to the
+  whole primary display, always on top of every other window (games, browsers,
+  etc.), so it's visible whether or not the app itself is focused, minimized to
+  tray, or behind other windows. The badge still switches between "MIC LIVE" and
+  "MIC MUTED" instantly on every toggle (hotkey or tray), and only appears while
+  the widget is enabled in Settings.
+
+### Files changed
+
+- `main.js` — added `createMicMuteOverlayWindow()`, `updateMicMuteOverlayState()`,
+  `setMicMuteOverlayEnabled()`, and the `set-mic-mute-overlay-enabled` IPC
+  handler; `toggleMicMute()` now updates the overlay instead of pushing to the
+  main window.
+- `mic-mute-overlay.html` (new) — the overlay window's badge markup/styling.
+- `mic-mute-overlay-preload.js` (new) — minimal `contextBridge` API for the
+  overlay window.
+- `preload.js` — replaced `onMicMuteChanged`/`removeMicMuteChangedListener` with
+  `setMicMuteOverlayEnabled`.
+- `main.html` — removed the in-window badge and its CSS/JS; `applyMiniWidgetPrefs()`
+  now enables/disables the overlay instead.
+- `package.json` — version bumped to `2.7.1`; added the two new files to the
+  packaged build.
+
+---
+
+## [2.7.0] — 2026-07-05
+
+### Added
+
+- **Mini Widgets framework + Mic Mute (first widget).** A new extensible system for
+  small utility features, each with its own enable toggle and global hotkey,
+  configured from a new **Settings → Mini Widgets** section. Future widgets
+  (Bluetooth quick-connect, a macro tool, etc.) can be added as their own complete
+  features without restructuring this scaffolding.
+- **Mic Mute widget**: mutes/unmutes the system default microphone via a global
+  hotkey (default `Ctrl+Shift+M`, rebindable in Settings), a tray checkbox item
+  ("Mute Microphone"), or a click on the new always-visible badge in the top-left
+  corner of the window (next to the logo). The badge only appears once the widget
+  is enabled in Settings, and switches between a neutral "LIVE" state and a red
+  "MUTED" state — it updates instantly no matter which of the three triggers
+  (hotkey, tray, badge click) caused the change. Implemented with a pure Core
+  Audio COM-interop PowerShell script (no external binaries).
+
+### Files changed
+
+- `main.js` — added the mic-mute PowerShell script generator, mute
+  toggle/status/hotkey IPC handlers, tray checkbox item, and a startup state
+  query.
+- `preload.js` — added `micMuteToggle`, `getMicMuteStatus`,
+  `registerMicMuteHotkey`, `onMicMuteChanged` passthroughs.
+- `main.html` — added the `MINI_WIDGETS` registry, the Mini Widgets Settings
+  section (enable toggle + hotkey bind, rendered generically from the registry),
+  the top-left mic-mute badge, and export/import parity for `miniWidgetPrefs`.
+- `package.json` — version bumped to `2.7.0`.
+
+---
+
+## [2.6.3] — 2026-07-05
+
+### Security
+
+- **Spotify client ID and OAuth tokens were stored as plaintext JSON on disk.**
+  `spotify-config.json` and `spotify-tokens.json` (in `%APPDATA%/main-launcher/`)
+  held the client ID and both the access and refresh tokens in the clear —
+  readable by anything with filesystem access to the machine. Both files are
+  now encrypted with Electron's `safeStorage` API, which defers to the OS
+  keychain (DPAPI on Windows) so the contents are only decryptable by this
+  app on this machine. Existing plaintext files from older versions are
+  read once, then transparently re-saved encrypted — no user action needed,
+  no re-login required. If OS-level encryption isn't available (e.g. no
+  keychain present), the app falls back to plaintext rather than losing the
+  saved login, and logs a warning.
+
+### Files changed
+
+- `main.js` — added `encryptedWriteJSON()`/`encryptedReadJSON()` helpers built
+  on `safeStorage`; `loadSpotifyConfig()`, `saveSpotifyConfig()`,
+  `loadSpotifyTokens()`, `saveSpotifyTokens()` now route through them, with
+  automatic migration of legacy plaintext files.
+- `main.html` — version bumped to match.
+- `package.json` — version bumped to `2.6.3`.
+
+---
+
+## [2.6.2] — 2026-07-05
+
+### Fixed
+
+- **Displayed version number was stuck on "v2.5.3".** The 2.6.0/2.6.1 releases (Settings
+  search) updated `package.json` and this changelog but missed `main.js`'s `APP_VERSION`
+  constant and the two version strings shown in `main.html` (Settings footer + app
+  footer), so the app kept showing an old version number after two real releases. All
+  four now stay in sync with `package.json`.
+- **Spotify requests could hang the app if a refreshed token still got a 401.**
+  `spotifyApiRequest()` retried on 401 by refreshing the token and calling itself again
+  with the *same* retry count — if the new token also came back 401 (e.g. a scope
+  mismatch refreshing can't fix), it would recurse forever instead of failing. Retries
+  after a 401 are now capped at one.
+- **A corrupted Settings entry could blank the entire app.** `pinnedApps`, `hotkeys`, and
+  `widgetPrefs` were read from `localStorage` with a bare `JSON.parse()` and no
+  try/catch. Since these run at the top of the main `<script>` block, a single malformed
+  value (e.g. from a crash mid-write) would throw during initial page load and abort
+  the whole script — leaving every button and widget non-functional with no error shown.
+  All `localStorage` JSON reads now go through a `safeParseJSON()` helper that falls
+  back to the default value instead of throwing.
+
+### Files changed
+
+- `main.js` — `APP_VERSION` bumped to match `package.json`; capped 401-retry recursion
+  in `spotifyApiRequest()`.
+- `main.html` — `APP_VERSION` and the two version display strings bumped; added
+  `safeParseJSON()` and used it for the `pinnedApps`/`hotkeys`/`widgetPrefs` reads.
+- `package.json` — version bumped to `2.6.2`.
+
+---
+
+## [2.6.1] — 2026-07-05
+
+### Changed
+
+- **Cleaner pinned Settings search bar.** While scrolling, the bar now covers the panel's
+  top padding (no content peeking above it) and uses a solid blurred backdrop with a soft
+  hairline divider instead of a translucent strip.
+- **Type-to-search.** With Settings open, just start typing — the first character focuses
+  the search box and begins filtering, no click required.
+- The **"Search settings…"** placeholder text is now white.
+
+### Files changed
+
+- `main.html` — `.settings-search-bar` sticky CSS + white placeholder; type-to-search added
+  to the global keydown handler.
+
+---
+
+## [2.6.0] — 2026-07-05
+
+### Added
+
+- **Search bar at the top of Settings.** Type to instantly filter the settings list to
+  matching sections (e.g. "spotify", "clock", "glow"); clears automatically each time
+  Settings is opened. A "No settings match your search." message shows when nothing matches.
+
+### Files changed
+
+- `main.html` — sticky search input + `filterSettings()` filter; reset on `openSettings()`.
+
+---
+
+## [2.5.4] — 2026-07-05
+
+### Fixed
+
+- **"Auto start on boot (show window)" toggle no longer resets to off after a restart.**
+  The setting *was* being saved and re-registered with Windows every launch, but the
+  Settings toggle read its state back with a live OS query (`getLoginItemSettings`) that
+  passed a different `path`/`args` combination than the one used to register it. On
+  Windows the two must match exactly, so the query always returned `false` and the toggle
+  showed **off** on every restart even when autostart was active. The toggle now reflects
+  the app's own persisted intent (`autostart-config.json`), which is the same value it
+  re-asserts to the OS on each launch, and it still detects and adopts an existing OS
+  registration on first run. Registration and detection now share one helper so their
+  `path`/`args` can never drift apart again.
+
+### Files changed
+
+- `main.js` — added `getAutoStartLaunchOptions()` shared helper; `get-autostart` now
+  returns the persisted config; `getAutoStartConfig()` first-run OS fallback queries with
+  matching args.
+
+---
+
 ## [2.5.3] — 2026-07-04
 
 ### Added

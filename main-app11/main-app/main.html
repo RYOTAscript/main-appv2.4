@@ -370,6 +370,24 @@
             max-height: calc(100% - 48px);
         }
 
+        /* Sticky Settings search bar — covers the panel's top padding so nothing
+           ghosts above it while pinned, with a soft hairline divider. */
+        #settings-modal .settings-search-bar {
+            position: sticky;
+            top: -2rem;
+            margin-top: -2rem;
+            padding-top: 2rem;
+            background: rgba(8, 8, 8, 0.96);
+            -webkit-backdrop-filter: blur(24px);
+            backdrop-filter: blur(24px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        #settings-search::placeholder {
+            color: #fff;
+            opacity: 1;
+        }
+
         .settings-saved-dot {
             width: 7px;
             height: 7px;
@@ -1057,7 +1075,7 @@
                         onerror="this.outerHTML='<div class=\'w-9 h-9 bg-white rounded-2xl flex items-center justify-center text-xl font-bold text-black\'>M</div>'">
                     <div>
                         <h1 class="text-2xl font-semibold tracking-tight text-white">main</h1>
-                        <p class="text-[10px] text-neutral-500 tracking-widest">v2.5.3</p>
+                        <p class="text-[10px] text-neutral-500 tracking-widest">v2.8.0</p>
                     </div>
                 </div>
                 <div class="no-drag flex items-center gap-3 text-sm">
@@ -1287,6 +1305,16 @@
                             <button onclick="closeSettingsDone()" class="window-btn text-lg leading-none">✕</button>
                         </div>
 
+                        <div class="settings-search-bar z-20 -mx-8 px-8 pb-4 mb-6">
+                            <div class="relative">
+                                <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 text-sm"></i>
+                                <input id="settings-search" type="text" placeholder="Search settings…"
+                                    oninput="filterSettings(this.value)"
+                                    class="w-full bg-neutral-900 border border-neutral-800 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-neutral-600">
+                            </div>
+                        </div>
+                        <p id="settings-search-empty" class="hidden text-sm text-neutral-500 mb-6">No settings match your search.</p>
+
                         <div class="mb-10">
                             <h3 class="text-sm font-medium mb-4 text-neutral-300">Pinned Apps <span
                                     class="text-neutral-600 font-normal">— drag to reorder</span></h3>
@@ -1420,7 +1448,11 @@
                             </div>
                         </div>
 
-
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Mini Widgets <span
+                                    class="text-neutral-600 font-normal text-xs">— small utilities, each with its own hotkey</span></h3>
+                            <div id="mini-widgets-settings-list" class="space-y-3 text-sm"></div>
+                        </div>
 
                         <div class="mb-10">
                             <h3 class="text-sm font-medium mb-4 text-neutral-300">Spotify Integration</h3>
@@ -1528,6 +1560,34 @@
                         </div>
 
                         <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Spotify Extras <span
+                                    class="text-neutral-600 font-normal text-xs">— small quality-of-life features</span></h3>
+
+                            <div class="space-y-3 text-sm">
+                                <h4 class="text-xs font-medium text-neutral-400 mb-2">Sleep Timer</h4>
+                                <div class="flex items-center gap-3">
+                                    <select id="spotify-sleep-timer-select"
+                                        class="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-neutral-600">
+                                        <option value="10">10 minutes</option>
+                                        <option value="15">15 minutes</option>
+                                        <option value="30" selected>30 minutes</option>
+                                        <option value="45">45 minutes</option>
+                                        <option value="60">60 minutes</option>
+                                        <option value="90">90 minutes</option>
+                                    </select>
+                                    <button type="button" id="spotify-sleep-timer-start-btn"
+                                        onclick="startSpotifySleepTimer()"
+                                        class="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-xl text-xs transition-colors no-drag">Start</button>
+                                    <button type="button" id="spotify-sleep-timer-cancel-btn"
+                                        onclick="cancelSpotifySleepTimer()"
+                                        class="hidden px-3 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 rounded-xl text-xs text-red-400 transition-colors no-drag">Cancel</button>
+                                </div>
+                                <p id="spotify-sleep-timer-status" class="text-xs text-neutral-500">Pauses playback
+                                    automatically after the selected time.</p>
+                            </div>
+                        </div>
+
+                        <div class="mb-10">
                             <h3 class="text-sm font-medium mb-4 text-neutral-300">FPS Optimizer</h3>
                             <label class="text-sm text-neutral-400 block mb-2">Display Mode</label>
                             <select id="fps-display-mode" onchange="saveFpsDisplayMode()"
@@ -1585,7 +1645,7 @@
             <div
                 class="absolute bottom-5 left-8 right-8 text-[10px] text-neutral-600 flex justify-between tracking-wide">
                 <div id="footer-hotkeys" class="font-mono"></div>
-                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v2.5.3</div>
+                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v2.8.0</div>
             </div>
         </div>
         <div id="toast"
@@ -1594,8 +1654,37 @@
     </div>
 
     <script>
-        const APP_VERSION = 'v2.5.3';
-        const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown' };
+        const APP_VERSION = 'v2.8.0';
+        const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M' };
+
+        // Registry of "Mini Widgets" -- small, self-contained utilities that each get
+        // an enable toggle + a hotkey in Settings. Adding a future widget (Bluetooth
+        // quick-connect, a macro tool, etc.) means adding one entry here plus its own
+        // backend IPC handlers -- not touching the Settings/rendering scaffolding again.
+        const MINI_WIDGETS = [
+            {
+                id: 'micMute',
+                label: 'Mic Mute',
+                icon: 'fa-microphone',
+                description: 'Mute your microphone system-wide with a hotkey. Shows a small status overlay on screen, even outside the app.',
+                defaultHotkey: 'Control+Shift+M'
+            }
+        ];
+
+        // A corrupted/partial localStorage value (e.g. from a crash mid-write) must
+        // never throw here — an uncaught error at this point in the script would abort
+        // the entire inline <script> block, leaving every function below undefined and
+        // the whole app dead/blank. Fall back to the caller's default instead.
+        function safeParseJSON(str, fallback) {
+            if (!str) return fallback;
+            try {
+                const parsed = JSON.parse(str);
+                return parsed === null || parsed === undefined ? fallback : parsed;
+            } catch (e) {
+                console.warn('Corrupted localStorage value, using default', e);
+                return fallback;
+            }
+        }
 
         function bumpVersion(current, type) {
             const [major, minor, patch] = current.split('.').map(Number);
@@ -1684,13 +1773,13 @@
             { name: "FPS Optimizer", path: "fps-optimizer", icon: "fps-optimizer.ico" }
         ];
 
-        let pinnedApps = JSON.parse(localStorage.getItem('pinnedApps')) || DEFAULT_APPS;
+        let pinnedApps = safeParseJSON(localStorage.getItem('pinnedApps'), DEFAULT_APPS);
         let draggedIndex = null;
         let lastCpu = null;
         let lastRam = null;
         let statsInterval = null;
         let settingsSaveTimer = null;
-        let hotkeys = JSON.parse(localStorage.getItem('hotkeys') || 'null') || { ...DEFAULT_HOTKEYS };
+        let hotkeys = safeParseJSON(localStorage.getItem('hotkeys'), null) || { ...DEFAULT_HOTKEYS };
         // Fix invalid stored hotkeys
         if (hotkeys.spotifyNext === 'Right') hotkeys.spotifyNext = 'Control+Right';
         let bindingTarget = null;
@@ -1775,7 +1864,7 @@
         }
 
         function updateHotkeyDisplays() {
-            const ids = ['focus', 'close', 'spotifyPlay', 'spotifyPause', 'spotifyNext', 'spotifyPrevious', 'spotifyVolumeUp', 'spotifyVolumeDown'];
+            const ids = ['focus', 'close', 'spotifyPlay', 'spotifyPause', 'spotifyNext', 'spotifyPrevious', 'spotifyVolumeUp', 'spotifyVolumeDown', 'micMute'];
             for (const type of ids) {
                 const btn = document.getElementById(getHotkeyButtonId(type));
                 if (btn) btn.textContent = formatHotkeyDisplay(hotkeys[type] || DEFAULT_HOTKEYS[type]);
@@ -1904,6 +1993,11 @@
             await window.electronAPI.registerSpotifyShortcuts(spotifyHotkeys);
         }
 
+        async function sendMicMuteHotkeyToMain() {
+            if (!window.electronAPI?.registerMicMuteHotkey) return;
+            await window.electronAPI.registerMicMuteHotkey(toElectronAccelerator(hotkeys.micMute || DEFAULT_HOTKEYS.micMute));
+        }
+
         async function initHotkeys() {
             updateHotkeyDisplays();
             if (window.electronAPI?.setFocusHotkey) {
@@ -1916,6 +2010,7 @@
                 }
             }
             await sendSpotifyHotkeysToMain();
+            await sendMicMuteHotkeyToMain();
         }
 
         function markSettingsSaving() {
@@ -2029,6 +2124,71 @@
         function getLyricsAnticipateMs() {
             const stored = parseInt(localStorage.getItem('lyricsAnticipateMs'), 10);
             return isNaN(stored) ? DEFAULT_LYRICS_ANTICIPATE_MS : stored;
+        }
+
+        let sleepTimerDisplayInterval = null;
+
+        function formatSleepTimerRemaining(endsAt) {
+            const ms = endsAt - Date.now();
+            if (ms <= 0) return '0:00';
+            const totalSec = Math.ceil(ms / 1000);
+            const mins = Math.floor(totalSec / 60);
+            const secs = totalSec % 60;
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function renderSleepTimerActive(endsAt) {
+            document.getElementById('spotify-sleep-timer-start-btn')?.classList.add('hidden');
+            document.getElementById('spotify-sleep-timer-cancel-btn')?.classList.remove('hidden');
+            const status = document.getElementById('spotify-sleep-timer-status');
+            if (status) status.textContent = `Playback pauses in ${formatSleepTimerRemaining(endsAt)}`;
+        }
+
+        function renderSleepTimerInactive() {
+            document.getElementById('spotify-sleep-timer-start-btn')?.classList.remove('hidden');
+            document.getElementById('spotify-sleep-timer-cancel-btn')?.classList.add('hidden');
+            const status = document.getElementById('spotify-sleep-timer-status');
+            if (status) status.textContent = 'Pauses playback automatically after the selected time.';
+        }
+
+        function stopSleepTimerDisplay() {
+            if (sleepTimerDisplayInterval) clearInterval(sleepTimerDisplayInterval);
+            sleepTimerDisplayInterval = null;
+        }
+
+        function startSleepTimerDisplay(endsAt) {
+            stopSleepTimerDisplay();
+            renderSleepTimerActive(endsAt);
+            sleepTimerDisplayInterval = setInterval(() => {
+                if (Date.now() >= endsAt) {
+                    stopSleepTimerDisplay();
+                    renderSleepTimerInactive();
+                    return;
+                }
+                renderSleepTimerActive(endsAt);
+            }, 1000);
+        }
+
+        async function startSpotifySleepTimer() {
+            const select = document.getElementById('spotify-sleep-timer-select');
+            const minutes = parseInt(select?.value, 10) || 30;
+            const result = await window.electronAPI?.startSpotifySleepTimer(minutes);
+            if (result?.active) startSleepTimerDisplay(result.endsAt);
+        }
+
+        async function cancelSpotifySleepTimer() {
+            await window.electronAPI?.cancelSpotifySleepTimer();
+            stopSleepTimerDisplay();
+            renderSleepTimerInactive();
+        }
+
+        async function refreshSleepTimerUI() {
+            const status = await window.electronAPI?.getSpotifySleepTimerStatus();
+            if (status?.active) startSleepTimerDisplay(status.endsAt);
+            else {
+                stopSleepTimerDisplay();
+                renderSleepTimerInactive();
+            }
         }
 
         function saveSpotifyPrefs() {
@@ -2270,7 +2430,7 @@
 
         function startPerformanceMonitor() {
             stopPerformanceMonitor();
-            const prefs = JSON.parse(localStorage.getItem('widgetPrefs') || '{"notes":true,"performance":true,"spotify":true}');
+            const prefs = safeParseJSON(localStorage.getItem('widgetPrefs'), { notes: true, performance: true, spotify: true });
             if (!prefs.performance) return;
             loadSystemStats();
             statsInterval = setInterval(loadSystemStats, 2500);
@@ -2334,7 +2494,7 @@
         // skipAnimation is used only for the very first render on page load, so widgets
         // appear in their correct saved state immediately rather than animating in.
         function applyWidgetPrefs(skipAnimation = false) {
-            const prefs = JSON.parse(localStorage.getItem('widgetPrefs') || '{"notes":true,"performance":true,"spotify":true}');
+            const prefs = safeParseJSON(localStorage.getItem('widgetPrefs'), { notes: true, performance: true, spotify: true });
             const widgetMap = {
                 notes: document.getElementById('widget-notes'),
                 performance: document.getElementById('widget-performance'),
@@ -2407,6 +2567,49 @@
             scheduleSettingsSave();
         }
 
+        // Builds the "Mini Widgets" Settings rows from the MINI_WIDGETS registry, so
+        // adding a future widget there doesn't require touching this rendering code.
+        function renderMiniWidgetsSettings() {
+            const container = document.getElementById('mini-widgets-settings-list');
+            if (!container) return;
+            const prefs = safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {});
+            container.innerHTML = MINI_WIDGETS.map(w => `
+                <div class="border border-white/10 rounded-xl p-4">
+                    <div class="flex items-center justify-between gap-4 mb-2">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <span class="ios-toggle"><input type="checkbox" id="toggle-widget-${w.id}" class="ios-toggle-input" ${prefs[w.id] ? 'checked' : ''} onchange="saveMiniWidgetPrefs()"><span class="ios-toggle-track"></span></span>
+                            <span><i class="fas ${w.icon} mr-1.5 text-neutral-500"></i>${w.label}</span>
+                        </label>
+                        <button type="button" id="${getHotkeyButtonId(w.id)}" class="hotkey-bind no-drag"
+                            onclick="startHotkeyBind('${w.id}')"></button>
+                    </div>
+                    <p class="text-xs text-neutral-600">${w.description}</p>
+                </div>
+            `).join('');
+            updateHotkeyDisplays();
+        }
+
+        function saveMiniWidgetPrefs() {
+            const prefs = {};
+            for (const w of MINI_WIDGETS) {
+                const cb = document.getElementById(`toggle-widget-${w.id}`);
+                prefs[w.id] = !!(cb && cb.checked);
+            }
+            localStorage.setItem('miniWidgetPrefs', JSON.stringify(prefs));
+            applyMiniWidgetPrefs();
+            scheduleSettingsSave();
+        }
+
+        // Turns the system-wide mic-mute overlay (a separate always-on-top window,
+        // drawn by main.js so it stays visible above every other app, not just this
+        // one) on or off based on the saved widget preference.
+        async function applyMiniWidgetPrefs() {
+            const prefs = safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {});
+            if (window.electronAPI?.setMicMuteOverlayEnabled) {
+                await window.electronAPI.setMicMuteOverlayEnabled(!!prefs.micMute);
+            }
+        }
+
         function saveLyricsPrefs() {
             const enabled = document.getElementById('toggle-lyrics').checked;
             localStorage.setItem('lyricsEnabled', enabled ? 'true' : 'false');
@@ -2457,10 +2660,24 @@
 
 
 
+        function filterSettings(query) {
+            const q = (query || '').trim().toLowerCase();
+            const panel = document.querySelector('#settings-modal .settings-panel');
+            const sections = panel.querySelectorAll(':scope > .mb-10');
+            let anyVisible = false;
+            sections.forEach(sec => {
+                const match = !q || sec.textContent.toLowerCase().includes(q);
+                sec.classList.toggle('hidden', !match);
+                if (match) anyVisible = true;
+            });
+            document.getElementById('settings-search-empty').classList.toggle('hidden', anyVisible);
+        }
+
         async function openSettings() {
             renderSettingsApps();
             applyWidgetPrefs();
             applyAppearance();
+            renderMiniWidgetsSettings();
 
             if (window.electronAPI?.getAutoStart) {
                 const enabled = await window.electronAPI.getAutoStart();
@@ -2473,11 +2690,14 @@
             loadSpotifyAuthStatus();
             loadDiskSpeed();
             loadLyricsAnticipateDelay();
+            refreshSleepTimerUI();
             loadFpsDisplayMode();
             loadClockFormat();
             loadWeatherUnit();
             updateHotkeyDisplays();
             markSettingsSaved();
+            document.getElementById('settings-search').value = '';
+            filterSettings('');
             document.getElementById('settings-modal').classList.remove('hidden');
         }
 
@@ -2608,7 +2828,8 @@
             const data = {
                 pinnedApps,
                 hotkeys,
-                widgetPrefs: JSON.parse(localStorage.getItem('widgetPrefs') || '{}'),
+                widgetPrefs: safeParseJSON(localStorage.getItem('widgetPrefs'), {}),
+                miniWidgetPrefs: safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {}),
                 glowIntensity: localStorage.getItem('glowIntensity') || 'medium',
                 spotifyAutoPlay: localStorage.getItem('spotifyAutoPlay') === 'true',
                 spotifyAutoPlayDelay: localStorage.getItem('spotifyAutoPlayDelay') || '2800',
@@ -2638,6 +2859,11 @@
                             localStorage.setItem('pinnedApps', JSON.stringify(pinnedApps));
                         }
                         if (data.widgetPrefs) localStorage.setItem('widgetPrefs', JSON.stringify(data.widgetPrefs));
+                        if (data.miniWidgetPrefs) {
+                            localStorage.setItem('miniWidgetPrefs', JSON.stringify(data.miniWidgetPrefs));
+                            renderMiniWidgetsSettings();
+                            await applyMiniWidgetPrefs();
+                        }
                         if (data.glowIntensity) localStorage.setItem('glowIntensity', data.glowIntensity);
                         if (data.hotkeys) {
                             hotkeys = data.hotkeys;
@@ -2645,6 +2871,7 @@
                             await applyFocusHotkey(hotkeys.focus);
                             updateHotkeyDisplays();
                             await sendSpotifyHotkeysToMain();
+                            await sendMicMuteHotkeyToMain();
                         }
                         if (typeof data.spotifyAutoPlay === 'boolean') {
                             localStorage.setItem('spotifyAutoPlay', data.spotifyAutoPlay ? 'true' : 'false');
@@ -3765,6 +3992,7 @@
             updateClock();
             applyWidgetPrefs(true); // skip animation on first load -- nothing should flash/animate in or out
             applyAppearance();
+            applyMiniWidgetPrefs();
             startPerformanceMonitor();
             updateWeather();
             setInterval(updateWeather, 300000); // 5 mins
@@ -3793,6 +4021,15 @@
                     spotifyAdjustVolumeBy(delta);
                 });
             }
+
+            // Reset the sleep timer UI when the timer elapses on its own (main process paused playback)
+            if (window.electronAPI?.onSpotifySleepTimerEnded) {
+                window.electronAPI.onSpotifySleepTimerEnded(() => {
+                    stopSleepTimerDisplay();
+                    renderSleepTimerInactive();
+                });
+            }
+
 
             // Debug: Log ALL keyboard events
             window.addEventListener('keydown', (e) => {
@@ -3868,6 +4105,7 @@
                 updateHotkeyDisplays();
                 scheduleSettingsSave();
                 if (type.startsWith('spotify')) await sendSpotifyHotkeysToMain();
+                if (type === 'micMute') await sendMicMuteHotkeyToMain();
                 showToast('Hotkey updated');
                 return;
             }
@@ -3877,6 +4115,19 @@
                 if (!document.getElementById('settings-modal').classList.contains('hidden')) closeSettings();
                 else closeApp();
                 return;
+            }
+
+            // Type-to-search: while Settings is open, any plain character focuses the
+            // search box so you can start filtering without clicking it first. The
+            // character then lands in the input naturally (no preventDefault).
+            if (!document.getElementById('settings-modal').classList.contains('hidden')) {
+                const active = document.activeElement;
+                const tag = active && active.tagName;
+                const alreadyTyping = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (active && active.isContentEditable);
+                if (!alreadyTyping && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                    const search = document.getElementById('settings-search');
+                    if (search) search.focus();
+                }
             }
 
             if (keydownMatches(e, hotkeys.spotifyPlay || DEFAULT_HOTKEYS.spotifyPlay)) {

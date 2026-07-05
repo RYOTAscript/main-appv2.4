@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   spotifyControl: (action) => ipcRenderer.invoke('spotify-control', action),
   spotifySetVolume: (volume) => ipcRenderer.invoke('spotify-set-volume', volume),
   spotifySeek: (positionMs) => ipcRenderer.invoke('spotify-seek', positionMs),
+  startSpotifySleepTimer: (minutes) => ipcRenderer.invoke('spotify-sleep-timer-start', minutes),
+  cancelSpotifySleepTimer: () => ipcRenderer.invoke('spotify-sleep-timer-cancel'),
+  getSpotifySleepTimerStatus: () => ipcRenderer.invoke('spotify-sleep-timer-status'),
+  onSpotifySleepTimerEnded: (callback) => ipcRenderer.on('spotify-sleep-timer-ended', () => callback()),
   registerSpotifyShortcuts: (hotkeys) => ipcRenderer.invoke('register-spotify-shortcuts', hotkeys),
   disableAllHotkeys: () => ipcRenderer.invoke('disable-all-hotkeys'),
   enableAllHotkeys: () => ipcRenderer.invoke('enable-all-hotkeys'),
@@ -44,6 +48,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setCloseWindowsStartup: (enabled) => ipcRenderer.invoke('set-close-windows-startup', enabled),
   getLyrics: (trackName, artistName, albumName, durationMs) => ipcRenderer.invoke('get-lyrics', trackName, artistName, albumName, durationMs),
 
-
+  // Mini Widgets: Mic Mute
+  micMuteToggle: () => ipcRenderer.invoke('mic-mute-toggle'),
+  getMicMuteStatus: () => ipcRenderer.invoke('mic-mute-status'),
+  registerMicMuteHotkey: (accelerator) => ipcRenderer.invoke('register-mic-mute-hotkey', accelerator),
+  setMicMuteOverlayEnabled: (enabled) => ipcRenderer.invoke('set-mic-mute-overlay-enabled', enabled),
 
 });

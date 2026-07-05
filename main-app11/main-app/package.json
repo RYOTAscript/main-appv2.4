@@ -1,6 +1,6 @@
 {
   "name": "main-app",
-  "version": "2.5.3",
+  "version": "2.8.0",
   "description": "Personal gaming & productivity launcher",
   "main": "main.js",
   "scripts": {
@@ -24,6 +24,8 @@
       "main.html",
       "preload.js",
       "logger.js",
+      "mic-mute-overlay.html",
+      "mic-mute-overlay-preload.js",
       "icons/**/*"
     ],
     "directories": {
