@@ -1,4 +1,4 @@
-        const APP_VERSION = 'v3.0.1';
+        const APP_VERSION = 'v3.11.0';
         const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M' };
 
         // Registry of "Mini Widgets" -- small, self-contained utilities that each get
@@ -27,6 +27,13 @@
                 icon: 'fa-clipboard',
                 description: 'Keeps a running history of everything you copy so you can re-copy, pin, or delete past snippets.',
                 panelId: 'clipboard-panel'
+            },
+            {
+                id: 'spotifyEnhanced',
+                label: 'Spotify Enhanced',
+                icon: 'fa-headphones',
+                description: 'Extends the Spotify player with a queue viewer, playlist shortcuts, recently played, and one-click like/unlike. Off by default; adds a heart button to the player when on.',
+                panelId: 'spotify-enhanced-panel'
             }
         ];
 

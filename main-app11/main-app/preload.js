@@ -83,6 +83,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   macrosImport: () => ipcRenderer.invoke('macros-import'),
   onMacrosStatus: (callback) => ipcRenderer.on('macros-status', (_event, data) => callback(data)),
 
+  // Mini Widgets: Spotify Enhanced
+  spotifyGetQueue: () => ipcRenderer.invoke('spotify-get-queue'),
+  spotifyRecentlyPlayed: () => ipcRenderer.invoke('spotify-recently-played'),
+  spotifyGetPlaylists: () => ipcRenderer.invoke('spotify-get-playlists'),
+  spotifyPlayContext: (contextUri) => ipcRenderer.invoke('spotify-play-context', contextUri),
+  spotifyIsSaved: (trackId) => ipcRenderer.invoke('spotify-is-saved', trackId),
+  spotifySetSaved: (trackId, saved) => ipcRenderer.invoke('spotify-set-saved', trackId, saved),
+
   // Mini Widgets: Clipboard
   clipboardGet: () => ipcRenderer.invoke('clipboard-get'),
   clipboardSetEnabled: (enabled) => ipcRenderer.invoke('clipboard-set-enabled', enabled),

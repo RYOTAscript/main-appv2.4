@@ -292,7 +292,18 @@ function init(ctx) {
         return { _error: true, status: response.status };
       }
       logger.debug('Spotify API success', { endpoint, status: response.status });
-      return await response.json();
+      // Some successful endpoints (e.g. PUT/DELETE /me/tracks for like/unlike) return
+      // 200 with an EMPTY body. Calling response.json() on that throws, which would be
+      // caught below and read as a failure even though the call succeeded. Read the
+      // text first and treat an empty body as "no content" so those actions report
+      // success correctly. Endpoints that return JSON are unaffected.
+      const text = await response.text();
+      if (!text) return { _noContent: true };
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return { _noContent: true };
+      }
     } catch (e) {
       logger.error('Spotify API request failed with exception', e, { endpoint, method });
       return null;
@@ -462,7 +473,13 @@ function init(ctx) {
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
 
-    const scope = 'user-read-playback-state user-modify-playback-state user-read-private user-read-email';
+    // Scopes: the first four are the original set (playback read/control + profile).
+    // The rest were added for the Spotify Enhanced mini widget — recently played,
+    // reading the user's playlists, and reading/modifying their Liked Songs. Existing
+    // users authorized before these were added won't have them until they reconnect;
+    // the Enhanced panel detects the resulting 403s and prompts a one-click reconnect.
+    const scope = 'user-read-playback-state user-modify-playback-state user-read-private user-read-email ' +
+      'user-read-recently-played playlist-read-private user-library-read user-library-modify';
     const authUrl = `https://accounts.spotify.com/authorize?` +
       `client_id=${encodeURIComponent(spotifyConfig.clientId)}` +
       `&response_type=code` +
@@ -688,6 +705,111 @@ function init(ctx) {
   ipcMain.handle('spotify-seek', async (_event, positionMs) => {
     const result = await spotifyApiRequest(`/me/player/seek?position_ms=${positionMs}`, 'PUT');
     return { success: !!result && !result._error };
+  });
+
+  // ── Spotify Enhanced mini widget ──
+  // These power the Queue Viewer, Recently Played, Playlist Shortcuts, and
+  // Like/Unlike features. They all reuse spotifyApiRequest (token refresh, retry,
+  // rate-limit handling). A 403 here specifically means the current token lacks a
+  // scope added after the user first authorized, so we surface { needsReconnect }
+  // and the renderer prompts a one-click reconnect rather than showing an error.
+  function simplifyTrack(t) {
+    if (!t) return null;
+    const images = t.album?.images || t.images || [];
+    return {
+      id: t.id,
+      uri: t.uri,
+      name: t.name || '',
+      artist: (t.artists || []).map((a) => a.name).join(', ') || t.show?.publisher || '',
+      album: t.album?.name || t.show?.name || '',
+      // Lists show a tiny thumbnail — the last image is the smallest.
+      image: images.length ? images[images.length - 1].url : null
+    };
+  }
+
+  // Maps a spotifyApiRequest result to a uniform failure envelope, or null if the
+  // call succeeded (so callers can branch on the happy path).
+  function enhancedError(result) {
+    if (result === null) return { ok: false, needsReconnect: false };
+    if (result._error) return { ok: false, needsReconnect: result.status === 403, status: result.status };
+    return null;
+  }
+
+  ipcMain.handle('spotify-get-queue', async () => {
+    const data = await spotifyApiRequest('/me/player/queue');
+    const err = enhancedError(data);
+    if (err) return err;
+    if (data._noContent) return { ok: true, nowPlaying: null, queue: [] };
+    return {
+      ok: true,
+      nowPlaying: simplifyTrack(data.currently_playing),
+      queue: (data.queue || []).slice(0, 30).map(simplifyTrack)
+    };
+  });
+
+  ipcMain.handle('spotify-recently-played', async () => {
+    const data = await spotifyApiRequest('/me/player/recently-played?limit=25');
+    const err = enhancedError(data);
+    if (err) return err;
+    if (data._noContent) return { ok: true, items: [] };
+    // De-dupe consecutive repeats of the same track (a song replayed shows up many
+    // times) while keeping the most recent play timestamp.
+    const seen = new Set();
+    const items = [];
+    for (const it of data.items || []) {
+      if (!it.track || seen.has(it.track.id)) continue;
+      seen.add(it.track.id);
+      items.push({ ...simplifyTrack(it.track), playedAt: it.played_at });
+    }
+    return { ok: true, items };
+  });
+
+  ipcMain.handle('spotify-get-playlists', async () => {
+    const data = await spotifyApiRequest('/me/playlists?limit=50');
+    const err = enhancedError(data);
+    if (err) return err;
+    if (data._noContent) return { ok: true, items: [] };
+    const items = (data.items || []).filter(Boolean).map((p) => ({
+      id: p.id,
+      uri: p.uri,
+      name: p.name || 'Untitled',
+      owner: p.owner?.display_name || '',
+      total: p.tracks?.total ?? 0,
+      image: p.images?.length ? p.images[p.images.length - 1].url : null
+    }));
+    return { ok: true, items };
+  });
+
+  // Starts playback on the active device. Accepts either a plain context URI string
+  // (a playlist/album — Playlist Shortcuts) or { uris: [...] } to play specific
+  // tracks (e.g. replaying a Recently Played item).
+  ipcMain.handle('spotify-play-context', async (_event, payload) => {
+    let body = null;
+    if (typeof payload === 'string' && payload) body = { context_uri: payload };
+    else if (payload?.contextUri) body = { context_uri: payload.contextUri };
+    else if (Array.isArray(payload?.uris) && payload.uris.length) body = { uris: payload.uris };
+    if (!body) return { ok: false };
+    const result = await spotifyApiRequest('/me/player/play', 'PUT', body);
+    const err = enhancedError(result);
+    if (err) return err;
+    return { ok: true };
+  });
+
+  ipcMain.handle('spotify-is-saved', async (_event, trackId) => {
+    if (!trackId) return { ok: false, needsReconnect: false };
+    const data = await spotifyApiRequest(`/me/tracks/contains?ids=${encodeURIComponent(trackId)}`);
+    const err = enhancedError(data);
+    if (err) return err;
+    return { ok: true, saved: Array.isArray(data) ? !!data[0] : false };
+  });
+
+  ipcMain.handle('spotify-set-saved', async (_event, trackId, saved) => {
+    if (!trackId) return { ok: false, needsReconnect: false };
+    const method = saved ? 'PUT' : 'DELETE';
+    const result = await spotifyApiRequest(`/me/tracks?ids=${encodeURIComponent(trackId)}`, method);
+    const err = enhancedError(result);
+    if (err) return err;
+    return { ok: true, saved: !!saved };
   });
 
   ipcMain.on('spotify-register-shortcuts', handleShortcutRegistration);

@@ -16,7 +16,7 @@ const macros = require('./main/macros');
 const clipboardHistory = require('./main/clipboard');
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v3.10.0';
+const APP_VERSION = 'v3.11.0';
 
 // ── Crash handling (this is what removes the Windows "System Error" dialog) ──
 // The renderer very occasionally dies with STATUS_STACK_BUFFER_OVERRUN (0xC0000409)

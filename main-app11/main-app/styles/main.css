@@ -517,6 +517,27 @@
             transform: scale(1.15);
         }
 
+        /* Spotify Enhanced "like" heart — turns Spotify green and softly glows when the
+           current track is in Liked Songs. A quick pop confirms each toggle. */
+        .spotify-like-btn.is-liked {
+            color: #1db954;
+            text-shadow: 0 0 8px rgba(29, 185, 84, 0.6);
+        }
+
+        .spotify-like-btn.is-liked:hover {
+            color: #1ed760;
+        }
+
+        .spotify-like-btn.is-liked i {
+            animation: spotify-like-pop 0.32s ease;
+        }
+
+        @keyframes spotify-like-pop {
+            0% { transform: scale(1); }
+            45% { transform: scale(1.4); }
+            100% { transform: scale(1); }
+        }
+
         /* Play/pause "morph" icon. Built from 2 simple bars instead of swapping Font
            Awesome glyphs, so the same persistent elements can transition smoothly between
            shapes via clip-path (swapping icon fonts can't animate at all — the old

@@ -5,6 +5,52 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.11.0] — 2026-07-08
+
+### Added
+
+- **New "Spotify Enhanced" mini widget.** Enable it from Settings → Mini
+  Widgets to extend the Spotify player with quality-of-life extras. Off by
+  default — when disabled, none of it appears. When enabled it adds:
+  - **Like / Unlike the current song** with a heart button right on the
+    player's control row (it lights up Spotify-green when the track is in your
+    Liked Songs), plus a mirrored control in the settings panel.
+  - **Queue Viewer** — see what's playing now and what's up next.
+  - **Recently Played** — browse your last 25 tracks; click any to replay it.
+  - **Playlist Shortcuts** — all your playlists in one list; click to start
+    playback on your active device.
+  The panel uses a compact tabbed layout (Queue / Recent / Playlists) that
+  matches the existing settings spacing and glass UI, with loading states and
+  a refresh button.
+- Because these features need extra Spotify permissions (recently-played,
+  playlist read, and Liked-Songs read/write), anyone who connected Spotify
+  before this update will see a one-click **Reconnect** prompt the first time
+  they open the panel or tap the heart; new connections request them
+  automatically.
+
+### Fixed
+
+- **Spotify API calls that return an empty `200` body** (like adding/removing
+  a Liked Song) are no longer misread as failures — the response parser now
+  treats an empty body as success instead of throwing on `JSON.parse`.
+
+### Files changed
+
+- `main/spotify.js` — expanded OAuth scopes; robust empty-body response
+  handling; new `spotify-get-queue`, `spotify-recently-played`,
+  `spotify-get-playlists`, `spotify-play-context`, `spotify-is-saved`, and
+  `spotify-set-saved` IPC handlers.
+- `preload.js` — added the six Spotify Enhanced passthroughs.
+- `renderer/core.js` — registered the `spotifyEnhanced` mini widget;
+  synced the stale `APP_VERSION` constant.
+- `renderer/spotify-enhanced.js` (new) — the panel UI, heart-button logic,
+  and playback helpers.
+- `renderer/spotify-widget.js` — refresh the like-state on track change.
+- `renderer/widgets-settings.js` — render/enable hooks for the new widget.
+- `main.html` — heart button on the player; new script tag; version bump.
+- `styles/main.css` — liked-heart styling + pop animation.
+- `package.json`, `main.js` — version → 3.11.0.
+
 ## [3.10.0] — 2026-07-07
 
 ### Added

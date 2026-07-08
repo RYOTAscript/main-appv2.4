@@ -135,6 +135,7 @@
                 spotifyCurrentTrack = null;
                 updateBeatEngineFromPlayback(null);
                 updateVisualizerFromPlayback(null);
+                if (typeof spotifyEnhancedOnTrackChanged === 'function') spotifyEnhancedOnTrackChanged(null);
                 return;
             }
 
@@ -165,6 +166,7 @@
                 spotifyCurrentTrack = null;
                 updateBeatEngineFromPlayback(data);
                 updateVisualizerFromPlayback(data);
+                if (typeof spotifyEnhancedOnTrackChanged === 'function') spotifyEnhancedOnTrackChanged(null);
                 return;
             }
 
@@ -206,6 +208,10 @@
             spotifyIsPlaying = data.is_playing;
             spotifyTargetVelocity = data.is_playing ? getDiskMaxSpeed() : 0;
             spotifyCurrentTrack = data.track;
+
+            if (trackChanged && typeof spotifyEnhancedOnTrackChanged === 'function') {
+                spotifyEnhancedOnTrackChanged(data.track);
+            }
 
             playBtn.classList.toggle('is-playing', data.is_playing);
 

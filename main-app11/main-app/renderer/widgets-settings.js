@@ -168,6 +168,7 @@
             updateHotkeyDisplays();
             if (typeof renderMacrosPanel === 'function') renderMacrosPanel();
             if (typeof renderClipboardPanel === 'function') renderClipboardPanel();
+            if (typeof renderSpotifyEnhancedPanel === 'function') renderSpotifyEnhancedPanel();
         }
 
         function saveMiniWidgetPrefs() {
@@ -197,6 +198,12 @@
             if (window.electronAPI?.clipboardSetEnabled) {
                 await window.electronAPI.clipboardSetEnabled(!!prefs.clipboard);
                 if (typeof renderClipboardPanel === 'function') renderClipboardPanel();
+            }
+            // Spotify Enhanced has no main-process enable toggle (it's purely a
+            // renderer feature layered on the existing Spotify integration) — just
+            // show/hide the player's heart button and refresh its panel.
+            if (typeof applySpotifyEnhancedEnabled === 'function') {
+                applySpotifyEnhancedEnabled(!!prefs.spotifyEnhanced);
             }
         }
 
