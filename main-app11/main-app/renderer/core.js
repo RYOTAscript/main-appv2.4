@@ -1,4 +1,4 @@
-        const APP_VERSION = 'v3.11.0';
+        const APP_VERSION = 'v3.12.0';
         const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M' };
 
         // Registry of "Mini Widgets" -- small, self-contained utilities that each get
@@ -34,6 +34,13 @@
                 icon: 'fa-headphones',
                 description: 'Extends the Spotify player with a queue viewer, playlist shortcuts, recently played, and one-click like/unlike. Off by default; adds a heart button to the player when on.',
                 panelId: 'spotify-enhanced-panel'
+            },
+            {
+                id: 'screenResolution',
+                label: 'Screen Resolution',
+                icon: 'fa-display',
+                description: 'Detect and instantly switch each monitor\'s resolution and refresh rate. Favourite the modes you use most; unsupported switches auto-revert after 15 seconds.',
+                panelId: 'screen-resolution-panel'
             }
         ];
 

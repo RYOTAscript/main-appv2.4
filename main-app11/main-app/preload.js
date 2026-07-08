@@ -91,6 +91,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   spotifyIsSaved: (trackId) => ipcRenderer.invoke('spotify-is-saved', trackId),
   spotifySetSaved: (trackId, saved) => ipcRenderer.invoke('spotify-set-saved', trackId, saved),
 
+  // Mini Widgets: Screen Resolution Manager
+  screenResolutionList: () => ipcRenderer.invoke('screen-resolution-list'),
+  screenResolutionSet: (device, width, height, refresh) => ipcRenderer.invoke('screen-resolution-set', device, width, height, refresh),
+
   // Mini Widgets: Clipboard
   clipboardGet: () => ipcRenderer.invoke('clipboard-get'),
   clipboardSetEnabled: (enabled) => ipcRenderer.invoke('clipboard-set-enabled', enabled),

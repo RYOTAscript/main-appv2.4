@@ -169,6 +169,7 @@
             if (typeof renderMacrosPanel === 'function') renderMacrosPanel();
             if (typeof renderClipboardPanel === 'function') renderClipboardPanel();
             if (typeof renderSpotifyEnhancedPanel === 'function') renderSpotifyEnhancedPanel();
+            if (typeof renderScreenResolutionPanel === 'function') renderScreenResolutionPanel();
         }
 
         function saveMiniWidgetPrefs() {
@@ -204,6 +205,11 @@
             // show/hide the player's heart button and refresh its panel.
             if (typeof applySpotifyEnhancedEnabled === 'function') {
                 applySpotifyEnhancedEnabled(!!prefs.spotifyEnhanced);
+            }
+            // Screen Resolution Manager is renderer-only too — (re)load the panel so
+            // toggling it on immediately populates the monitor list.
+            if (typeof renderScreenResolutionPanel === 'function') {
+                renderScreenResolutionPanel();
             }
         }
 
@@ -451,6 +457,7 @@
                 spotifyAutoPlayDelay: localStorage.getItem('spotifyAutoPlayDelay') || '2800',
                 lyricsAnticipateMs: localStorage.getItem('lyricsAnticipateMs') || String(DEFAULT_LYRICS_ANTICIPATE_MS),
                 fpsDisplayMode: localStorage.getItem('fpsDisplayMode') || 'sidepanel',
+                screenResFavourites: safeParseJSON(localStorage.getItem('screenResFavourites'), {}),
                 version: APP_VERSION
             };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -507,6 +514,9 @@
                         if (data.fpsDisplayMode) {
                             localStorage.setItem('fpsDisplayMode', data.fpsDisplayMode);
                             loadFpsDisplayMode();
+                        }
+                        if (data.screenResFavourites) {
+                            localStorage.setItem('screenResFavourites', JSON.stringify(data.screenResFavourites));
                         }
                         applyWidgetPrefs();
                         applyAppearance();

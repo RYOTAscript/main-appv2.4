@@ -14,9 +14,10 @@ const weather = require('./main/weather');
 const displaySettings = require('./main/displaySettings');
 const macros = require('./main/macros');
 const clipboardHistory = require('./main/clipboard');
+const screenResolution = require('./main/screenResolution');
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v3.11.0';
+const APP_VERSION = 'v3.12.0';
 
 // ── Crash handling (this is what removes the Windows "System Error" dialog) ──
 // The renderer very occasionally dies with STATUS_STACK_BUFFER_OVERRUN (0xC0000409)
@@ -287,6 +288,7 @@ if (!gotSingleInstanceLock) {
     displaySettings.init(ctx);
     macrosModule = macros.init(ctx);
     clipboardHistory.init(ctx);
+    screenResolution.init(ctx);
 
     createTray();
     registerFocusHotkey(focusHotkey);

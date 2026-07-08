@@ -5,6 +5,41 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.12.0] — 2026-07-08
+
+### Added
+
+- **New "Screen Resolution" mini widget.** Enable it from Settings → Mini
+  Widgets to control every attached monitor's display mode:
+  - **Detects all monitors** and every resolution + refresh rate each one
+    supports, and shows the current mode.
+  - **Switch instantly** — pick a resolution and refresh rate and hit Apply;
+    the change takes effect immediately, per-monitor, with full multi-monitor
+    support.
+  - **15-second auto-revert safety net.** After a switch, a "Keep this display
+    mode?" bar counts down from 15 seconds; if you don't confirm (e.g. the new
+    mode blacks out the screen), the previous mode is restored automatically —
+    the same protection Windows' own display settings use.
+  - **Favourite the modes you use most** with a star; favourites appear as
+    one-click chips per monitor and are included in Settings backup/restore.
+  Uses the Win32 display API (EnumDisplaySettings / ChangeDisplaySettingsEx)
+  via a small cached PowerShell helper — no external tools.
+
+### Files changed
+
+- `main/screenResolution.js` (new) — versioned PowerShell + C# helper to list
+  monitors/modes and switch them (test-then-apply); `screen-resolution-list`
+  and `screen-resolution-set` IPC handlers.
+- `main.js` — initialize the new module.
+- `preload.js` — `screenResolutionList` / `screenResolutionSet` passthroughs.
+- `renderer/core.js` — registered the `screenResolution` mini widget; version
+  bump.
+- `renderer/screen-resolution.js` (new) — panel UI: per-monitor mode pickers,
+  favourites, and the keep/auto-revert countdown.
+- `renderer/widgets-settings.js` — render hooks + favourites in export/import.
+- `main.html` — new script tag; version bump.
+- `package.json`, `main.js` — version → 3.12.0.
+
 ## [3.11.0] — 2026-07-08
 
 ### Added
