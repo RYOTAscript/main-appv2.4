@@ -171,6 +171,7 @@
             if (typeof renderSpotifyEnhancedPanel === 'function') renderSpotifyEnhancedPanel();
             if (typeof renderScreenResolutionPanel === 'function') renderScreenResolutionPanel();
             if (typeof renderBluetoothPanel === 'function') renderBluetoothPanel();
+            if (typeof renderVideoEditorPanel === 'function') renderVideoEditorPanel();
         }
 
         function saveMiniWidgetPrefs() {

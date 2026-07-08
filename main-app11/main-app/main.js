@@ -16,9 +16,10 @@ const macros = require('./main/macros');
 const clipboardHistory = require('./main/clipboard');
 const screenResolution = require('./main/screenResolution');
 const bluetooth = require('./main/bluetooth');
+const videoEditor = require('./main/videoEditor');
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v3.13.0';
+const APP_VERSION = 'v3.14.0';
 
 // ── Crash handling (this is what removes the Windows "System Error" dialog) ──
 // The renderer very occasionally dies with STATUS_STACK_BUFFER_OVERRUN (0xC0000409)
@@ -121,6 +122,7 @@ if (!gotSingleInstanceLock) {
   let micModule = null;
   let spotifyModule = null;
   let macrosModule = null;
+  let videoEditorModule = null;
 
   function registerFocusHotkey(accelerator) {
     if (!accelerator || typeof accelerator !== 'string' || accelerator === '-') return false;
@@ -291,6 +293,7 @@ if (!gotSingleInstanceLock) {
     clipboardHistory.init(ctx);
     screenResolution.init(ctx);
     bluetooth.init(ctx);
+    videoEditorModule = videoEditor.init(ctx);
 
     createTray();
     registerFocusHotkey(focusHotkey);
@@ -336,6 +339,8 @@ if (!gotSingleInstanceLock) {
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     if (appTray) appTray.destroy();
+    // Kill any in-flight ffmpeg export so it doesn't linger after the app exits.
+    if (videoEditorModule) videoEditorModule.teardown();
     logger.system('Application quit');
   });
 

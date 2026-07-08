@@ -95,6 +95,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   screenResolutionList: () => ipcRenderer.invoke('screen-resolution-list'),
   screenResolutionSet: (device, width, height, refresh) => ipcRenderer.invoke('screen-resolution-set', device, width, height, refresh),
 
+  // Mini Widgets: Video Editor
+  videoCheck: () => ipcRenderer.invoke('video-check'),
+  videoPickInput: () => ipcRenderer.invoke('video-pick-input'),
+  videoPickOutput: (defaultPath) => ipcRenderer.invoke('video-pick-output', defaultPath),
+  videoExport: (opts) => ipcRenderer.invoke('video-export', opts),
+  videoCancel: () => ipcRenderer.invoke('video-cancel'),
+  videoReveal: (filePath) => ipcRenderer.invoke('video-reveal', filePath),
+  onVideoExportProgress: (callback) => ipcRenderer.on('video-export-progress', (_event, data) => callback(data)),
+
   // Mini Widgets: Bluetooth Manager
   bluetoothList: () => ipcRenderer.invoke('bluetooth-list'),
   bluetoothScan: () => ipcRenderer.invoke('bluetooth-scan'),

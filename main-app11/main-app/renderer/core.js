@@ -1,4 +1,4 @@
-        const APP_VERSION = 'v3.13.0';
+        const APP_VERSION = 'v3.14.0';
         const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M' };
 
         // Registry of "Mini Widgets" -- small, self-contained utilities that each get
@@ -49,6 +49,13 @@
                 iconStyle: 'fab',
                 description: 'See paired Bluetooth devices and their connection status, connect/disconnect or remove them, scan for and pair nearby devices, and view battery level where supported.',
                 panelId: 'bluetooth-panel'
+            },
+            {
+                id: 'videoEditor',
+                label: 'Video Editor',
+                icon: 'fa-film',
+                description: 'A fast, simple video trimmer. Import a clip, set in/out points on the timeline, keep or drop audio, and export losslessly (or with a precise frame-accurate re-encode). Powered by bundled FFmpeg.',
+                panelId: 'video-editor-panel'
             }
         ];
 

@@ -5,6 +5,45 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.14.0] — 2026-07-08
+
+### Added
+
+- **New "Video Editor" mini widget — a fast, simple trimmer.** Enable it from
+  Settings → Mini Widgets. It's built for speed and clarity rather than being a
+  full editing suite:
+  - **Import a video** (mp4, mkv, mov, avi, webm, and more) and preview it
+    inline with a scrubbable timeline and playback controls.
+  - **Frame-accurate trimming** — drag the in/out handles, or set them to the
+    playhead, and step a single frame at a time for an exact cut.
+  - **Keep or drop the audio track** with one toggle.
+  - **Lossless export by default** — the trim stream-copies with no re-encode,
+    so there's no quality loss and it's near-instant. A **Precise cut** toggle
+    re-encodes at visually-lossless quality when you need an exact frame
+    boundary a keyframe-aligned copy can't give.
+  - Shows the **estimated output size**, an **export progress bar**, the
+    **save location**, and an **Open folder** shortcut when it's done; exports
+    can be cancelled mid-run.
+  - **FFmpeg is bundled** with the app (via `ffmpeg-static`) — nothing to
+    install.
+
+### Files changed
+
+- `package.json` — added the `ffmpeg-static` dependency and `asarUnpack` so the
+  FFmpeg binary is packaged and runnable in built releases; version → 3.14.0.
+- `main/videoEditor.js` (new) — FFmpeg path resolution (asar-aware), metadata
+  probe, lossless/precise trim with live progress, and the
+  `video-check` / `-pick-input` / `-pick-output` / `-export` / `-cancel` /
+  `-reveal` IPC handlers.
+- `main.js` — initialize the module; kill any in-flight export on quit.
+- `preload.js` — video passthroughs + the export-progress event.
+- `renderer/core.js` — registered the `videoEditor` mini widget; version bump.
+- `renderer/video-editor.js` (new) — the editor UI: preview, timeline,
+  in/out handles, options, and the export flow.
+- `renderer/widgets-settings.js` — render hook.
+- `main.html` — new script tag; version bump.
+- `styles/main.css` — timeline / handle / playhead styling.
+
 ## [3.13.0] — 2026-07-08
 
 ### Added
