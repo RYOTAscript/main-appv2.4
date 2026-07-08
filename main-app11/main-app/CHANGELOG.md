@@ -5,6 +5,33 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.15.0] — 2026-07-08
+
+### Added / Changed
+
+- **Spotify Enhanced now lives on the player itself.** The Queue / Recent /
+  Playlists panel is mirrored as a compact three-tab strip crammed into the
+  upper-right of the Spotify player (over the vinyl area, translucent, clear of
+  the playback controls and volume), so you can browse without opening
+  Settings. The Settings panel is kept too.
+- **Favourite playlists.** Star any playlist (in the strip or the Settings
+  panel) to pin it to the top of the list, everywhere. Favourites are saved and
+  included in Settings backup/restore.
+- **Playlist sorting.** Playlists sort by **Recently opened** (default —
+  tracked locally whenever you start one from here) or **A→Z**, with favourites
+  always floated to the top. Toggle the sort from either the strip or the
+  Settings panel.
+
+### Files changed
+
+- `renderer/spotify-enhanced.js` — favourites/sort/recently-opened helpers; the
+  inline player-strip renderers (Queue/Recent/Playlists); playlist sorting +
+  stars added to the Settings panel too; record "recently opened" on play.
+- `main.html` — the inline strip markup inside the player; version bump.
+- `styles/main.css` — strip + compact-row styling.
+- `renderer/widgets-settings.js` — playlist favourites/sort in backup/restore.
+- `renderer/core.js`, `package.json`, `main.js` — version → 3.15.0.
+
 ## [3.14.0] — 2026-07-08
 
 ### Added

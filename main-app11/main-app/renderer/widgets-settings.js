@@ -465,6 +465,8 @@
                 lyricsAnticipateMs: localStorage.getItem('lyricsAnticipateMs') || String(DEFAULT_LYRICS_ANTICIPATE_MS),
                 fpsDisplayMode: localStorage.getItem('fpsDisplayMode') || 'sidepanel',
                 screenResFavourites: safeParseJSON(localStorage.getItem('screenResFavourites'), {}),
+                spotifyFavPlaylists: safeParseJSON(localStorage.getItem('spotifyFavPlaylists'), []),
+                spotifyPlaylistSort: localStorage.getItem('spotifyPlaylistSort') || 'recent',
                 version: APP_VERSION
             };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -524,6 +526,12 @@
                         }
                         if (data.screenResFavourites) {
                             localStorage.setItem('screenResFavourites', JSON.stringify(data.screenResFavourites));
+                        }
+                        if (data.spotifyFavPlaylists) {
+                            localStorage.setItem('spotifyFavPlaylists', JSON.stringify(data.spotifyFavPlaylists));
+                        }
+                        if (data.spotifyPlaylistSort) {
+                            localStorage.setItem('spotifyPlaylistSort', data.spotifyPlaylistSort);
                         }
                         applyWidgetPrefs();
                         applyAppearance();

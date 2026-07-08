@@ -7,10 +7,60 @@
         // heavy player logic (polling, current track) lives in spotify-widget.js;
         // this file only reads the shared `spotifyCurrentTrack` global from there.
 
-        let spotifyEnhancedTab = 'queue';       // queue | recent | playlists
+        let spotifyEnhancedTab = 'queue';       // settings panel tab: queue | recent | playlists
+        let spotifyEwTab = 'queue';             // inline player-strip tab (independent)
         let spotifyEnhancedCurrentSaved = null;  // like-state of the current track (null = unknown)
         let spotifyEnhancedNeedsReconnect = false;
         let spotifyEnhancedLikeBusy = false;
+
+        // ── Playlist favourites, sort, and "recently opened" tracking (shared by the
+        // settings panel and the inline player strip) ──
+        function spotifyFavPlaylists() {
+            return safeParseJSON(localStorage.getItem('spotifyFavPlaylists'), []);
+        }
+        function spotifyToggleFavPlaylist(id) {
+            if (!id) return;
+            const list = spotifyFavPlaylists();
+            const i = list.indexOf(id);
+            if (i >= 0) list.splice(i, 1); else list.push(id);
+            localStorage.setItem('spotifyFavPlaylists', JSON.stringify(list));
+            // Repaint wherever playlists are shown.
+            if (spotifyEwTab === 'playlists') renderSpotifyEnhancedWidgetContent();
+            if (spotifyEnhancedTab === 'playlists') renderSpotifyEnhancedPanel();
+        }
+        function spotifyPlaylistSortMode() {
+            return localStorage.getItem('spotifyPlaylistSort') === 'alpha' ? 'alpha' : 'recent';
+        }
+        function spotifyToggleSortMode() {
+            localStorage.setItem('spotifyPlaylistSort', spotifyPlaylistSortMode() === 'alpha' ? 'recent' : 'alpha');
+            if (spotifyEwTab === 'playlists') renderSpotifyEnhancedWidgetContent();
+            if (spotifyEnhancedTab === 'playlists') renderSpotifyEnhancedPanel();
+        }
+        function spotifyRecentPlaylists() {
+            return safeParseJSON(localStorage.getItem('spotifyRecentPlaylists'), []);
+        }
+        function spotifyRecordPlaylistOpened(uri) {
+            const m = /playlist:([A-Za-z0-9]+)/.exec(uri || '');
+            if (!m) return;
+            let list = spotifyRecentPlaylists().filter((x) => x !== m[1]);
+            list.unshift(m[1]);
+            localStorage.setItem('spotifyRecentPlaylists', JSON.stringify(list.slice(0, 50)));
+        }
+        // Favourites always float to the top; within favourites and within the rest,
+        // order by the chosen sort (recently opened by default, or A→Z).
+        function spotifySortPlaylists(items) {
+            const favs = new Set(spotifyFavPlaylists());
+            const recent = spotifyRecentPlaylists();
+            const mode = spotifyPlaylistSortMode();
+            const byMode = (a, b) => {
+                if (mode === 'alpha') return (a.name || '').localeCompare(b.name || '');
+                const ia = recent.indexOf(a.id), ib = recent.indexOf(b.id);
+                return (ia === -1 ? Infinity : ia) - (ib === -1 ? Infinity : ib);
+            };
+            const favItems = items.filter((p) => favs.has(p.id)).sort(byMode);
+            const rest = items.filter((p) => !favs.has(p.id)).sort(byMode);
+            return [...favItems, ...rest];
+        }
 
         function isSpotifyEnhancedEnabled() {
             const prefs = safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {});
@@ -22,9 +72,12 @@
         function applySpotifyEnhancedEnabled(enabled) {
             const likeBtn = document.getElementById('spotify-like-btn');
             if (likeBtn) likeBtn.classList.toggle('hidden', !enabled);
+            const widget = document.getElementById('spotify-enhanced-widget');
+            if (widget) widget.classList.toggle('hidden', !enabled);
             if (enabled) {
                 // Sync the heart to whatever is playing right now.
                 spotifyEnhancedOnTrackChanged(typeof spotifyCurrentTrack !== 'undefined' ? spotifyCurrentTrack : null);
+                renderSpotifyEnhancedWidget();
             } else {
                 spotifyEnhancedCurrentSaved = null;
             }
@@ -42,6 +95,8 @@
             if (likeBtn) likeBtn.classList.remove('hidden');
             spotifyEnhancedCurrentSaved = null;
             paintLikeButton();
+            // The queue changes as songs advance — keep the inline strip's Queue tab fresh.
+            if (spotifyEwTab === 'queue') renderSpotifyEnhancedWidgetContent();
             if (!track || !track.id || !window.electronAPI?.spotifyIsSaved) return;
             const res = await window.electronAPI.spotifyIsSaved(track.id);
             // Guard against a race: another track may have started while we awaited.
@@ -237,9 +292,27 @@
                 content.innerHTML = `<p class="text-xs text-neutral-600">No playlists found.</p>`;
                 return;
             }
-            content.innerHTML = `<div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">${res.items.map(p =>
-                spotifyEnhancedTrackRow(p, { onclick: `spotifyEnhancedPlayContext('${esc(p.uri)}')`, title: 'Play playlist', badge: `${p.total} tracks` })
-            ).join('')}</div>`;
+            const favs = new Set(spotifyFavPlaylists());
+            const sorted = spotifySortPlaylists(res.items);
+            const mode = spotifyPlaylistSortMode();
+            const header = `<div class="flex items-center justify-between mb-1.5">
+                <span class="text-[10px] text-neutral-500">${sorted.length} playlist${sorted.length === 1 ? '' : 's'}</span>
+                <button type="button" class="hotkey-bind no-drag" onclick="spotifyToggleSortMode()" title="Toggle sort">Sort: ${mode === 'alpha' ? 'A–Z' : 'Recently opened'}</button>
+            </div>`;
+            const rows = sorted.map((p) => {
+                const on = favs.has(p.id);
+                const thumb = p.image
+                    ? `<img src="${esc(p.image)}" class="w-9 h-9 rounded-md object-cover shrink-0" onerror="this.style.display='none'">`
+                    : `<div class="w-9 h-9 rounded-md bg-neutral-800 flex items-center justify-center shrink-0"><i class="fas fa-music text-[10px] text-neutral-600"></i></div>`;
+                return `<div class="flex items-center gap-2 border border-white/10 rounded-xl p-2 cursor-pointer hover:bg-white/5 transition-colors no-drag" onclick="spotifyEnhancedPlayContext('${esc(p.uri)}')" title="Play playlist">
+                    <button type="button" onclick="event.stopPropagation(); spotifyToggleFavPlaylist('${esc(p.id)}')" title="${on ? 'Unfavourite' : 'Favourite'}"
+                        class="w-6 h-6 flex items-center justify-center shrink-0 ${on ? 'text-amber-400' : 'text-neutral-500'} hover:text-amber-300 transition-colors"><i class="${on ? 'fas' : 'far'} fa-star text-xs"></i></button>
+                    ${thumb}
+                    <div class="min-w-0 flex-1"><p class="text-xs text-neutral-200 truncate">${esc(p.name)}</p><p class="text-[10px] text-neutral-500 truncate">${esc(p.owner || '')}</p></div>
+                    <span class="text-[10px] text-neutral-600 shrink-0">${p.total} tracks</span>
+                </div>`;
+            }).join('');
+            content.innerHTML = header + `<div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">${rows}</div>`;
         }
 
         async function spotifyEnhancedPlayContext(uri) {
@@ -247,6 +320,9 @@
             const res = await window.electronAPI.spotifyPlayContext(uri);
             if (res?.ok) {
                 showToast('Playing…');
+                // Record for the "recently opened" playlist sort, then refresh views.
+                spotifyRecordPlaylistOpened(uri);
+                if (spotifyEwTab === 'playlists') renderSpotifyEnhancedWidgetContent();
                 setTimeout(() => { if (typeof updateSpotifyWidget === 'function') updateSpotifyWidget(); }, 400);
             } else if (res?.needsReconnect) {
                 showToast('Reconnect Spotify to enable this', true);
@@ -266,4 +342,98 @@
             } else {
                 showToast('Could not start playback — open Spotify on a device first', true);
             }
+        }
+
+        // ── Inline player strip (Queue / Recent / Playlists beside the vinyl) ──
+        // A very compact mirror of the settings panel, crammed into the upper-right of
+        // the player. Same three tabs, same data — just sized for the tiny space.
+
+        function spotifyEwSwitch(tab) {
+            spotifyEwTab = tab;
+            renderSpotifyEnhancedWidget();
+        }
+
+        function renderSpotifyEnhancedWidget() {
+            const widget = document.getElementById('spotify-enhanced-widget');
+            if (!widget) return;
+            if (!isSpotifyEnhancedEnabled()) { widget.classList.add('hidden'); return; }
+            widget.classList.remove('hidden');
+            widget.querySelectorAll('.spotify-ew-tab').forEach((b) => {
+                b.classList.toggle('active', b.dataset.ewtab === spotifyEwTab);
+            });
+            renderSpotifyEnhancedWidgetContent();
+        }
+
+        async function renderSpotifyEnhancedWidgetContent() {
+            const content = document.getElementById('spotify-ew-content');
+            if (!content || !isSpotifyEnhancedEnabled()) return;
+            if (!content.innerHTML) content.innerHTML = `<p class="spotify-ew-empty">Loading…</p>`;
+            const tab = spotifyEwTab;
+            try {
+                if (tab === 'queue') await ewRenderQueue(content);
+                else if (tab === 'recent') await ewRenderRecent(content);
+                else await ewRenderPlaylists(content);
+            } catch (e) {
+                content.innerHTML = `<p class="spotify-ew-empty">Something went wrong.</p>`;
+            }
+        }
+
+        function ewStateHtml(res) {
+            if (!res || res.ok !== true) {
+                if (res?.needsReconnect) return `<button type="button" class="spotify-ew-reconnect" onclick="connectSpotify()">Reconnect Spotify</button>`;
+                return `<p class="spotify-ew-empty">Play on a device to see this.</p>`;
+            }
+            return null;
+        }
+
+        function ewThumb(item) {
+            if (item.image) return `<img class="spotify-ew-thumb" src="${esc(item.image)}" onerror="this.style.visibility='hidden'">`;
+            return `<span class="spotify-ew-thumb" style="display:inline-flex;align-items:center;justify-content:center"><i class="fas fa-music" style="font-size:7px;color:#666"></i></span>`;
+        }
+
+        async function ewRenderQueue(content) {
+            if (!window.electronAPI?.spotifyGetQueue) return;
+            const res = await window.electronAPI.spotifyGetQueue();
+            if (spotifyEwTab !== 'queue' || !content) return;
+            const s = ewStateHtml(res); if (s) { content.innerHTML = s; return; }
+            let html = '';
+            if (res.nowPlaying) {
+                html += `<div class="spotify-ew-sub"><span class="spotify-ew-caption">Now</span></div>`;
+                html += `<div class="spotify-ew-row" title="${esc(res.nowPlaying.name)}">${ewThumb(res.nowPlaying)}<span class="spotify-ew-name">${esc(res.nowPlaying.name)}</span></div>`;
+            }
+            html += `<div class="spotify-ew-sub"><span class="spotify-ew-caption">Up next</span></div>`;
+            if (!res.queue.length) html += `<p class="spotify-ew-empty">Nothing queued.</p>`;
+            else html += res.queue.map((t) => `<div class="spotify-ew-row" title="${esc(t.name)}">${ewThumb(t)}<span class="spotify-ew-name">${esc(t.name)}</span></div>`).join('');
+            content.innerHTML = html;
+        }
+
+        async function ewRenderRecent(content) {
+            if (!window.electronAPI?.spotifyRecentlyPlayed) return;
+            const res = await window.electronAPI.spotifyRecentlyPlayed();
+            if (spotifyEwTab !== 'recent' || !content) return;
+            const s = ewStateHtml(res); if (s) { content.innerHTML = s; return; }
+            if (!res.items.length) { content.innerHTML = `<p class="spotify-ew-empty">Nothing yet.</p>`; return; }
+            content.innerHTML = res.items.map((t) =>
+                `<div class="spotify-ew-row clickable" onclick="spotifyEnhancedPlayUri('${esc(t.uri)}')" title="${esc(t.name)}">${ewThumb(t)}<span class="spotify-ew-name">${esc(t.name)}</span></div>`
+            ).join('');
+        }
+
+        async function ewRenderPlaylists(content) {
+            if (!window.electronAPI?.spotifyGetPlaylists) return;
+            const res = await window.electronAPI.spotifyGetPlaylists();
+            if (spotifyEwTab !== 'playlists' || !content) return;
+            const s = ewStateHtml(res); if (s) { content.innerHTML = s; return; }
+            if (!res.items.length) { content.innerHTML = `<p class="spotify-ew-empty">No playlists.</p>`; return; }
+            const favs = new Set(spotifyFavPlaylists());
+            const sorted = spotifySortPlaylists(res.items);
+            const mode = spotifyPlaylistSortMode();
+            let html = `<div class="spotify-ew-sub"><span class="spotify-ew-caption">${sorted.length}</span><button type="button" class="spotify-ew-sort" onclick="spotifyToggleSortMode()" title="Toggle sort">${mode === 'alpha' ? 'A–Z' : 'Recent'} ⇄</button></div>`;
+            html += sorted.map((p) => {
+                const on = favs.has(p.id);
+                return `<div class="spotify-ew-row clickable" onclick="spotifyEnhancedPlayContext('${esc(p.uri)}')" title="${esc(p.name)}">
+                    <button type="button" class="spotify-ew-star ${on ? 'on' : ''}" onclick="event.stopPropagation(); spotifyToggleFavPlaylist('${esc(p.id)}')"><i class="${on ? 'fas' : 'far'} fa-star"></i></button>
+                    <span class="spotify-ew-name">${esc(p.name)}</span>
+                </div>`;
+            }).join('');
+            content.innerHTML = html;
         }
