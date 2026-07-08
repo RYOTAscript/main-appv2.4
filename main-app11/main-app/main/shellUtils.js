@@ -1,8 +1,11 @@
 const { exec, execSync } = require('child_process');
 
-function runCmd(cmd) {
+// timeoutMs (optional): kill the child and resolve with ok:false if it runs
+// longer than this. Left unset (0) means wait indefinitely, preserving the
+// original behaviour for existing callers.
+function runCmd(cmd, timeoutMs = 0) {
   return new Promise((resolve) => {
-    exec(cmd, { windowsHide: true }, (err, stdout, stderr) => {
+    exec(cmd, { windowsHide: true, timeout: timeoutMs, maxBuffer: 1024 * 1024 * 8 }, (err, stdout, stderr) => {
       const ok = !err;
       resolve({ ok, stdout, stderr, code: err ? err.code : 0 });
     });

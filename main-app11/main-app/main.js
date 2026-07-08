@@ -15,9 +15,10 @@ const displaySettings = require('./main/displaySettings');
 const macros = require('./main/macros');
 const clipboardHistory = require('./main/clipboard');
 const screenResolution = require('./main/screenResolution');
+const bluetooth = require('./main/bluetooth');
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v3.12.0';
+const APP_VERSION = 'v3.13.0';
 
 // ── Crash handling (this is what removes the Windows "System Error" dialog) ──
 // The renderer very occasionally dies with STATUS_STACK_BUFFER_OVERRUN (0xC0000409)
@@ -289,6 +290,7 @@ if (!gotSingleInstanceLock) {
     macrosModule = macros.init(ctx);
     clipboardHistory.init(ctx);
     screenResolution.init(ctx);
+    bluetooth.init(ctx);
 
     createTray();
     registerFocusHotkey(focusHotkey);

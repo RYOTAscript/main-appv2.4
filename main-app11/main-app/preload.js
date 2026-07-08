@@ -95,6 +95,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   screenResolutionList: () => ipcRenderer.invoke('screen-resolution-list'),
   screenResolutionSet: (device, width, height, refresh) => ipcRenderer.invoke('screen-resolution-set', device, width, height, refresh),
 
+  // Mini Widgets: Bluetooth Manager
+  bluetoothList: () => ipcRenderer.invoke('bluetooth-list'),
+  bluetoothScan: () => ipcRenderer.invoke('bluetooth-scan'),
+  bluetoothConnect: (address) => ipcRenderer.invoke('bluetooth-connect', address),
+  bluetoothDisconnect: (address) => ipcRenderer.invoke('bluetooth-disconnect', address),
+  bluetoothRemove: (address) => ipcRenderer.invoke('bluetooth-remove', address),
+  bluetoothPair: (address) => ipcRenderer.invoke('bluetooth-pair', address),
+
   // Mini Widgets: Clipboard
   clipboardGet: () => ipcRenderer.invoke('clipboard-get'),
   clipboardSetEnabled: (enabled) => ipcRenderer.invoke('clipboard-set-enabled', enabled),

@@ -5,6 +5,49 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.13.0] — 2026-07-08
+
+### Added
+
+- **New "Bluetooth Manager" mini widget.** Enable it from Settings → Mini
+  Widgets to manage Bluetooth without leaving the launcher:
+  - **See every paired device** with its real, live connection status and
+    battery level (where the device reports it).
+  - **Connect or disconnect** any device with one click, and **remove**
+    (unpair) devices you no longer use.
+  - **Scan for nearby devices** and **pair** new ones directly from the panel.
+  - **Auto-refreshes** the device list every few seconds while the panel is
+    open, so status and battery stay current.
+  Built on the documented Win32 Bluetooth API (via a cached PowerShell/C#
+  helper) — the accurate source of a device's true connection state, unlike
+  the Device Manager "OK" status. Some actions (remove/pair on certain
+  adapters) are best-effort and may require the device to be in range or need
+  a confirmation on the device itself.
+
+### Changed
+
+- **`runCmd` now accepts an optional timeout** so long-running shell helpers
+  (like a Bluetooth inquiry) can't hang the caller indefinitely. Existing
+  callers are unaffected (default is still "wait indefinitely").
+- **Mini-widget icons can specify a Font Awesome style** (`iconStyle`), so
+  brand glyphs like the Bluetooth mark render correctly in Settings.
+
+### Files changed
+
+- `main/bluetooth.js` (new) — cached PowerShell + C# helper (BluetoothFind*,
+  SetServiceState, RemoveDevice, AuthenticateDeviceEx) and the
+  `bluetooth-list` / `-scan` / `-connect` / `-disconnect` / `-remove` /
+  `-pair` IPC handlers; addresses are validated before use.
+- `main/shellUtils.js` — optional timeout + larger output buffer for `runCmd`.
+- `main.js` — initialize the module.
+- `preload.js` — six Bluetooth passthroughs.
+- `renderer/core.js` — registered the `bluetooth` mini widget (brand icon);
+  version bump.
+- `renderer/bluetooth.js` (new) — the panel UI and auto-refresh loop.
+- `renderer/widgets-settings.js` — render/enable hooks; `iconStyle` support.
+- `main.html` — new script tag; version bump.
+- `package.json`, `main.js` — version → 3.13.0.
+
 ## [3.12.0] — 2026-07-08
 
 ### Added

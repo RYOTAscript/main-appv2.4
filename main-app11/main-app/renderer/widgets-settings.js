@@ -154,7 +154,7 @@
                     <div class="flex items-center justify-between gap-4 mb-2">
                         <label class="flex items-center gap-3 cursor-pointer">
                             <span class="ios-toggle"><input type="checkbox" id="toggle-widget-${w.id}" class="ios-toggle-input" ${prefs[w.id] ? 'checked' : ''} onchange="saveMiniWidgetPrefs()"><span class="ios-toggle-track"></span></span>
-                            <span><i class="fas ${w.icon} mr-1.5 text-neutral-500"></i>${w.label}</span>
+                            <span><i class="${w.iconStyle || 'fas'} ${w.icon} mr-1.5 text-neutral-500"></i>${w.label}</span>
                         </label>
                         ${w.defaultHotkey ? `<button type="button" id="${getHotkeyButtonId(w.id)}" class="hotkey-bind no-drag"
                             onclick="startHotkeyBind('${w.id}')"></button>` : ''}
@@ -170,6 +170,7 @@
             if (typeof renderClipboardPanel === 'function') renderClipboardPanel();
             if (typeof renderSpotifyEnhancedPanel === 'function') renderSpotifyEnhancedPanel();
             if (typeof renderScreenResolutionPanel === 'function') renderScreenResolutionPanel();
+            if (typeof renderBluetoothPanel === 'function') renderBluetoothPanel();
         }
 
         function saveMiniWidgetPrefs() {
@@ -210,6 +211,11 @@
             // toggling it on immediately populates the monitor list.
             if (typeof renderScreenResolutionPanel === 'function') {
                 renderScreenResolutionPanel();
+            }
+            // Bluetooth Manager: start/stop its auto-refresh with the toggle, and
+            // load the device list immediately when turned on.
+            if (typeof applyBluetoothEnabled === 'function') {
+                applyBluetoothEnabled(!!prefs.bluetooth);
             }
         }
 
