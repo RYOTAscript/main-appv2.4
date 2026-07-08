@@ -1,4 +1,4 @@
-        const APP_VERSION = 'v3.16.0';
+        const APP_VERSION = 'v3.16.1';
         const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M' };
 
         // Registry of "Mini Widgets" -- small, self-contained utilities that each get

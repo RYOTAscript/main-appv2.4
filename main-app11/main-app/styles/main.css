@@ -583,7 +583,7 @@
            so the disk still reads through), clear of the controls/progress below. */
         .spotify-enhanced-widget {
             position: absolute;
-            top: 6px;
+            top: 3px;
             right: 28px;
             width: 92px;
             height: 104px;
@@ -734,8 +734,8 @@
            (beside the disk, not over it) with larger rows/text. Toggled by the
            .spotify-solo class the renderer adds to #widget-spotify. */
         .spotify-solo .spotify-enhanced-widget {
-            top: 15px;
-            bottom: 15px;
+            top: 8px;
+            bottom: 22px;
             right: 46px;
             width: 206px;
             height: auto;

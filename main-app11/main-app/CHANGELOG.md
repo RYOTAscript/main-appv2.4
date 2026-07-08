@@ -5,6 +5,22 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.16.1] — 2026-07-08
+
+### Changed
+
+- **Spotify Enhanced strip polish:** the Queue tab now shows only the upcoming
+  queue (the "Now" row was dropped, since the current track is already on the
+  player), playlist rows now show each playlist's **cover art**, and the strip
+  sits a little higher in both the compact and expanded layouts.
+
+### Files changed
+
+- `renderer/spotify-enhanced.js` — Queue tab drops the now-playing row;
+  playlist rows render cover art.
+- `styles/main.css` — nudged the strip up (compact and `.spotify-solo`).
+- `renderer/core.js`, `main.html`, `package.json`, `main.js` — version → 3.16.1.
+
 ## [3.16.0] — 2026-07-08
 
 ### Added

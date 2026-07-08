@@ -396,15 +396,12 @@
             const res = await window.electronAPI.spotifyGetQueue();
             if (spotifyEwTab !== 'queue' || !content) return;
             const s = ewStateHtml(res); if (s) { content.innerHTML = s; return; }
-            let html = '';
-            if (res.nowPlaying) {
-                html += `<div class="spotify-ew-sub"><span class="spotify-ew-caption">Now</span></div>`;
-                html += `<div class="spotify-ew-row" title="${esc(res.nowPlaying.name)}">${ewThumb(res.nowPlaying)}<span class="spotify-ew-name">${esc(res.nowPlaying.name)}</span></div>`;
-            }
-            html += `<div class="spotify-ew-sub"><span class="spotify-ew-caption">Up next</span></div>`;
-            if (!res.queue.length) html += `<p class="spotify-ew-empty">Nothing queued.</p>`;
-            else html += res.queue.map((t) => `<div class="spotify-ew-row" title="${esc(t.name)}">${ewThumb(t)}<span class="spotify-ew-name">${esc(t.name)}</span></div>`).join('');
-            content.innerHTML = html;
+            // Just the upcoming queue — the currently-playing track is already shown
+            // on the player itself, so no "Now" row here.
+            if (!res.queue.length) { content.innerHTML = `<p class="spotify-ew-empty">Nothing queued.</p>`; return; }
+            content.innerHTML = res.queue.map((t) =>
+                `<div class="spotify-ew-row" title="${esc(t.name)}">${ewThumb(t)}<span class="spotify-ew-name">${esc(t.name)}</span></div>`
+            ).join('');
         }
 
         async function ewRenderRecent(content) {
@@ -432,6 +429,7 @@
                 const on = favs.has(p.id);
                 return `<div class="spotify-ew-row clickable" onclick="spotifyEnhancedPlayContext('${esc(p.uri)}')" title="${esc(p.name)}">
                     <button type="button" class="spotify-ew-star ${on ? 'on' : ''}" onclick="event.stopPropagation(); spotifyToggleFavPlaylist('${esc(p.id)}')"><i class="${on ? 'fas' : 'far'} fa-star"></i></button>
+                    ${ewThumb(p)}
                     <span class="spotify-ew-name">${esc(p.name)}</span>
                 </div>`;
             }).join('');
