@@ -1,0 +1,1074 @@
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {
+            --glow-strength: 0.12;
+            --glow-spread: 40px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: transparent !important;
+            color: #fff;
+            overflow: hidden;
+            margin: 0;
+        }
+
+        html {
+            background: transparent !important;
+            overflow: hidden;
+        }
+
+        .bg-scene {
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 60%),
+                radial-gradient(ellipse 50% 40% at 80% 100%, rgba(255, 255, 255, 0.03), transparent 50%),
+                #080808;
+        }
+
+        .grid-overlay {
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 48px 48px;
+            mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 20%, transparent 80%);
+            animation: gridDrift 24s linear infinite;
+        }
+
+        .scanline {
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(255, 255, 255, 0.012) 2px,
+                    rgba(255, 255, 255, 0.012) 4px);
+            pointer-events: none;
+        }
+
+        .glass {
+            background: rgba(8, 8, 8, 0.88);
+            backdrop-filter: blur(48px);
+            -webkit-backdrop-filter: blur(48px);
+        }
+
+        .glow {
+            box-shadow:
+                0 0 var(--glow-spread) rgba(255, 255, 255, var(--glow-strength)),
+                inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+
+        .glow-strong {
+            box-shadow:
+                0 0 calc(var(--glow-spread) * 1.5) rgba(255, 255, 255, calc(var(--glow-strength) * 1.8)),
+                0 0 80px rgba(255, 255, 255, calc(var(--glow-strength) * 0.5)),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .header-drag {
+            -webkit-app-region: drag;
+        }
+
+        .no-drag {
+            -webkit-app-region: no-drag;
+        }
+
+        .app-icon {
+            transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease, border-color 0.35s ease;
+        }
+
+        .app-icon:hover {
+            transform: scale(1.12) translateY(-4px);
+        }
+
+        .app-icon:hover .icon-tile {
+            border-color: rgba(255, 255, 255, 0.35);
+            box-shadow: 0 0 30px rgba(255, 255, 255, 0.15), inset 0 0 20px rgba(255, 255, 255, 0.04);
+        }
+
+        .fade-in {
+            animation: fadeIn 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+
+        .modal-enter {
+            animation: modalPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+
+        .pulse-glow {
+            animation: pulseGlow 3s ease-in-out infinite;
+        }
+
+        .stat-bar {
+            transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1), filter 0.4s ease, box-shadow 0.4s ease;
+            background: linear-gradient(90deg, #444, #fff);
+        }
+
+        .stat-val {
+            transition: color 0.5s ease, text-shadow 0.5s ease, opacity 0.5s ease;
+        }
+
+        .stat-val.stat-bump {
+            animation: statValBump 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .stat-bar.stat-bump {
+            animation: statBarPulse 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .perf-live-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+            animation: livePulse 2.5s ease-in-out infinite;
+        }
+
+        @keyframes statValBump {
+            0% {
+                opacity: 0.35;
+                text-shadow: 0 0 0 transparent;
+                transform: scale(0.95);
+            }
+
+            45% {
+                opacity: 1;
+                text-shadow: 0 0 14px rgba(255, 255, 255, 0.75);
+                transform: scale(1.06);
+            }
+
+            100% {
+                opacity: 1;
+                text-shadow: 0 0 0 transparent;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes statBarPulse {
+            0% {
+                filter: brightness(1);
+                box-shadow: none;
+            }
+
+            45% {
+                filter: brightness(1.5);
+                box-shadow: 0 0 16px rgba(255, 255, 255, 0.4);
+            }
+
+            100% {
+                filter: brightness(1);
+                box-shadow: none;
+            }
+        }
+
+        @keyframes livePulse {
+
+            0%,
+            100% {
+                opacity: 0.35;
+                transform: scale(0.85);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .spotify-ring {
+            width: 72px;
+            height: 72px;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .spotify-ring::before {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            animation: ringSpin 8s linear infinite;
+        }
+
+        .window-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.04);
+            color: #aaa;
+            transition: all 0.2s ease;
+        }
+
+        .window-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .section-label {
+            font-size: 0.7rem;
+            letter-spacing: 0.2em;
+            color: #666;
+            font-weight: 500;
+        }
+
+        /* Transitions are intentionally NOT on .widget-card by default — they're added
+           after startup via .widgets-animate so show/hide only animate after the initial
+           layout settles. Without this, hidden-widget -> visible changes on startup play
+           the transition and look slow/wrong on every launch. */
+        .widget-card {
+            border-color: transparent;
+            box-shadow: none;
+        }
+
+        .widgets-animate .widget-card {
+            transition: border-color 0.3s ease, box-shadow 0.3s ease, opacity 0.28s ease, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .widget-card:hover {
+            border-color: rgba(255, 255, 255, 0.18);
+            box-shadow: 0 0 30px rgba(255, 255, 255, 0.06);
+        }
+
+        /* Widgets resize smoothly into their new slot when others are toggled on/off.
+           The `widgets-animate` class is added by JS after the initial layout settles,
+           so the grid does NOT animate on startup (would look broken/slow every launch). */
+        #widgets-row.widgets-animate {
+            transition: grid-template-columns 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(24px) scale(0.98);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @keyframes modalPop {
+            from {
+                opacity: 0;
+                transform: scale(0.82);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes gridDrift {
+            from {
+                transform: translateY(0);
+            }
+
+            to {
+                transform: translateY(48px);
+            }
+        }
+
+        @keyframes pulseGlow {
+
+            0%,
+            100% {
+                opacity: 0.5;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+
+        @keyframes ringSpin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .hidden-widget {
+            display: none !important;
+        }
+
+        #main-window {
+            border-radius: 32px;
+            overflow: hidden;
+            isolation: isolate;
+            clip-path: inset(0 round 32px);
+        }
+
+        .hotkey-bind {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            padding: 6px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.05);
+            color: #e5e5e5;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-width: 88px;
+            text-align: center;
+        }
+
+        .hotkey-bind:hover {
+            border-color: rgba(255, 255, 255, 0.35);
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 0 16px rgba(255, 255, 255, 0.08);
+        }
+
+        .hotkey-bind.listening {
+            border-color: #fff;
+            color: #fff;
+            animation: hotkeyListen 1s ease-in-out infinite;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+        }
+
+        @keyframes hotkeyListen {
+
+            0%,
+            100% {
+                opacity: 0.55;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+
+        #settings-modal .settings-panel {
+            max-height: calc(100% - 48px);
+        }
+
+        /* Sticky Settings search bar — covers the panel's top padding so nothing
+           ghosts above it while pinned, with a soft hairline divider. */
+        #settings-modal .settings-search-bar {
+            position: sticky;
+            top: -2rem;
+            margin-top: -2rem;
+            padding-top: 2rem;
+            background: rgba(8, 8, 8, 0.96);
+            -webkit-backdrop-filter: blur(24px);
+            backdrop-filter: blur(24px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        #settings-search::placeholder {
+            color: #fff;
+            opacity: 1;
+        }
+
+        .settings-saved-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+        }
+
+        /* Spotify Vinyl Widget */
+        .vinyl-disk {
+            will-change: transform;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(255, 255, 255, 0.06);
+            filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.08)) drop-shadow(0 0 6px rgba(255, 255, 255, 0.04));
+        }
+
+        .vinyl-disk.vinyl-glow-active {
+            filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.12)) drop-shadow(0 0 8px rgba(255, 255, 255, 0.06));
+        }
+
+        .beat-glow-halo {
+            position: absolute;
+            width: 5rem;
+            height: 5rem;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0.1) 42%, transparent 72%);
+            pointer-events: none;
+            opacity: 0.15;
+            transform: scale(1);
+            z-index: 0;
+            will-change: opacity, transform;
+        }
+
+        .spotify-disk-glow-wrapper {
+            position: relative;
+            z-index: 10;
+        }
+
+        .spotify-visualizer-canvas {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 13rem;
+            height: 13rem;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .spotify-visualizer-canvas.visualizer-active {
+            opacity: 0.9;
+        }
+
+        #spotify-extras-toggle .fa-chevron-down {
+            transition: transform 0.2s ease;
+        }
+
+        #spotify-extras-toggle.extras-collapsed .fa-chevron-down {
+            transform: rotate(-90deg);
+        }
+
+        .spotify-disk-glow-wrapper::before {
+            content: '';
+            position: absolute;
+            inset: -12px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: -1;
+            filter: blur(8px);
+        }
+
+        .spotify-album-cover {
+            position: absolute;
+            bottom: 2px;
+            left: 2px;
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            object-fit: cover;
+            box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6), 0 0 12px rgba(255, 255, 255, 0.08);
+            z-index: 20;
+        }
+
+        #spotify-disk {
+            position: relative;
+            z-index: 1;
+        }
+
+        .spotify-track-info {
+            transition: opacity 0.15s ease;
+        }
+
+        /* The title/artist lines use a looping "marquee" reveal for long text instead of
+           an ellipsis — the ellipsis is disabled here since the inner elements (below)
+           handle overflow by looping instead of truncating. */
+        #spotify-track, #spotify-artist {
+            text-overflow: clip;
+            position: relative;
+        }
+
+        .marquee-text {
+            display: inline-block;
+            white-space: nowrap;
+            will-change: transform;
+        }
+
+        .marquee-copy {
+            display: inline-block;
+        }
+
+        .marquee-gap {
+            display: inline-block;
+            opacity: 0.4;
+        }
+
+        /* Fade masks for overflowing marquee text.
+           .marquee-fade-right  = static overflow state — fade only at the trailing edge
+           .marquee-fade-both   = scrolling state — fade at both edges so text appears/
+                                  disappears smoothly as it enters/exits the viewport. */
+        .marquee-fade-right {
+            -webkit-mask-image: linear-gradient(to right, black calc(100% - 10px), transparent 100%);
+            mask-image: linear-gradient(to right, black calc(100% - 10px), transparent 100%);
+        }
+
+        .marquee-fade-both {
+            -webkit-mask-image: linear-gradient(to right, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%);
+            mask-image: linear-gradient(to right, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%);
+        }
+
+        .spotify-control-btn {
+            transition: all 0.2s ease;
+        }
+
+        .spotify-control-btn:hover {
+            transform: scale(1.15);
+        }
+
+        /* Play/pause "morph" icon. Built from 2 simple bars instead of swapping Font
+           Awesome glyphs, so the same persistent elements can transition smoothly between
+           shapes via clip-path (swapping icon fonts can't animate at all — the old
+           element is destroyed and a new one created each time).
+           Default (no .is-playing class) = play triangle: bar A collapses to a thin
+           spine at the left edge, bar B expands into the full triangle (its two right
+           corners converge onto the apex point). .is-playing = two pause bars. Both
+           states use the same point count (4 corners) per bar, kept as simple convex
+           quadrilaterals throughout so there's no self-intersection in between. */
+        .morph-play-icon {
+            position: relative;
+            width: 11px;
+            height: 11px;
+            display: inline-block;
+        }
+
+        .morph-bar {
+            position: absolute;
+            inset: 0;
+            background: currentColor;
+            transition: clip-path 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .morph-bar-a {
+            clip-path: polygon(20% 15%, 24% 15%, 24% 85%, 20% 85%);
+        }
+
+        .morph-bar-b {
+            clip-path: polygon(20% 15%, 85% 50%, 85% 50%, 20% 85%);
+        }
+
+        #spotify-play-btn.is-playing .morph-bar-a {
+            clip-path: polygon(20% 15%, 38% 15%, 38% 85%, 20% 85%);
+        }
+
+        #spotify-play-btn.is-playing .morph-bar-b {
+            clip-path: polygon(58% 15%, 78% 15%, 78% 85%, 58% 85%);
+        }
+
+        .spotify-progress-bar {
+            transition: width 0.3s ease;
+            background: linear-gradient(90deg, #fff, #ddd);
+            box-shadow: 0 0 6px rgba(255, 255, 255, 0.4), 0 0 12px rgba(255, 255, 255, 0.2);
+        }
+
+        .spotify-progress-track {
+            box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+        }
+
+        .spotify-volume-container {
+            position: relative;
+            width: 24px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .spotify-volume-slider-v {
+            -webkit-appearance: none;
+            appearance: none;
+            position: absolute;
+            width: 80px;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 2px;
+            outline: none;
+            transform: rotate(-90deg);
+            transform-origin: center;
+            left: -28px;
+            top: 38px;
+            cursor: pointer;
+        }
+
+        .spotify-volume-slider-v::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #fff;
+            cursor: pointer;
+            box-shadow: 0 0 6px rgba(255, 255, 255, 0.6), 0 0 12px rgba(255, 255, 255, 0.3);
+            transition: width 0.2s ease, height 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .spotify-volume-glow {
+            filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.3));
+        }
+
+        /* Volume slider hover & active effects */
+        .spotify-volume-slider-v:hover {
+            height: 4px;
+        }
+
+        .spotify-volume-slider-v:active {
+            height: 5px;
+        }
+
+        .spotify-volume-slider-v:hover::-webkit-slider-thumb {
+            width: 12px;
+            height: 12px;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.8), 0 0 16px rgba(255, 255, 255, 0.4);
+        }
+
+        /* Spotify Lyrics Display */
+        /* Width scales with whatever space is available (e.g. when other widgets are
+           hidden and #widgets-row drops to fewer grid columns, this card — and this
+           panel within it — gets wider), capped so the disk/art area always keeps room. */
+        .spotify-lyrics-panel {
+            flex-shrink: 0;
+            width: 28%;
+            min-width: 75px;
+            max-width: 260px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 6px;
+            padding: 8px 3px;
+            overflow: hidden;
+        }
+
+        #spotify-lyrics-lines {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        /* Fixed-height viewport showing the current line + upcoming lines.
+           Height = (3 * LYRICS_ROW_HEIGHT) + LYRICS_TOP_PAD from the JS below — keep these in sync.
+           The extra top padding isn't visual spacing — it's headroom so the current
+           line's white glow can render fully instead of being clipped by overflow:hidden. */
+        #spotify-lyrics-window {
+            position: relative;
+            width: 100%;
+            height: 188px;
+            overflow: hidden;
+        }
+
+        .lyrics-slot {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: max-content;
+            max-width: var(--lyrics-max-width, 220px);
+            max-height: 56px;      /* must match LYRICS_ROW_HEIGHT in JS */
+            padding: 6px 4px;
+            text-align: center;
+            white-space: normal;
+            word-break: break-word;
+            font-size: var(--lyrics-font-size, 13px);
+            line-height: 1.3;
+            font-weight: 700;
+            color: #fff;
+            opacity: 0.3;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+            letter-spacing: -0.3px;
+            transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease;
+            will-change: transform, opacity;
+        }
+
+        .lyrics-slot:hover {
+            opacity: 0.7;
+        }
+
+        .lyrics-slot-current {
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.9), 0 0 20px rgba(255, 255, 255, 0.6);
+        }
+
+        .lyrics-slot-current:hover {
+            opacity: 1;
+        }
+
+        /* Secondary "paren" line rendered beneath the main lyric text when a line
+           ends with one or more trailing parenthesized groups, e.g.:
+             Scrape the bowl          ← .lyrics-main-text (inherits all slot styles)
+             (skrrt, skrrt)           ← .lyrics-paren-text
+           text-shadow (glow) is inherited from the parent .lyrics-slot-current so
+           the secondary line glows in sync with the main text. */
+        .lyrics-main-text {
+            display: block;
+            text-align: center;
+        }
+
+        .lyrics-paren-text {
+            display: block;
+            text-align: center;
+            font-size: 75%;
+            opacity: 0.78;
+            /* text-shadow, font-weight, letter-spacing, font-family all inherited */
+        }
+
+        /* Same secondary formatting for the full-screen modal */
+        .lyrics-full-line .lyrics-paren-text {
+            display: block;
+            font-size: 75%;
+            opacity: 0.78;
+            padding-top: 1px;
+        }
+
+        /* Shown in place of the conveyor while a new track's lyrics are being fetched.
+           Sits in the exact same 3-slot layout as the real lines (via lyricsSlotTransform/
+           lyricsSlotOpacity in JS), so it reads as "lines are about to appear here"
+           rather than a generic spinner. */
+        .lyrics-skeleton-line {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            height: 10px;
+            border-radius: 5px;
+            background: linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0.08) 25%,
+                rgba(255, 255, 255, 0.22) 50%,
+                rgba(255, 255, 255, 0.08) 75%
+            );
+            background-size: 200% 100%;
+            animation: lyrics-shimmer 1.6s ease-in-out infinite;
+        }
+
+        @keyframes lyrics-shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .lyrics-unavailable-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            padding: 16px 6px;
+            text-align: center;
+            width: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+        }
+
+        .lyrics-unavailable-icon {
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.18);
+            display: block;
+            margin-bottom: 1px;
+        }
+
+        .lyrics-unavailable-title {
+            display: block;
+            font-size: 9.5px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            color: rgba(255, 255, 255, 0.32);
+            text-transform: uppercase;
+        }
+
+        .lyrics-unavailable-sub {
+            display: block;
+            font-size: 8px;
+            font-weight: 400;
+            color: rgba(255, 255, 255, 0.18);
+            letter-spacing: 0.2px;
+        }
+
+        .spotify-lyrics-expand-btn {
+            display: none;
+            margin-top: auto;
+            padding: 4px 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 4px;
+            color: #999;
+            font-size: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .spotify-lyrics-expand-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        /* Lyrics Modal */
+        #lyrics-modal {
+            display: none;
+            position: absolute;
+            inset: 0;
+            z-index: 45;
+            flex-direction: column;
+            pointer-events: auto;
+        }
+
+        #lyrics-modal.shown {
+            display: flex;
+        }
+
+        #lyrics-modal-content {
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            z-index: 45;
+            height: 100%;
+        }
+
+        #lyrics-modal-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #lyrics-modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
+        .lyrics-full-list {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .lyrics-full-line {
+            padding: 10px 0;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #999;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-left: 2px solid transparent;
+            padding-left: 8px;
+        }
+
+        .lyrics-full-line:hover {
+            color: #ddd;
+            border-left-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .lyrics-full-line.current {
+            color: #fff;
+            border-left-color: #fff;
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+            font-weight: 500;
+        }
+
+        .spotify-volume-slider-v:active::-webkit-slider-thumb {
+            width: 14px;
+            height: 14px;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 1), 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        /* Volume icon smooth transitions */
+        #spotify-vol-icon {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        /* Vinyl Disk Speed Slider */
+        .spotify-disk-speed-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .spotify-disk-speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #fff;
+            cursor: pointer;
+            box-shadow: 0 0 6px rgba(255, 255, 255, 0.6), 0 0 12px rgba(255, 255, 255, 0.3);
+            transition: width 0.2s ease, height 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .spotify-disk-speed-slider:hover::-webkit-slider-thumb {
+            width: 12px;
+            height: 12px;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.8), 0 0 16px rgba(255, 255, 255, 0.4);
+        }
+
+        .spotify-disk-speed-slider:active::-webkit-slider-thumb {
+            width: 14px;
+            height: 14px;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 1), 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        /* iOS-style toggle switches, used for all Settings checkboxes. The real
+           <input type="checkbox"> stays fully functional (same id/onchange as before)
+           but is invisible — :checked + sibling-selector drives the visible track/knob. */
+        .ios-toggle {
+            position: relative;
+            display: inline-block;
+            width: 36px;
+            height: 21px;
+            flex-shrink: 0;
+        }
+
+        .ios-toggle-input {
+            position: absolute;
+            inset: 0;
+            margin: 0;
+            opacity: 0;
+            cursor: pointer;
+            z-index: 2;
+        }
+
+        .ios-toggle-track {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.18);
+            border-radius: 999px;
+            transition: background-color 0.25s ease;
+            pointer-events: none;
+        }
+
+        .ios-toggle-track::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 17px;
+            height: 17px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .ios-toggle-input:checked + .ios-toggle-track {
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .ios-toggle-input:checked + .ios-toggle-track::after {
+            transform: translateX(15px);
+            background: #111;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+        }
+
+        .ios-toggle-input:active + .ios-toggle-track::after {
+            width: 19px; /* iOS gives the knob a little horizontal squish while pressed */
+        }
+
+        .ios-toggle-input:focus-visible + .ios-toggle-track {
+            outline: 2px solid rgba(255, 255, 255, 0.5);
+            outline-offset: 2px;
+        }
+
+        /* Remove orange circle (focus ring) */
+        *:focus {
+            outline: none !important;
+        }
+
+        /* Cleaner Scrollbar with Glow */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.05);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.1);
+        }
+
+        #clock {
+            transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        #clock-seconds {
+            display: inline-block;
+            max-width: 0;
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+            white-space: nowrap;
+        }
+
+        #clock:hover #clock-seconds {
+            max-width: 4ch;
+            opacity: 1;
+            margin-left: 2px;
+        }
+
+        #weather {
+            position: relative;
+        }
+
+        #weather::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 130%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(30, 30, 30, 0.95);
+            color: #e5e5e5;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #weather:hover::after {
+            opacity: 1;
+        }
+
+        #close-windows-startup-label {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            padding-left: 1.5rem;
+            opacity: 0;
+            max-height: 0;
+            transform: translateY(-12px) scale(0.95);
+            overflow: hidden;
+            margin-bottom: 0;
+            pointer-events: none;
+            transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), max-height 0.35s ease, margin-bottom 0.35s ease;
+        }
+
+        #close-windows-startup-label.visible {
+            opacity: 1;
+            max-height: 24px;
+            transform: translateY(0) scale(1);
+            margin-bottom: 1rem;
+            pointer-events: auto;
+        }

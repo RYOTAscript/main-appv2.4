@@ -5,6 +5,397 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.10.0] — 2026-07-07
+
+### Added
+
+- **New "Clipboard History" mini widget.** Enable it from Settings → Mini
+  Widgets to keep a running history of everything you copy (up to 50
+  snippets). Click any entry to re-copy it, pin favorites to keep them from
+  being evicted, delete individual entries, or clear the whole history.
+  History persists across restarts. Snippets tagged as sensitive by
+  password managers (1Password, Bitwarden, etc.) are never recorded.
+
+## [3.9.0] — 2026-07-07
+
+### Fixed
+
+- **Closing Settings while binding a hotkey no longer leaves keyboard input
+  stuck.** The capture listener is now torn down when the modal closes, so a
+  cancelled bind can't swallow subsequent keystrokes.
+- **Spotify media-key hotkeys no longer double-fire** a single press under
+  certain focus/timing conditions.
+- **FPS Optimizer's process whitelist** no longer both over- and
+  under-protects processes: matching is now exact-name (case-insensitive,
+  `.exe` stripped) instead of substring, so `cmd` no longer incorrectly
+  matches `cmder.exe`. `powershell`/`pwsh` are protected, and the app's own
+  process names are always excluded from termination.
+- **FPS Optimizer no longer reports false success.** Optimize, Battery Saver,
+  and the new Revert action now track each step's real success/failure and
+  report accurately, instead of always claiming full success.
+- **Added a "Restore Defaults" button** to the FPS panel that reverts the
+  optimizer's registry/service changes back to Windows defaults.
+- **Fixed a Spotify token-refresh race** where concurrent callers could each
+  trigger their own refresh, rotating the refresh token out from under each
+  other. Concurrent refresh calls now share a single in-flight request.
+- **Fixed Spotify's OAuth login popup** being openable multiple times at once
+  if clicked repeatedly.
+- **Spotify progress-bar seeking** now only sends the seek request once, on
+  mouse release, instead of on every drag movement (matching the existing
+  volume-slider behavior).
+- **Fixed a stale-retry bug** in Spotify polling where disconnecting and
+  reconnecting within the backoff window could leave an old retry timer
+  running against the new session.
+- **Autostart state and Settings** no longer briefly disagree on load.
+- **Custom launcher icons are now stored in the app's userData folder**
+  instead of its install directory, fixing potential write-permission
+  failures and update-wipe data loss; existing custom icons are migrated
+  automatically and non-destructively.
+- **Hotkey conflicts are now detected across categories** (e.g. a macro
+  hotkey colliding with the mic-mute hotkey), not just within one.
+- **Fixed visualizer blurriness** after a display's DPI/scale changed
+  without an app restart, and a brief flicker in the widget grid layout.
+- **Added a cancel affordance** while binding a hotkey, and removed leftover
+  debug logging from the hotkey-bind flow.
+- **Bounded the Spotify audio-analysis/features and lyrics caches** so they
+  no longer grow without bound over long always-on sessions.
+- **Mic-mute overlay window load failures are now logged** instead of
+  failing silently.
+- **The weather widget's primary fetch now times out after 6s** instead of
+  potentially hanging for up to 20s before falling back.
+- **The macros enable/disable hotkey can no longer be set to a mouse
+  button** — Electron's global shortcut mechanism (which the toggle hotkey
+  uses) doesn't support mouse buttons, so this is now rejected server-side,
+  not just in the picker UI.
+- **Fixed macro recording incorrectly stripping unrelated keypresses** that
+  shared a base key with a modified toggle hotkey (e.g. recording `F9` alone
+  would previously also get stripped if the toggle hotkey was `Ctrl+F9`).
+
+## [3.8.1] — 2026-07-06
+
+### Fixed
+
+- **Turning off the Macros mini-widget now collapses its whole section** in
+  Settings, instead of leaving the description and full macro list visible
+  with just a "Widget disabled" note. Toggling it back on brings the section
+  back exactly as it was.
+
+## [3.8.0] — 2026-07-06
+
+### Added
+
+- **Duplicate a single step.** Each step in the step editor now has a copy
+  button (next to move up/down and remove) that inserts an identical copy right
+  after it, ready to tweak. This is separate from the macro-level "duplicate"
+  button, which copies the whole macro.
+
+### Changed
+
+- **Macro trigger keys now pass through to other apps.** Previously a keyboard
+  trigger in Key Pressed / Key Toggle mode was captured by a Windows global
+  shortcut, which *swallowed* the key so it never reached the focused game or
+  app. All macro triggers (every mode, keyboard and mouse) are now handled by
+  the macro engine's passive key watcher instead, so the trigger key still
+  registers normally in whatever app is focused — the same behaviour Hold /
+  Released and mouse triggers already had, and how TG Macro works.
+  - Practical effect: a macro bound to a plain key (e.g. `G`) will fire on
+    *every* press of that key, including while you type — so prefer function
+    keys, side mouse buttons, or modifier combos for triggers you don't want to
+    fire accidentally.
+  - The enable/disable toggle hotkey (F9 by default) is unchanged: it stays a
+    global shortcut and is still swallowed, since it's a dedicated control key.
+
+## [3.7.0] — 2026-07-06
+
+### Changed
+
+- **The "stop everything" hotkey is now an enable/disable-macros toggle.**
+  Instead of only stopping whatever is running, the hotkey (still **F9** by
+  default) now flips all macros on or off. When disabled, every macro trigger —
+  keyboard, mouse, hold/release — stops responding, and anything currently
+  playing is halted immediately; press the hotkey again to re-enable. This is a
+  superset of the old behaviour (disabling still stops a running macro) with a
+  clearer mental model.
+- **New "Macros enabled / Macros disabled" button in the panel.** Sits next to
+  the toggle-key binder and shows the current state (green check when enabled,
+  grey when disabled); click it to flip without touching the keyboard. The
+  enable/disable state persists across restarts.
+- The macro engine is kept warm while disabled, so re-enabling is instant.
+- This is separate from the Settings widget master switch: the master switch
+  turns the whole widget off (and releases the toggle hotkey), while the new
+  button/hotkey enables or disables the macros within an enabled widget.
+
+### Migration
+
+- Existing `stopHotkey` settings are read as the new toggle hotkey automatically
+  — no reconfiguration needed. Macros start enabled by default.
+
+## [3.6.1] — 2026-07-06
+
+### Changed
+
+- **Left click can now be bound as a macro trigger too.** All five mouse buttons
+  (left, right, middle, Mouse 4, Mouse 5) are now assignable. Note that a macro
+  bound to left click fires on every left click while the widget is enabled —
+  including clicks inside the app — so use it deliberately.
+- Simplified the bind prompt to "Press a key or mouse button — Esc to clear".
+
+## [3.6.0] — 2026-07-06
+
+### Added
+
+- **Mouse buttons can trigger macros.** When binding a macro's trigger, you can
+  now press a mouse button instead of a key: right click, middle click, or a
+  side button (Mouse 4 / Mouse 5). All four trigger modes work — Key Pressed,
+  Key Hold, Key Toggle, and Key Released behave the same as with keyboard keys.
+  Because Windows global shortcuts are keyboard-only, mouse triggers are handled
+  by the macro engine's key watcher, so they also still reach the focused game
+  or app. Left click is intentionally not bindable (it's needed to operate the
+  app), and the stop-everything hotkey remains keyboard-only. Side buttons
+  (Mouse 4 / 5) are the safest choice, since the engine never synthesizes them
+  during playback.
+
+## [3.5.2] — 2026-07-06
+
+### Fixed
+
+- **Pressing Esc to clear a macro hotkey no longer also closes Settings.** The
+  key capture now fully consumes the event (`stopImmediatePropagation`) so it
+  can't fall through to the Settings close/media/search handlers, which share
+  the same capture-phase keydown listener. This also stops any key you bind
+  (e.g. a Spotify media key) from firing its normal action at the moment you
+  assign it.
+
+## [3.5.1] — 2026-07-06
+
+### Fixed
+
+- **Binding a macro hotkey no longer types into the Settings search box.** While
+  assigning a macro's trigger hotkey (or capturing a key for a step), the
+  keystroke was also landing in the settings search field, filtering the page
+  out from under you. Both scripts listen on the same capture-phase keydown, so
+  the search handler now stands down whenever a macro key capture is in
+  progress, the same way it already does during recording.
+
+### Changed
+
+- **Press Esc while binding a macro hotkey to clear it.** Escape now unbinds the
+  macro's trigger and shows a dash (—) indicator instead of cancelling with the
+  old hotkey intact. Unbound macros display the dash too, matching the rest of
+  the app's hotkey rows. (The stop-everything hotkey can't be blank, so Escape
+  there still just cancels.)
+
+## [3.5.0] — 2026-07-06
+
+### Added
+
+- **"Record" filter dropdown next to Record new.** A caret button beside
+  Record new opens a menu to choose exactly what a fresh recording captures:
+  mouse movement, mouse buttons, keyboard keys, and delays (waits). Turn off
+  mouse movement to record a pure key sequence, turn off delays to capture the
+  actions with no waiting between them, and so on. Your choices are remembered
+  across sessions and apply to both Record new and Re-record.
+- **Clear all steps.** An eraser button in the macro editor (next to Duplicate)
+  empties a macro's steps in one click, so you can rebuild it from scratch
+  without deleting and recreating the whole macro.
+
+## [3.4.0] — 2026-07-06
+
+### Added
+
+- **Trigger modes for macros — like TG Macro's "When:" dropdown.** Each macro's
+  hotkey can now fire one of four ways: **Key Pressed** (plays when pressed),
+  **Key Hold** (plays/loops only while the key is physically held — releasing it
+  stops), **Key Toggle** (press to start, press again to stop), and
+  **Key Released** (plays when the key is released). Hold and Released work
+  through a new passive key watcher in the macro engine, since regular global
+  shortcuts can't see key releases; those trigger keys also still reach the
+  focused app instead of being swallowed. Existing macros migrate automatically
+  (loop on → Key Toggle, loop off → Key Pressed).
+- **Repeat count and playback speed per macro.** Set how many times a macro runs
+  per trigger (1–9999, or "until stopped") and play it back anywhere from 0.25×
+  to 4× the recorded speed. The editor also shows the estimated duration per run.
+- **New step types in the macro editor:** scroll the mouse wheel (up/down, any
+  number of notches), type free text (full Unicode, layout-independent), and
+  move the mouse to a fixed position without clicking.
+- **Alt + X position capture.** Giving a click or move step a fixed screen
+  position no longer uses a 3-second countdown — click the crosshair, hover the
+  target anywhere on screen, and press **Alt + X** to capture the exact spot.
+- **Per-macro enable checkbox, duplicate button, and import/export.** Disable a
+  single macro without deleting it, clone one as a starting point, and save or
+  load your whole macro collection as a JSON file.
+
+### Fixed
+
+- **Re-record and recording UX.** While a macro recording is running, the
+  Settings type-to-search no longer steals your keystrokes into the search box
+  (which could filter the macros panel out of view mid-recording and made
+  re-recording appear broken). The macro engine also warms up as soon as the
+  widget is enabled, so the first record/play starts instantly instead of
+  sitting through a several-second one-time compile with no feedback, and the
+  Record buttons now show a "Starting recorder…" toast immediately.
+
+## [3.3.0] — 2026-07-05
+
+### Added
+
+- **Macros mini widget.** Record and replay mouse & keyboard actions system-wide,
+  in the style of TG Macro. Record your real input (clicks, key presses, mouse
+  movement, timing) or build a macro step by step in the editor (key press,
+  hold/release key, clicks with optional fixed screen positions, delays).
+  Each macro gets its own global hotkey that works in games, plus a loop toggle
+  to repeat until stopped. F9 (configurable) instantly stops any recording or
+  running macro; it is only held while something is actually running, so F9
+  stays free for games the rest of the time. Keyboard playback sends hardware
+  scan codes so it works in games that use DirectInput. Enable it from
+  Settings → Mini Widgets. No extra software needed — recording and playback
+  run through a small helper process built on Windows APIs.
+
+## [3.2.0] — 2026-07-05
+
+### Added
+
+- **Display Monitor setting.** Choose which physical monitor the main window
+  opens on from Settings → Behavior. The window repositions immediately when
+  changed, and the choice is remembered for the next launch. If the previously
+  selected monitor is no longer connected, the app falls back to the primary
+  display instead of failing to open.
+
+## [3.1.0] — 2026-07-05
+
+### Added
+
+- **GPU-accelerated audio visualizer behind the vinyl disk.** A new WebGL-rendered
+  visual reacts live to your PC's audio output and renders behind the spinning
+  vinyl disk on the Spotify widget. Four modes: circular bars, a waveform ring
+  that circles the disk, a white Aura mode (a soft glowing halo that flows and
+  breathes organically around the disk, driven independently by bass, mid, and
+  treble energy), and particles. Off by default — enable it (and pick a mode)
+  from Settings → Spotify Extras. It uses its own independent loopback audio
+  capture, kept separate from the existing Beat Glow capture so the two
+  features can be toggled independently without affecting each other, and it
+  only captures/renders while a track is actively playing.
+- **Spotify Extras is now collapsible**, and now holds every Spotify
+  quality-of-life setting in one place: Sleep Timer, Auto-play on Spotify
+  launch, Vinyl Disk Rotation Speed, Beat-reactive glow, Lyrics Timing, and
+  the new Audio Visualizer. These were previously split across "Spotify
+  Integration" and "Spotify Extras"; "Spotify Integration" now only holds
+  connection setup (Client ID, Connect/Disconnect) and the progress timer
+  display mode. The collapsed/expanded state is remembered between sessions.
+
+## [3.0.1] — 2026-07-05
+
+### Fixed
+
+- **Disconnecting Spotify no longer crashes the widget.** Clicking Disconnect
+  in Settings threw an error inside the widget renderer (it was handed `null`
+  instead of a "not connected" state), so the widget kept showing the last
+  track instead of switching to the "Not connected" view. It now switches
+  correctly.
+- **An unbound hotkey no longer acts as a real "-" key binding.** When
+  binding a hotkey displaces another one, the displaced slot is stored as
+  "-" (unbound). That sentinel was previously treated as a real binding: it
+  matched the minus key inside the app and was even registered as a
+  system-wide global shortcut, hijacking the bare "-" key across Windows.
+  It is now ignored everywhere (in-app matching, Spotify shortcuts, mic-mute
+  hotkey, and the focus hotkey).
+- **Quitting can no longer hang if mic-unmute cleanup fails.** The
+  quit-time "unmute mic and tear down overlay" step had no error guard — if
+  it threw, the app could never finish quitting. It now always releases the
+  quit even when cleanup fails.
+- **The app's own process is now correctly protected during FPS-optimizer
+  process kills.** The main app's renderer PID was captured before the
+  renderer process existed (always 0), so the PID-based protection in
+  "Close apps" / "Nuke" / "Battery Saver" never actually covered the app
+  itself (only the name-based whitelist did). The PID is now captured when
+  the page finishes loading and re-captured after a crash auto-reload.
+- **FPS optimizer progress listeners no longer pile up.** Every action run
+  added a new progress listener without removing the previous one, leaking
+  listeners across runs within the same session. Also, if the action was
+  triggered while the bridge was unavailable, the "action in progress" flag
+  stayed stuck and blocked all further actions.
+- **Spotify control/volume/seek no longer report success on API errors**
+  (error responses were truthy objects and read as success).
+- **Playing a podcast episode can no longer crash the track poll** — episode
+  items have no artists/album, and those fields are now read defensively
+  (falling back to the show name/publisher).
+- **Toasts appearing in quick succession get their full display time** —
+  previously the first toast's hide timer cut the second one short.
+- **Spotify PKCE login now uses cryptographically secure randomness** for
+  the code verifier (was `Math.random()`, which RFC 7636 forbids).
+- Small leaks/cleanups: settings-export blob URL is now released after the
+  download; drag-reorder state resets after each drop; a lyrics log call
+  passed its metadata in the wrong argument slot.
+
+### Files changed
+
+- `main.js` — renderer PID captured on `did-finish-load` (and re-captured on
+  auto-reload); `before-quit` cleanup wrapped in try/finally; focus-hotkey
+  handler rejects the "-" sentinel.
+- `main/spotify.js` — skip "-" when registering Spotify global shortcuts;
+  `success` flags exclude `_error` results; episode-safe track fields;
+  crypto-secure PKCE verifier.
+- `main/micMute.js` — "-" treated as "clear hotkey" instead of a binding.
+- `main/lyrics.js` — log metadata fixed.
+- `renderer/spotify-widget.js` — disconnect renders the not-connected state
+  instead of crashing.
+- `renderer/hotkeys.js` — `keydownMatches` ignores unbound ("-"/empty)
+  accelerators.
+- `renderer/fps-optimizer.js` — progress listener replaced per run; stuck
+  in-progress flag fixed.
+- `renderer/ui-utils.js` — toast hide timer tracked per toast.
+- `renderer/widgets-settings.js` — export URL revoked; drag state reset.
+
+---
+
+## [3.0.0] — 2026-07-05
+
+### Changed
+
+- **Large internal reorganization — no user-visible feature changes.** The two
+  monolithic files that had grown over many feature passes (`main.js` at
+  ~2000 lines, `main.html` at ~4700 lines) are now split into focused,
+  single-purpose files so the codebase is easier to navigate and maintain.
+  Every IPC channel, lifecycle handler, `onclick` handler, and
+  `electronAPI.*` call was diffed line-for-line against the pre-refactor
+  originals to confirm nothing was dropped or altered — this is purely a
+  file-layout change.
+- **Small cleanups made alongside the split:** removed a dead, unused
+  `USER_APPS`/`WHITELIST_STD` constant pair from the FPS optimizer code;
+  removed a redundant duplicate Spotify config/token load that ran twice at
+  startup with no observable effect; replaced defensive `logger.debug?.(...)`
+  optional-chaining calls with plain `logger.debug(...)` since the method is
+  always present on `Logger`.
+
+### Files changed
+
+- `main.js` — rewritten as a slim orchestrator (~340 lines, down from
+  ~2000). Owns app lifecycle, window/tray management, and delegates
+  everything else to the new `main/` modules via a shared `ctx` object.
+- `main/httpClient.js`, `main/shellUtils.js`, `main/scriptCache.js` — small
+  shared helpers (fetch wrapper, PowerShell exec wrapper, versioned
+  script-file cache) extracted out of what used to be inline code.
+- `main/autostart.js`, `main/systemStats.js`, `main/appLauncher.js`,
+  `main/fpsOptimizer.js` — extracted feature modules for Windows autostart,
+  CPU/RAM/FPS polling, the pinned-apps launcher, and the FPS optimizer's
+  system tweaks.
+- `main/micMute.js` — mic-mute Core Audio COM script, overlay window, tray
+  integration, and hotkey handling.
+- `main/spotify.js` — PKCE OAuth flow, encrypted token storage, playback
+  control, shortcuts, and the sleep timer.
+- `main/lyrics.js` — lrclib.net lookup and LRC parsing.
+- `main/weather.js` — wttr.in fetch and reverse-geocoding.
+- `main.html` — inline `<style>` block (~1050 lines) extracted to
+  `styles/main.css`; the single inline `<script>` block (~3000 lines)
+  extracted, in original order, into ten `renderer/*.js` files loaded via
+  `<script src>` tags: `core.js`, `fps-optimizer.js`, `hotkeys.js`,
+  `settings.js`, `ui-utils.js`, `widgets-settings.js`, `clock-weather.js`,
+  `beat-glow.js`, `spotify-widget.js`, `lyrics.js`.
+- `package.json` — added `main/**/*`, `renderer/**/*`, and `styles/**/*` to
+  `build.files` so electron-builder packages the new folders.
+
+---
+
 ## [2.8.0] — 2026-07-05
 
 ### Added
