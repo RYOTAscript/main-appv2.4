@@ -729,6 +729,33 @@
         }
         .spotify-ew-reconnect:hover { text-decoration: underline; }
 
+        /* ── Expanded strip when Spotify is the only main widget (full-width player) ──
+           There's a big open area right of the vinyl then, so the strip grows into it
+           (beside the disk, not over it) with larger rows/text. Toggled by the
+           .spotify-solo class the renderer adds to #widget-spotify. */
+        .spotify-solo .spotify-enhanced-widget {
+            top: 15px;
+            bottom: 15px;
+            right: 46px;
+            width: 206px;
+            height: auto;
+            padding: 8px;
+            gap: 6px;
+            border-radius: 16px;
+        }
+        .spotify-solo .spotify-ew-tabs { gap: 5px; }
+        .spotify-solo .spotify-ew-tab { height: 26px; font-size: 12px; border-radius: 8px; }
+        .spotify-solo .spotify-ew-content { gap: 3px; }
+        .spotify-solo .spotify-ew-content::-webkit-scrollbar { width: 4px; }
+        .spotify-solo .spotify-ew-sub { padding: 1px 4px 2px; }
+        .spotify-solo .spotify-ew-caption { font-size: 9px; }
+        .spotify-solo .spotify-ew-sort { font-size: 11px; }
+        .spotify-solo .spotify-ew-row { font-size: 12.5px; padding: 4px 6px; gap: 8px; border-radius: 8px; }
+        .spotify-solo .spotify-ew-thumb { width: 28px; height: 28px; border-radius: 5px; }
+        .spotify-solo .spotify-ew-star { width: 16px; font-size: 12px; }
+        .spotify-solo .spotify-ew-empty { font-size: 11px; padding: 6px 4px; }
+        .spotify-solo .spotify-ew-reconnect { font-size: 11px; padding: 6px 4px; }
+
         /* Spotify Enhanced "like" heart — turns Spotify green and softly glows when the
            current track is in Liked Songs. A quick pop confirms each toggle. */
         .spotify-like-btn.is-liked {

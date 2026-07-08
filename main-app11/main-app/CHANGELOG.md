@@ -5,6 +5,25 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.16.0] — 2026-07-08
+
+### Added
+
+- **The Spotify Enhanced strip expands when Spotify is the only widget.** When
+  you turn off Quick Notes and Performance so the Spotify player spans the full
+  width, the Queue / Recent / Playlists strip grows into the open space to the
+  right of the vinyl — larger tabs, bigger rows and album thumbnails — instead
+  of staying the tiny corner panel. It automatically shrinks back to the compact
+  version when another widget is shown again.
+
+### Files changed
+
+- `styles/main.css` — `.spotify-solo` overrides that enlarge and reposition the
+  strip in the full-width layout.
+- `renderer/widgets-settings.js` — add/remove the `spotify-solo` class on the
+  player when Spotify is the only visible widget.
+- `renderer/core.js`, `main.html`, `package.json`, `main.js` — version → 3.16.0.
+
 ## [3.15.0] — 2026-07-08
 
 ### Added / Changed

@@ -68,6 +68,13 @@
             document.getElementById('toggle-performance').checked = prefs.performance;
             document.getElementById('toggle-spotify').checked = prefs.spotify;
 
+            // When Spotify is the only visible main widget, the player spans the full
+            // width and there's room to the right of the vinyl — grow the Enhanced strip
+            // into it (see .spotify-solo in main.css).
+            if (widgetMap.spotify) {
+                widgetMap.spotify.classList.toggle('spotify-solo', !!(prefs.spotify && !prefs.notes && !prefs.performance));
+            }
+
             const visible = [prefs.notes, prefs.performance, prefs.spotify].filter(Boolean).length;
             const row = document.getElementById('widgets-row');
             const colClass = visible === 1 ? 'grid-cols-1' : visible === 2 ? 'grid-cols-2' : 'grid-cols-3';
