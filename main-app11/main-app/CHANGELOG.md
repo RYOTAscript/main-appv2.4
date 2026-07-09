@@ -5,6 +5,30 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.19.0] — 2026-07-09
+
+### Added
+
+- **Vegas-style multi-track timeline:** below the trim bar the Video Editor now
+  shows stacked track lanes — a **video lane** with a thumbnail filmstrip on top,
+  and **one lane per audio track** with its own waveform (labelled A1 · ENG,
+  A2 · FRE, …). All lanes share the trim bar's exact time axis, so the trim
+  selection dims the lanes outside the cut and a single playhead line runs
+  through every lane. Clicking anywhere on the lanes seeks. The filmstrip and
+  waveforms are rendered by the bundled FFmpeg and cached (cleaned up on quit),
+  with a loading shimmer while they generate.
+
+### Files changed
+
+- `main/videoEditor.js` — `video-timeline-assets` handler that renders a video
+  filmstrip (tiled thumbnails) and a per-track waveform (showwavespic), cached
+  alongside the preview proxies.
+- `preload.js` — `videoTimelineAssets` passthrough.
+- `renderer/video-editor.js` — track-lane rendering, asset loading/painting, and
+  selection/playhead overlays synced across all lanes.
+- `styles/main.css` — track-lane, waveform, filmstrip and overlay styles.
+- `renderer/core.js`, `main.html`, `package.json`, `main.js` — version → 3.19.0.
+
 ## [3.18.0] — 2026-07-09
 
 ### Added

@@ -578,6 +578,115 @@
             border-radius: 2px;
         }
 
+        /* ── Vegas-style multi-track lanes (video + one row per audio track) ──
+           Stacked full-width under the trim bar, sharing its exact time axis so the
+           selection shading and playhead line up across every lane. */
+        .ve-tracks {
+            position: relative;
+            margin-top: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.28);
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .ve-lane {
+            position: relative;
+            height: 40px;
+            background-color: #121216;
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: 100% 100%;
+            overflow: hidden;
+        }
+        .ve-lane-video { height: 46px; background-color: #0e0e11; }
+        .ve-lane-audio { background-color: #0d1422; }
+
+        .ve-wave {
+            position: absolute;
+            inset: 0;
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: 100% 100%;
+            opacity: 0.92;
+        }
+
+        .ve-lane-tag {
+            position: absolute;
+            top: 3px;
+            left: 5px;
+            z-index: 3;
+            font-size: 8.5px;
+            letter-spacing: 0.03em;
+            color: #cbd5e1;
+            background: rgba(0, 0, 0, 0.55);
+            padding: 1px 5px;
+            border-radius: 5px;
+            pointer-events: none;
+            text-transform: uppercase;
+            white-space: nowrap;
+            max-width: calc(100% - 10px);
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .ve-lane-video-empty {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #3f3f46;
+            font-size: 14px;
+        }
+
+        /* Loading shimmer while FFmpeg renders the waveform/filmstrip. */
+        .ve-lane-loading::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+            transform: translateX(-100%);
+            animation: veShimmer 1.2s ease-in-out infinite;
+        }
+        @keyframes veShimmer { to { transform: translateX(100%); } }
+
+        /* Overlays spanning the whole stack, positioned by percentage of duration. */
+        .ve-tracks-dim {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.55);
+            z-index: 4;
+            pointer-events: none;
+        }
+        .ve-tracks-sel {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            border-left: 2px solid #93c5fd;
+            border-right: 2px solid #93c5fd;
+            background: rgba(147, 197, 253, 0.07);
+            z-index: 5;
+            pointer-events: none;
+        }
+        .ve-tracks-playhead {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #ffffff;
+            box-shadow: 0 0 6px rgba(255, 255, 255, 0.55);
+            z-index: 6;
+            pointer-events: none;
+        }
+
         /* ── Spotify Enhanced inline strip (Queue / Recent / Playlists) ──
            Crammed into the upper-right of the player, over the vinyl area (translucent
            so the disk still reads through), clear of the controls/progress below. */

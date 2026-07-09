@@ -63,6 +63,7 @@ function init(ctx) {
 
   let currentExport = null; // the in-flight ffmpeg export child process, if any
   let currentProxy = null;  // the in-flight ffmpeg proxy-build child process, if any
+  let currentAsset = null;  // the in-flight ffmpeg timeline-asset child process, if any
 
   function ffmpegAvailable() {
     return !!ffmpegPath && fs.existsSync(ffmpegPath);
@@ -218,6 +219,71 @@ function init(ctx) {
     return { ok: false };
   });
 
+  // ── Vegas-style timeline assets: a video filmstrip + one waveform image per
+  // audio track, rendered by FFmpeg and cached alongside the proxies. They're
+  // purely visual (shown in the track lanes under the trim bar). ──
+  function assetKeyPath(inputPath, name) {
+    let stat;
+    try { stat = fs.statSync(inputPath); } catch (e) { stat = { size: 0, mtimeMs: 0 }; }
+    const key = crypto.createHash('md5')
+      .update(`${path.resolve(inputPath)}|${stat.size}|${Math.round(stat.mtimeMs)}|${name}`)
+      .digest('hex').slice(0, 16);
+    return path.join(PROXY_DIR, `${name}-${key}.png`);
+  }
+  function fileReady(p) {
+    try { return fs.existsSync(p) && fs.statSync(p).size > 0; } catch (e) { return false; }
+  }
+  function runFfmpegImage(args) {
+    return new Promise((resolve) => {
+      let child;
+      try { child = spawn(ffmpegPath, args); } catch (e) { resolve(false); return; }
+      currentAsset = child;
+      child.stderr.on('data', () => {}); // drain
+      child.on('error', () => { currentAsset = null; resolve(false); });
+      child.on('close', (code) => { currentAsset = null; resolve(code === 0); });
+    });
+  }
+
+  ipcMain.handle('video-timeline-assets', async (_event, opts) => {
+    if (!ffmpegAvailable()) return { ok: false, error: 'FFmpeg is unavailable' };
+    const inputPath = opts?.inputPath;
+    if (!inputPath || !fs.existsSync(inputPath)) return { ok: false, error: 'Source video not found' };
+    const audioIndices = Array.isArray(opts?.audioIndices) ? opts.audioIndices : [];
+    const durationSec = Math.max(0.1, (Number(opts?.durationMs) || 0) / 1000);
+    const WAVE_W = 1000, WAVE_H = 48, FILM_H = 44, COLS = 12;
+
+    try { fs.mkdirSync(PROXY_DIR, { recursive: true }); } catch (e) { /* ignore */ }
+
+    // Video filmstrip (non-fatal — the video lane still shows without it).
+    let filmstrip = null;
+    const filmOut = assetKeyPath(inputPath, `film-${COLS}x${FILM_H}`);
+    if (fileReady(filmOut)) {
+      filmstrip = filmOut;
+    } else {
+      const ok = await runFfmpegImage([
+        '-y', '-i', inputPath, '-frames:v', '1', '-update', '1',
+        '-vf', `fps=${COLS / durationSec},scale=-1:${FILM_H},tile=${COLS}x1`, filmOut
+      ]);
+      if (ok && fileReady(filmOut)) filmstrip = filmOut;
+    }
+
+    // One waveform image per requested audio track.
+    const waveforms = [];
+    for (const aIndex of audioIndices) {
+      if (!Number.isInteger(aIndex)) continue;
+      const waveOut = assetKeyPath(inputPath, `wave-a${aIndex}-${WAVE_W}x${WAVE_H}`);
+      if (fileReady(waveOut)) { waveforms.push({ aIndex, path: waveOut }); continue; }
+      const ok = await runFfmpegImage([
+        '-y', '-i', inputPath, '-frames:v', '1', '-update', '1',
+        '-filter_complex', `[0:a:${aIndex}]aformat=channel_layouts=mono,showwavespic=s=${WAVE_W}x${WAVE_H}:colors=#8ab4f8`,
+        waveOut
+      ]);
+      if (ok && fileReady(waveOut)) waveforms.push({ aIndex, path: waveOut });
+    }
+
+    return { ok: true, filmstrip, waveforms };
+  });
+
   ipcMain.handle('video-pick-input', async () => {
     if (!ffmpegAvailable()) return { ok: false, error: 'FFmpeg is unavailable' };
     const win = getMainWindow();
@@ -364,7 +430,8 @@ function init(ctx) {
     teardown: () => {
       if (currentExport) { try { currentExport.kill('SIGKILL'); } catch (e) { /* ignore */ } }
       if (currentProxy) { try { currentProxy.kill('SIGKILL'); } catch (e) { /* ignore */ } }
-      // Preview proxies are throwaway temp files — clear them on quit.
+      if (currentAsset) { try { currentAsset.kill('SIGKILL'); } catch (e) { /* ignore */ } }
+      // Preview proxies and timeline assets are throwaway temp files — clear on quit.
       try { fs.rmSync(PROXY_DIR, { recursive: true, force: true }); } catch (e) { /* ignore */ }
     }
   };

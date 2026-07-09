@@ -1,6 +1,6 @@
 {
   "name": "main-app",
-  "version": "3.18.0",
+  "version": "3.19.0",
   "description": "Personal gaming & productivity launcher",
   "main": "main.js",
   "scripts": {

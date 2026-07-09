@@ -104,6 +104,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   videoReveal: (filePath) => ipcRenderer.invoke('video-reveal', filePath),
   videoMakeProxy: (opts) => ipcRenderer.invoke('video-make-proxy', opts),
   videoCancelProxy: () => ipcRenderer.invoke('video-cancel-proxy'),
+  videoTimelineAssets: (opts) => ipcRenderer.invoke('video-timeline-assets', opts),
   onVideoExportProgress: (callback) => ipcRenderer.on('video-export-progress', (_event, data) => callback(data)),
   onVideoProxyProgress: (callback) => ipcRenderer.on('video-proxy-progress', (_event, data) => callback(data)),
 

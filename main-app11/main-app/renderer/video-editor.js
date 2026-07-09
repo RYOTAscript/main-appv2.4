@@ -21,7 +21,11 @@
             proxyKey: null,     // "<inputPath>|<height>" the current proxy was built for
             proxyBusy: false,   // a proxy build is in flight
             _pendingSeekSec: null, // preserve playhead across a preview source swap
-            _resumeAfterLoad: false
+            _resumeAfterLoad: false,
+            filmstrip: null,    // video-lane thumbnail-strip image path
+            waveforms: {},      // aIndex -> waveform image path
+            assetsBusy: false,  // timeline assets (filmstrip/waveforms) are rendering
+            assetsKey: null     // input path the current assets belong to
         };
         let veDragging = null;  // 'in' | 'out' | null
         let veProgressBound = false;
@@ -142,6 +146,14 @@
                     <button type="button" onclick="veSetOut()" class="hotkey-bind no-drag" title="Set end to playhead">Out: <span id="ve-out-label">0:00.000</span></button>
                 </div>
 
+                <!-- Vegas-style track lanes: video on top, one row per audio track -->
+                <div id="ve-tracks" class="ve-tracks no-drag">${veTracksLanesHtml()}
+                    <div id="ve-tracks-dim-left" class="ve-tracks-dim"></div>
+                    <div id="ve-tracks-dim-right" class="ve-tracks-dim"></div>
+                    <div id="ve-tracks-sel" class="ve-tracks-sel"></div>
+                    <div id="ve-tracks-playhead" class="ve-tracks-playhead"></div>
+                </div>
+
                 <!-- Options -->
                 <div class="border-t border-neutral-800 pt-3 space-y-2.5">
                     <label class="flex items-center gap-3 cursor-pointer text-xs ${inp.hasAudio ? '' : 'opacity-40'}">
@@ -187,6 +199,8 @@
             // Re-apply the chosen preview quality for this clip (builds/reuses a proxy
             // when a lower quality is selected; a no-op for "Original").
             veApplyPreviewQuality();
+            // Fetch/paint the track waveforms + video filmstrip.
+            veLoadTimelineAssets();
         }
 
         function bindVideoEditor() {
@@ -232,6 +246,13 @@
                 });
                 document.addEventListener('mousemove', veOnDragMove);
                 document.addEventListener('mouseup', veOnDragEnd);
+            }
+
+            // Clicking anywhere on the track lanes seeks — they share the timeline's
+            // exact horizontal extent, so the same percentage math applies.
+            const tracks = document.getElementById('ve-tracks');
+            if (tracks) {
+                tracks.addEventListener('mousedown', (e) => veSeekFromEvent(e));
             }
         }
 
@@ -290,14 +311,24 @@
             if (inLabel) inLabel.textContent = veFormatTime(ve.inMs);
             if (outLabel) outLabel.textContent = veFormatTime(ve.outMs);
             if (lenLabel) lenLabel.textContent = veFormatTime(ve.outMs - ve.inMs);
+            // Mirror the trim selection onto the track lanes (dim outside [in,out]).
+            const dimL = document.getElementById('ve-tracks-dim-left');
+            const dimR = document.getElementById('ve-tracks-dim-right');
+            const selT = document.getElementById('ve-tracks-sel');
+            if (dimL) { dimL.style.left = '0%'; dimL.style.width = `${inPct}%`; }
+            if (dimR) { dimR.style.left = `${outPct}%`; dimR.style.width = `${Math.max(0, 100 - outPct)}%`; }
+            if (selT) { selT.style.left = `${inPct}%`; selT.style.width = `${Math.max(0, outPct - inPct)}%`; }
             veUpdatePlayhead();
         }
 
         function veUpdatePlayhead() {
             if (!ve.input) return;
             const dur = ve.input.durationMs || 1;
+            const pct = Math.max(0, Math.min(100, (ve.playheadMs / dur) * 100));
             const ph = document.getElementById('ve-playhead');
-            if (ph) ph.style.left = `${Math.max(0, Math.min(100, (ve.playheadMs / dur) * 100))}%`;
+            if (ph) ph.style.left = `${pct}%`;
+            const tph = document.getElementById('ve-tracks-playhead');
+            if (tph) tph.style.left = `${pct}%`;
             const lbl = document.getElementById('ve-playhead-label');
             if (lbl) lbl.textContent = veFormatTime(ve.playheadMs);
         }
@@ -379,6 +410,11 @@
             ve.proxyPath = null;
             ve.proxyKey = null;
             ve.proxyBusy = false;
+            // Nor do its timeline assets.
+            ve.filmstrip = null;
+            ve.waveforms = {};
+            ve.assetsKey = null;
+            ve.assetsBusy = false;
             veResetExportUI();
             renderVideoEditorPanel();
             showToast('Video imported');
@@ -686,4 +722,83 @@
                     veStepFrame(1);
                 }
             });
+        }
+
+        // ── Vegas-style track lanes (video filmstrip + one waveform per audio track) ──
+
+        // A short lane label, e.g. "A1 · ENG" or "A2 · Commentary".
+        function veLaneLabel(t, i) {
+            const parts = [`A${i + 1}`];
+            if (t.language) parts.push(t.language.toUpperCase());
+            else if (t.title) parts.push(t.title);
+            else if (t.channels) parts.push(t.channels);
+            return parts.join(' · ');
+        }
+
+        // Builds the lane elements (used both in the initial render and rebuilt on
+        // import). Background images are filled in later by veApplyTrackAssets once
+        // FFmpeg has rendered them (or immediately, if already cached in state).
+        function veTracksLanesHtml() {
+            if (!ve.input) return '';
+            const tracks = ve.audioTracks || [];
+            let html = '';
+            const filmStyle = ve.filmstrip ? ` style="background-image:url('${veFileUrl(ve.filmstrip)}')"` : '';
+            const filmEmpty = !ve.filmstrip ? `<span class="ve-lane-video-empty"><i class="fas fa-film"></i></span>` : '';
+            html += `<div class="ve-lane ve-lane-video" id="ve-lane-video"${filmStyle}><span class="ve-lane-tag">Video</span>${filmEmpty}</div>`;
+            tracks.forEach((t, i) => {
+                const wf = ve.waveforms[t.aIndex];
+                const waveStyle = wf ? ` style="background-image:url('${veFileUrl(wf)}')"` : '';
+                html += `<div class="ve-lane ve-lane-audio" data-aindex="${t.aIndex}"><span class="ve-lane-tag">${esc(veLaneLabel(t, i))}</span><div class="ve-wave" id="ve-wave-lane-${t.aIndex}"${waveStyle}></div></div>`;
+            });
+            return html;
+        }
+
+        // Paints the filmstrip/waveform backgrounds onto the existing lanes and
+        // toggles the loading shimmer — without rebuilding the DOM, so the selection
+        // and playhead overlays stay put.
+        function veApplyTrackAssets() {
+            const vlane = document.getElementById('ve-lane-video');
+            if (vlane) {
+                vlane.classList.toggle('ve-lane-loading', !ve.filmstrip && ve.assetsBusy);
+                if (ve.filmstrip) {
+                    vlane.style.backgroundImage = `url('${veFileUrl(ve.filmstrip)}')`;
+                    vlane.querySelector('.ve-lane-video-empty')?.remove();
+                }
+            }
+            (ve.audioTracks || []).forEach((t) => {
+                const lane = document.querySelector(`.ve-lane-audio[data-aindex="${t.aIndex}"]`);
+                const wave = document.getElementById(`ve-wave-lane-${t.aIndex}`);
+                const wf = ve.waveforms[t.aIndex];
+                if (lane) lane.classList.toggle('ve-lane-loading', !wf && ve.assetsBusy);
+                if (wave && wf) wave.style.backgroundImage = `url('${veFileUrl(wf)}')`;
+            });
+        }
+
+        // Requests (or reuses) the timeline assets for the current clip and paints them.
+        async function veLoadTimelineAssets() {
+            if (!ve.input || !window.electronAPI?.videoTimelineAssets) return;
+            // Already have assets for this exact file — just (re)paint.
+            if (ve.assetsKey === ve.input.path && (ve.filmstrip || Object.keys(ve.waveforms).length)) {
+                veApplyTrackAssets();
+                return;
+            }
+            ve.assetsBusy = true;
+            veApplyTrackAssets(); // show shimmer
+            const audioIndices = (ve.audioTracks || []).map((t) => t.aIndex);
+            const inputAtRequest = ve.input.path;
+            const res = await window.electronAPI.videoTimelineAssets({
+                inputPath: inputAtRequest,
+                audioIndices,
+                durationMs: ve.input.durationMs
+            });
+            // Ignore if the user swapped to a different clip meanwhile.
+            if (!ve.input || ve.input.path !== inputAtRequest) return;
+            ve.assetsBusy = false;
+            if (res?.ok) {
+                ve.assetsKey = ve.input.path;
+                ve.filmstrip = res.filmstrip || null;
+                ve.waveforms = {};
+                (res.waveforms || []).forEach((w) => { ve.waveforms[w.aIndex] = w.path; });
+            }
+            veApplyTrackAssets();
         }
