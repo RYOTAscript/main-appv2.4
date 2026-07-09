@@ -5,6 +5,28 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.17.0] — 2026-07-09
+
+### Added
+
+- **Draggable Spotify Enhanced panel:** a new **Draggable panel** toggle in the
+  Spotify Enhanced settings shows a small grip at the top of the player strip.
+  Grab it to drag the strip anywhere within the player; its position is saved and
+  restored automatically. Position is remembered **separately** for the two
+  layouts (compact, when Spotify shares the player, and the full-width solo
+  layout), so each looks right. A **Reset** button restores the default position.
+  The setting and saved positions are included in settings export/import.
+
+### Files changed
+
+- `main.html` — grip handle markup at the top of the inline strip.
+- `styles/main.css` — grip styling; visible only in draggable mode.
+- `renderer/spotify-enhanced.js` — draggable state, drag handlers (with
+  per-layout persistence and in-bounds clamping), and the settings toggle.
+- `renderer/widgets-settings.js` — re-apply saved position on layout change;
+  export/import of `spotifyEwDraggable` / `spotifyEwPos`.
+- `renderer/core.js`, `main.html`, `package.json`, `main.js` — version → 3.17.0.
+
 ## [3.16.1] — 2026-07-08
 
 ### Changed

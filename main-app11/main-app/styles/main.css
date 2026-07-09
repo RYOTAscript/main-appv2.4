@@ -729,6 +729,33 @@
         }
         .spotify-ew-reconnect:hover { text-decoration: underline; }
 
+        /* ── Drag handle ──
+           Hidden unless the "Draggable panel" toggle in Settings is on, which adds
+           the .draggable class. Grip dots at the very top; grabbing them repositions
+           the whole strip (position persisted per layout mode). */
+        .spotify-ew-drag {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            height: 9px;
+            flex-shrink: 0;
+            cursor: grab;
+            margin: -2px 0 1px;
+        }
+        .spotify-ew-drag span {
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.4);
+        }
+        .spotify-enhanced-widget.draggable .spotify-ew-drag { display: flex; }
+        .spotify-enhanced-widget.dragging {
+            cursor: grabbing;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+        .spotify-enhanced-widget.dragging .spotify-ew-drag { cursor: grabbing; }
+
         /* ── Expanded strip when Spotify is the only main widget (full-width player) ──
            There's a big open area right of the vinyl then, so the strip grows into it
            (beside the disk, not over it) with larger rows/text. Toggled by the
@@ -755,6 +782,8 @@
         .spotify-solo .spotify-ew-star { width: 16px; font-size: 12px; }
         .spotify-solo .spotify-ew-empty { font-size: 11px; padding: 6px 4px; }
         .spotify-solo .spotify-ew-reconnect { font-size: 11px; padding: 6px 4px; }
+        .spotify-solo .spotify-ew-drag { height: 12px; }
+        .spotify-solo .spotify-ew-drag span { width: 4px; height: 4px; }
 
         /* Spotify Enhanced "like" heart — turns Spotify green and softly glows when the
            current track is in Liked Songs. A quick pop confirms each toggle. */

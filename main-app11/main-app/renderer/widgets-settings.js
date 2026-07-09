@@ -73,6 +73,9 @@
             // into it (see .spotify-solo in main.css).
             if (widgetMap.spotify) {
                 widgetMap.spotify.classList.toggle('spotify-solo', !!(prefs.spotify && !prefs.notes && !prefs.performance));
+                // The layout mode may have just flipped (compact ⇄ solo); re-apply the
+                // saved draggable-panel position for whichever mode is now active.
+                if (typeof applyEwPosition === 'function') applyEwPosition();
             }
 
             const visible = [prefs.notes, prefs.performance, prefs.spotify].filter(Boolean).length;
@@ -474,6 +477,8 @@
                 screenResFavourites: safeParseJSON(localStorage.getItem('screenResFavourites'), {}),
                 spotifyFavPlaylists: safeParseJSON(localStorage.getItem('spotifyFavPlaylists'), []),
                 spotifyPlaylistSort: localStorage.getItem('spotifyPlaylistSort') || 'recent',
+                spotifyEwDraggable: localStorage.getItem('spotifyEwDraggable') || '0',
+                spotifyEwPos: safeParseJSON(localStorage.getItem('spotifyEwPos'), {}),
                 version: APP_VERSION
             };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -540,6 +545,13 @@
                         if (data.spotifyPlaylistSort) {
                             localStorage.setItem('spotifyPlaylistSort', data.spotifyPlaylistSort);
                         }
+                        if (typeof data.spotifyEwDraggable !== 'undefined') {
+                            localStorage.setItem('spotifyEwDraggable', data.spotifyEwDraggable === '1' || data.spotifyEwDraggable === true ? '1' : '0');
+                        }
+                        if (data.spotifyEwPos) {
+                            localStorage.setItem('spotifyEwPos', JSON.stringify(data.spotifyEwPos));
+                        }
+                        if (typeof applySpotifyEwDraggable === 'function') applySpotifyEwDraggable();
                         applyWidgetPrefs();
                         applyAppearance();
                         renderApps();

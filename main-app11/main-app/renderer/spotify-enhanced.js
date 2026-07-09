@@ -62,6 +62,132 @@
             return [...favItems, ...rest];
         }
 
+        // ── Draggable strip (optional; toggled in Settings) ──
+        // When enabled, a grip handle appears at the top of the inline strip and the
+        // user can drag it anywhere within the player. Position is remembered
+        // separately for the two layout modes — "compact" (Spotify shares the player
+        // with other widgets) and "solo" (full-width player) — because the strip has
+        // very different default geometry in each, so one saved box wouldn't suit both.
+        function spotifyEwDraggableEnabled() {
+            return localStorage.getItem('spotifyEwDraggable') === '1';
+        }
+        function spotifyEwLayoutMode() {
+            return document.getElementById('widget-spotify')?.classList.contains('spotify-solo') ? 'solo' : 'compact';
+        }
+        function spotifyEwPositions() {
+            return safeParseJSON(localStorage.getItem('spotifyEwPos'), {});
+        }
+        function spotifyEwSavePosition(mode, box) {
+            const all = spotifyEwPositions();
+            all[mode] = box;
+            localStorage.setItem('spotifyEwPos', JSON.stringify(all));
+        }
+
+        // Applies (or clears) the saved custom position for the current layout mode.
+        // With dragging off, or no saved box for this mode, we strip the inline styles
+        // so the stylesheet's default anchoring takes over again.
+        function applyEwPosition() {
+            const widget = document.getElementById('spotify-enhanced-widget');
+            if (!widget) return;
+            const clear = () => ['left', 'top', 'right', 'bottom', 'width', 'height']
+                .forEach((p) => { widget.style[p] = ''; });
+            if (!spotifyEwDraggableEnabled()) { clear(); return; }
+            const box = spotifyEwPositions()[spotifyEwLayoutMode()];
+            if (!box) { clear(); return; }
+            widget.style.left = `${box.left}px`;
+            widget.style.top = `${box.top}px`;
+            widget.style.right = 'auto';
+            widget.style.bottom = 'auto';
+            if (box.width) widget.style.width = `${box.width}px`;
+            if (box.height) widget.style.height = `${box.height}px`;
+        }
+
+        // Shows/hides the grip (via the .draggable class) and re-applies the position.
+        function applySpotifyEwDraggable() {
+            const widget = document.getElementById('spotify-enhanced-widget');
+            if (!widget) return;
+            const on = spotifyEwDraggableEnabled();
+            widget.classList.toggle('draggable', on);
+            if (on) initSpotifyEwDrag();   // ensure handlers are live before the first drag
+            applyEwPosition();
+        }
+
+        function toggleSpotifyEwDraggable(on) {
+            localStorage.setItem('spotifyEwDraggable', on ? '1' : '0');
+            applySpotifyEwDraggable();
+            if (typeof scheduleSettingsSave === 'function') scheduleSettingsSave();
+            renderSpotifyEnhancedPanel();
+        }
+
+        function resetSpotifyEwPosition() {
+            localStorage.removeItem('spotifyEwPos');
+            applyEwPosition();
+            if (typeof scheduleSettingsSave === 'function') scheduleSettingsSave();
+            if (typeof showToast === 'function') showToast('Panel position reset');
+        }
+
+        // Binds the drag handlers exactly once (mousedown on the grip, plus document
+        // move/up). Safe to call repeatedly — subsequent calls are no-ops.
+        let spotifyEwDragBound = false;
+        function initSpotifyEwDrag() {
+            if (spotifyEwDragBound) return;
+            const handle = document.getElementById('spotify-ew-drag');
+            const widget = document.getElementById('spotify-enhanced-widget');
+            if (!handle || !widget) return;
+            spotifyEwDragBound = true;
+
+            let dragging = false, startX = 0, startY = 0, baseLeft = 0, baseTop = 0, parent = null;
+
+            handle.addEventListener('mousedown', (e) => {
+                if (!spotifyEwDraggableEnabled()) return;
+                e.preventDefault();
+                parent = widget.offsetParent || widget.parentElement;
+                if (!parent) return;
+                const wRect = widget.getBoundingClientRect();
+                const pRect = parent.getBoundingClientRect();
+                // Freeze current pixel geometry before we switch to left/top anchoring,
+                // otherwise the solo layout (height:auto, right/bottom anchored) collapses.
+                baseLeft = wRect.left - pRect.left;
+                baseTop = wRect.top - pRect.top;
+                widget.style.left = `${baseLeft}px`;
+                widget.style.top = `${baseTop}px`;
+                widget.style.right = 'auto';
+                widget.style.bottom = 'auto';
+                widget.style.width = `${wRect.width}px`;
+                widget.style.height = `${wRect.height}px`;
+                startX = e.clientX;
+                startY = e.clientY;
+                dragging = true;
+                widget.classList.add('dragging');
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!dragging || !parent) return;
+                const pRect = parent.getBoundingClientRect();
+                const wRect = widget.getBoundingClientRect();
+                let nl = baseLeft + (e.clientX - startX);
+                let nt = baseTop + (e.clientY - startY);
+                // Keep the strip fully inside the player.
+                nl = Math.max(0, Math.min(nl, pRect.width - wRect.width));
+                nt = Math.max(0, Math.min(nt, pRect.height - wRect.height));
+                widget.style.left = `${nl}px`;
+                widget.style.top = `${nt}px`;
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (!dragging) return;
+                dragging = false;
+                widget.classList.remove('dragging');
+                spotifyEwSavePosition(spotifyEwLayoutMode(), {
+                    left: parseFloat(widget.style.left) || 0,
+                    top: parseFloat(widget.style.top) || 0,
+                    width: parseFloat(widget.style.width) || 0,
+                    height: parseFloat(widget.style.height) || 0
+                });
+                if (typeof scheduleSettingsSave === 'function') scheduleSettingsSave();
+            });
+        }
+
         function isSpotifyEnhancedEnabled() {
             const prefs = safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {});
             return !!prefs.spotifyEnhanced;
@@ -188,14 +314,28 @@
             if (!panel) return;
             if (!isSpotifyEnhancedEnabled()) { panel.innerHTML = ''; return; }
 
-            // Require a Spotify connection first.
+            // "Draggable panel" toggle — always shown (even before Spotify is
+            // connected) so the player strip can be repositioned at any time.
+            const dragOn = spotifyEwDraggableEnabled();
+            const dragToggle = `<div class="flex items-center justify-between gap-3 border border-white/10 rounded-xl p-3 mt-3">
+                <label class="flex items-center gap-3 cursor-pointer min-w-0">
+                    <span class="ios-toggle shrink-0"><input type="checkbox" class="ios-toggle-input" ${dragOn ? 'checked' : ''} onchange="toggleSpotifyEwDraggable(this.checked)"><span class="ios-toggle-track"></span></span>
+                    <span class="min-w-0">
+                        <span class="text-xs text-neutral-200 block">Draggable panel</span>
+                        <span class="text-[10px] text-neutral-600 block">Show a grip on the player strip so you can drag it anywhere. Position is saved per layout.</span>
+                    </span>
+                </label>
+                ${dragOn ? `<button type="button" class="hotkey-bind no-drag shrink-0" onclick="resetSpotifyEwPosition()" title="Reset to default position">Reset</button>` : ''}
+            </div>`;
+
+            // Require a Spotify connection for the queue/recent/playlists tabs below.
             let authed = false;
             if (window.electronAPI?.spotifyAuthStatus) {
                 const status = await window.electronAPI.spotifyAuthStatus();
                 authed = !!status?.authenticated;
             }
             if (!authed) {
-                panel.innerHTML = `<p class="text-xs text-neutral-600 mt-3">Connect Spotify in the <span class="text-neutral-400">Spotify Integration</span> section above to use these features.</p>`;
+                panel.innerHTML = dragToggle + `<p class="text-xs text-neutral-600 mt-3">Connect Spotify in the <span class="text-neutral-400">Spotify Integration</span> section above to use these features.</p>`;
                 return;
             }
 
@@ -220,7 +360,7 @@
                     class="w-8 py-1.5 rounded-lg text-[11px] bg-neutral-800/30 border border-neutral-700/50 text-neutral-400 hover:text-neutral-200 transition-colors no-drag"><i class="fas fa-rotate-right"></i></button>
             </div>`;
 
-            panel.innerHTML = reconnectBanner + tabBar +
+            panel.innerHTML = dragToggle + reconnectBanner + tabBar +
                 `<div id="spotify-enhanced-content"><p class="text-xs text-neutral-600">Loading…</p></div>`;
 
             const content = document.getElementById('spotify-enhanced-content');
@@ -358,6 +498,8 @@
             if (!widget) return;
             if (!isSpotifyEnhancedEnabled()) { widget.classList.add('hidden'); return; }
             widget.classList.remove('hidden');
+            initSpotifyEwDrag();
+            applySpotifyEwDraggable();
             widget.querySelectorAll('.spotify-ew-tab').forEach((b) => {
                 b.classList.toggle('active', b.dataset.ewtab === spotifyEwTab);
             });
