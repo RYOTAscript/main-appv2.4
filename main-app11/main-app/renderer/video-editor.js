@@ -6,17 +6,28 @@
         // than a full editing suite.
 
         const ve = {
-            input: null,        // { path, name, durationMs, width, height, fps, hasAudio, sizeBytes }
+            input: null,        // { path, name, durationMs, width, height, fps, hasAudio, audioTracks, sizeBytes }
             inMs: 0,
             outMs: 0,
             playheadMs: 0,
             outputPath: null,
             exporting: false,
             checked: false,     // whether we've confirmed ffmpeg availability
-            available: true
+            available: true,
+            audioTracks: [],    // [{ aIndex, language, codec, channels, title }]
+            audioTrack: null,   // chosen a:index to keep on export (only when >1 track)
+            previewQuality: 'original', // original | 1080 | 720 | 360
+            proxyPath: null,    // path of the low-res preview currently in use, if any
+            proxyKey: null,     // "<inputPath>|<height>" the current proxy was built for
+            proxyBusy: false,   // a proxy build is in flight
+            _pendingSeekSec: null, // preserve playhead across a preview source swap
+            _resumeAfterLoad: false
         };
         let veDragging = null;  // 'in' | 'out' | null
         let veProgressBound = false;
+        let veProxyProgressBound = false;
+        let veKeysBound = false;
+        ve.previewQuality = localStorage.getItem('vePreviewQuality') || 'original';
 
         function isVideoEditorEnabled() {
             const prefs = safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {});
@@ -79,9 +90,29 @@
             panel.innerHTML = `<div id="ve-root" class="mt-3 space-y-3">
                 <div class="flex items-center justify-between gap-2">
                     <p class="text-xs text-neutral-300 truncate" title="${esc(inp.path)}"><i class="fas fa-film mr-1.5 text-neutral-500"></i>${esc(inp.name)}</p>
-                    <button type="button" onclick="veImport()" class="hotkey-bind no-drag shrink-0">Change</button>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <button type="button" id="ve-settings-btn" onclick="veToggleSettings()" title="Player settings" class="w-7 h-7 flex items-center justify-center bg-neutral-800/40 border border-neutral-700/50 rounded-lg text-neutral-300 hover:text-white transition-colors no-drag"><i class="fas fa-gear text-[11px]"></i></button>
+                        <button type="button" onclick="veImport()" class="hotkey-bind no-drag">Change</button>
+                    </div>
                 </div>
                 <div class="text-[10px] text-neutral-600">${inp.width && inp.height ? `${inp.width}×${inp.height}` : ''}${inp.fps ? ` • ${Math.round(inp.fps)}fps` : ''} • ${veFormatTime(inp.durationMs)} • ${veFormatBytes(inp.sizeBytes)}</div>
+
+                <!-- Player settings (preview quality + audio track), toggled by the gear -->
+                <div id="ve-settings" class="hidden border border-white/10 rounded-xl p-3 space-y-3 bg-neutral-900/40">
+                    <div>
+                        <p class="text-[11px] text-neutral-300 mb-1.5">Preview quality</p>
+                        <div class="grid grid-cols-4 gap-1.5" id="ve-quality-row"></div>
+                        <p class="text-[10px] text-neutral-600 mt-1.5" id="ve-quality-note"></p>
+                        <div id="ve-proxy-progress" class="hidden mt-2">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-[10px] text-neutral-500" id="ve-proxy-text">Preparing preview…</span>
+                                <button type="button" onclick="veCancelProxy()" class="text-[10px] text-red-400 hover:text-red-300 no-drag">Cancel</button>
+                            </div>
+                            <div class="h-1.5 bg-neutral-800 rounded-full overflow-hidden"><div id="ve-proxy-bar" class="h-full bg-white/30 rounded-full transition-all" style="width:0%"></div></div>
+                        </div>
+                    </div>
+                    <div id="ve-audio-tracks-wrap"></div>
+                </div>
 
                 <div class="rounded-xl overflow-hidden bg-black/40 border border-white/10 flex items-center justify-center" style="max-height:220px">
                     <video id="ve-video" class="max-h-[220px] w-full object-contain" preload="metadata"></video>
@@ -96,6 +127,7 @@
                         <button type="button" onclick="veStepFrame(1)" title="Next frame" class="w-7 h-7 flex items-center justify-center bg-neutral-800/40 border border-neutral-700/50 rounded-lg text-neutral-300 hover:text-white transition-colors no-drag"><i class="fas fa-forward-step text-[10px]"></i></button>
                     </div>
                 </div>
+                <p class="text-[10px] text-neutral-600 -mt-1"><kbd class="text-neutral-500">Space</kbd> play/pause · <kbd class="text-neutral-500">←</kbd> <kbd class="text-neutral-500">→</kbd> step one frame</p>
 
                 <!-- Timeline -->
                 <div id="ve-timeline" class="ve-timeline no-drag">
@@ -148,8 +180,13 @@
             </div>`;
 
             bindVideoEditor();
+            initVeKeys();
             veUpdateUI();
             veUpdateEstimate();
+            veUpdateSettingsUI();
+            // Re-apply the chosen preview quality for this clip (builds/reuses a proxy
+            // when a lower quality is selected; a no-op for "Original").
+            veApplyPreviewQuality();
         }
 
         function bindVideoEditor() {
@@ -173,7 +210,14 @@
                 });
                 video.addEventListener('play', veReflectPlayState);
                 video.addEventListener('pause', veReflectPlayState);
-                video.addEventListener('loadedmetadata', () => { video.currentTime = ve.inMs / 1000; });
+                video.addEventListener('loadedmetadata', () => {
+                    // A preview-quality swap sets a pending position so the playhead
+                    // stays put; otherwise land on the trim in-point.
+                    const seekTo = (ve._pendingSeekSec != null) ? ve._pendingSeekSec : ve.inMs / 1000;
+                    try { video.currentTime = seekTo; } catch (e) { /* ignore */ }
+                    ve._pendingSeekSec = null;
+                    if (ve._resumeAfterLoad) { ve._resumeAfterLoad = false; video.play().catch(() => {}); }
+                });
             }
 
             const timeline = document.getElementById('ve-timeline');
@@ -328,6 +372,13 @@
             ve.outMs = res.durationMs;
             ve.playheadMs = 0;
             ve.outputPath = veSuggestOutput(res.path);
+            ve.audioTracks = Array.isArray(res.audioTracks) ? res.audioTracks : [];
+            // Default to the first track when there's a choice to make.
+            ve.audioTrack = ve.audioTracks.length > 1 ? ve.audioTracks[0].aIndex : null;
+            // The old file's proxy no longer applies to this one.
+            ve.proxyPath = null;
+            ve.proxyKey = null;
+            ve.proxyBusy = false;
             veResetExportUI();
             renderVideoEditorPanel();
             showToast('Video imported');
@@ -365,6 +416,8 @@
 
             const keepAudio = document.getElementById('ve-keep-audio')?.checked !== false && ve.input.hasAudio;
             const precise = !!document.getElementById('ve-precise')?.checked;
+            // Only pin a specific audio stream when the source actually has a choice.
+            const audioTrack = (keepAudio && ve.audioTracks.length > 1 && Number.isInteger(ve.audioTrack)) ? ve.audioTrack : null;
 
             ve.exporting = true;
             veResetExportUI();
@@ -383,7 +436,8 @@
                     startMs: Math.round(ve.inMs),
                     endMs: Math.round(ve.outMs),
                     keepAudio,
-                    precise
+                    precise,
+                    audioTrack
                 });
                 if (res?.ok) {
                     document.getElementById('ve-progress-wrap')?.classList.add('hidden');
@@ -414,4 +468,222 @@
 
         function veReveal() {
             if (ve.outputPath && window.electronAPI?.videoReveal) window.electronAPI.videoReveal(ve.outputPath);
+        }
+
+        // ── Player settings (gear): preview quality + audio track ──
+
+        function veToggleSettings() {
+            const box = document.getElementById('ve-settings');
+            if (!box) return;
+            box.classList.toggle('hidden');
+            if (!box.classList.contains('hidden')) veUpdateSettingsUI();
+        }
+
+        // A quality only applies if it's actually smaller than the source — no point
+        // (and no gain) building a proxy at or above the original height.
+        function veQualityApplies(q) {
+            if (q === 'original') return false;
+            const h = parseInt(q, 10);
+            if (!ve.input || !ve.input.height) return true; // unknown height → allow
+            return h < ve.input.height;
+        }
+
+        function veSetPreviewQuality(q) {
+            if (ve.previewQuality === q) return;
+            ve.previewQuality = q;
+            localStorage.setItem('vePreviewQuality', q);
+            veUpdateSettingsUI();
+            veApplyPreviewQuality();
+        }
+
+        // Swaps the <video> source (proxy ↔ original) while keeping the current
+        // position and play state. No-op when the requested source is already loaded.
+        function veSwapSource(url, keepPosition) {
+            const video = document.getElementById('ve-video');
+            if (!video) return;
+            if (video.currentSrc === url || video.src === url) return;
+            ve._pendingSeekSec = keepPosition ? video.currentTime : (ve.inMs / 1000);
+            ve._resumeAfterLoad = keepPosition ? !video.paused : false;
+            video.src = url;
+            video.load();
+        }
+
+        // Ensures the preview is showing whatever quality is selected: the original
+        // file for "Original" (or when a lower quality wouldn't help), otherwise a
+        // cached/freshly-built low-res proxy.
+        async function veApplyPreviewQuality() {
+            const video = document.getElementById('ve-video');
+            if (!video || !ve.input) return;
+            const q = ve.previewQuality;
+
+            if (!veQualityApplies(q)) {
+                if (ve.proxyBusy && window.electronAPI?.videoCancelProxy) {
+                    await window.electronAPI.videoCancelProxy();
+                }
+                ve.proxyBusy = false;
+                ve.proxyPath = null;
+                ve.proxyKey = null;
+                veSwapSource(veFileUrl(ve.input.path), true);
+                veUpdateSettingsUI();
+                return;
+            }
+
+            const height = parseInt(q, 10);
+            const key = `${ve.input.path}|${height}`;
+            // Already on the right proxy — nothing to do.
+            if (ve.proxyPath && ve.proxyKey === key) {
+                veSwapSource(veFileUrl(ve.proxyPath), true);
+                return;
+            }
+            if (!window.electronAPI?.videoMakeProxy) return;
+
+            bindProxyProgress();
+            ve.proxyBusy = true;
+            veUpdateSettingsUI();
+            const res = await window.electronAPI.videoMakeProxy({
+                inputPath: ve.input.path,
+                height,
+                durationMs: ve.input.durationMs
+            });
+            ve.proxyBusy = false;
+
+            // The user may have changed the selection while we were building.
+            if (ve.previewQuality !== q) { veUpdateSettingsUI(); return; }
+
+            if (res?.ok && res.path) {
+                ve.proxyPath = res.path;
+                ve.proxyKey = key;
+                veSwapSource(veFileUrl(res.path), true);
+            } else if (res?.cancelled) {
+                // Selection was reverted elsewhere; leave the preview as-is.
+            } else {
+                showToast(res?.error || 'Could not build the preview', true);
+                ve.previewQuality = 'original';
+                localStorage.setItem('vePreviewQuality', 'original');
+                veSwapSource(veFileUrl(ve.input.path), true);
+            }
+            veUpdateSettingsUI();
+        }
+
+        async function veCancelProxy() {
+            if (window.electronAPI?.videoCancelProxy) await window.electronAPI.videoCancelProxy();
+            ve.proxyBusy = false;
+            ve.previewQuality = 'original';
+            localStorage.setItem('vePreviewQuality', 'original');
+            veUpdateSettingsUI();
+            veApplyPreviewQuality();
+        }
+
+        function bindProxyProgress() {
+            if (veProxyProgressBound || !window.electronAPI?.onVideoProxyProgress) return;
+            window.electronAPI.onVideoProxyProgress((data) => {
+                const bar = document.getElementById('ve-proxy-bar');
+                const text = document.getElementById('ve-proxy-text');
+                if (bar && typeof data.percent === 'number') bar.style.width = `${data.percent.toFixed(1)}%`;
+                if (text && typeof data.percent === 'number') text.textContent = `Preparing preview… ${Math.round(data.percent)}%`;
+            });
+            veProxyProgressBound = true;
+        }
+
+        // Repaints the quality buttons, the note, the proxy progress row and the
+        // audio-track picker to reflect current state.
+        function veUpdateSettingsUI() {
+            if (!ve.input) return;
+            const row = document.getElementById('ve-quality-row');
+            if (row) {
+                const srcH = ve.input.height || 0;
+                const opts = [
+                    { v: 'original', l: 'Original' },
+                    { v: '1080', l: '1080p' },
+                    { v: '720', l: '720p' },
+                    { v: '360', l: '360p' }
+                ];
+                row.innerHTML = opts.map((o) => {
+                    // Disable qualities that are at/above the source resolution.
+                    const disabled = o.v !== 'original' && srcH > 0 && parseInt(o.v, 10) >= srcH;
+                    const active = ve.previewQuality === o.v;
+                    return `<button type="button" ${disabled ? 'disabled' : ''} onclick="veSetPreviewQuality('${o.v}')"
+                        class="px-1.5 py-1.5 rounded-lg text-[11px] border transition-colors no-drag ${active
+                            ? 'bg-white/15 border-white/25 text-white'
+                            : 'bg-neutral-800/30 border-neutral-700/50 text-neutral-400 hover:text-neutral-200'} ${disabled ? 'opacity-30 cursor-not-allowed' : ''}">${o.l}</button>`;
+                }).join('');
+            }
+            const note = document.getElementById('ve-quality-note');
+            if (note) {
+                note.textContent = ve.input.height
+                    ? `Source is ${ve.input.height}p. A lower preview plays smoother on heavy clips — exports always use the original.`
+                    : 'A lower preview plays smoother on heavy clips — exports always use the original.';
+            }
+            const prog = document.getElementById('ve-proxy-progress');
+            if (prog) prog.classList.toggle('hidden', !ve.proxyBusy);
+            const btn = document.getElementById('ve-settings-btn');
+            // Subtle hint on the gear when a non-original preview is active.
+            if (btn) btn.classList.toggle('text-white', veQualityApplies(ve.previewQuality));
+            renderVeAudioTracks();
+        }
+
+        function veAudioTrackLabel(t, i) {
+            const bits = [];
+            if (t.title) bits.push(t.title);
+            if (t.language) bits.push(t.language.toUpperCase());
+            if (t.channels) bits.push(t.channels);
+            if (t.codec) bits.push(t.codec.toUpperCase());
+            return `Track ${i + 1}${bits.length ? ' — ' + bits.join(', ') : ''}`;
+        }
+
+        function renderVeAudioTracks() {
+            const wrap = document.getElementById('ve-audio-tracks-wrap');
+            if (!wrap || !ve.input) return;
+            const tracks = ve.audioTracks || [];
+            if (tracks.length <= 1) {
+                wrap.innerHTML = tracks.length === 1
+                    ? `<p class="text-[10px] text-neutral-600"><i class="fas fa-volume-high mr-1"></i>1 audio track</p>`
+                    : `<p class="text-[10px] text-neutral-600"><i class="fas fa-volume-xmark mr-1"></i>No audio track in this file</p>`;
+                return;
+            }
+            const options = tracks.map((t, i) =>
+                `<option value="${t.aIndex}" ${ve.audioTrack === t.aIndex ? 'selected' : ''}>${esc(veAudioTrackLabel(t, i))}</option>`
+            ).join('');
+            wrap.innerHTML = `<p class="text-[11px] text-neutral-300 mb-1.5"><i class="fas fa-layer-group mr-1 text-neutral-500"></i>${tracks.length} audio tracks detected</p>
+                <select id="ve-audio-select" onchange="veSetAudioTrack(this.value)" class="w-full bg-neutral-900 border border-neutral-700 rounded-lg text-xs text-neutral-200 px-2 py-1.5 focus:outline-none focus:border-neutral-500 no-drag">${options}</select>
+                <p class="text-[10px] text-neutral-600 mt-1">The chosen track is the one kept in the exported trim.</p>`;
+        }
+
+        function veSetAudioTrack(v) {
+            const n = parseInt(v, 10);
+            ve.audioTrack = Number.isInteger(n) ? n : null;
+        }
+
+        // Space = play/pause, ←/→ = step one frame. Active only while the Video
+        // Editor's preview is actually on screen (Settings open) and the user isn't
+        // typing in a field. Bound once for the app's lifetime.
+        function initVeKeys() {
+            if (veKeysBound) return;
+            veKeysBound = true;
+            document.addEventListener('keydown', (e) => {
+                if (!isVideoEditorEnabled()) return;
+                const video = document.getElementById('ve-video');
+                if (!video || !ve.input) return;
+                // Only when the preview is genuinely on screen: getClientRects() is
+                // empty if any ancestor is display:none (Settings closed), and the
+                // viewport test avoids acting while the user scrolled elsewhere.
+                if (video.getClientRects().length === 0) return;
+                const r = video.getBoundingClientRect();
+                const vh = window.innerHeight || document.documentElement.clientHeight;
+                if (r.width === 0 || r.bottom <= 0 || r.top >= vh) return;
+                const t = e.target;
+                const tag = t && t.tagName ? t.tagName.toUpperCase() : '';
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+                if (e.key === ' ' || e.code === 'Space') {
+                    if (tag === 'BUTTON') return; // let Space activate a focused button
+                    e.preventDefault();
+                    vePlayPause();
+                } else if (e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    veStepFrame(-1);
+                } else if (e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    veStepFrame(1);
+                }
+            });
         }

@@ -2,6 +2,8 @@ const { ipcMain, dialog, shell } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
 
 // ── Video Editor mini widget ──
 // A lightweight, fast trimmer built on a bundled FFmpeg (ffmpeg-static). It does
@@ -21,10 +23,46 @@ if (ffmpegPath && ffmpegPath.includes('app.asar') && !ffmpegPath.includes('app.a
 
 const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'mov', 'avi', 'webm', 'm4v', 'flv', 'wmv', 'mpg', 'mpeg', 'ts'];
 
+// Low-resolution preview proxies live here. They're regenerated on demand and
+// cleaned up on quit — they exist only to make heavy/4K clips scrub smoothly in
+// the preview; every export always reads the original full-quality source.
+const PROXY_DIR = path.join(os.tmpdir(), 'main-video-proxies');
+const PROXY_HEIGHTS = [360, 720, 1080];
+
+// Pulls every audio stream out of `ffmpeg -i` stderr, with language / title /
+// codec / channel layout where the banner exposes them, so the UI can let the
+// user pick which track to keep when a file carries more than one.
+function parseAudioTracks(stderr) {
+  const lines = stderr.split(/\r?\n/);
+  const tracks = [];
+  let aIndex = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/Stream #\d+:(\d+)(?:\[[^\]]*\])?(?:\(([^)]*)\))?:\s*Audio:\s*([A-Za-z0-9_]+)([^\n]*)/);
+    if (!m) continue;
+    const streamIndex = parseInt(m[1], 10);
+    const language = (m[2] || '').trim();
+    const codec = (m[3] || '').trim();
+    const rest = m[4] || '';
+    const chMatch = rest.match(/,\s*(mono|stereo|quad|5\.1(?:\(side\))?|7\.1|downmix|[0-9]+ channels)\b/);
+    const channels = chMatch ? chMatch[1] : '';
+    // A track's human title, if any, sits in the Metadata block just below it.
+    let title = '';
+    for (let j = i + 1; j < lines.length && j < i + 8; j++) {
+      if (/Stream #\d+:/.test(lines[j])) break;
+      const tm = lines[j].match(/^\s*title\s*:\s*(.+?)\s*$/);
+      if (tm) { title = tm[1]; break; }
+    }
+    tracks.push({ aIndex, streamIndex, language, codec, channels, title });
+    aIndex++;
+  }
+  return tracks;
+}
+
 function init(ctx) {
   const { logger, getMainWindow } = ctx;
 
-  let currentExport = null; // the in-flight ffmpeg child process, if any
+  let currentExport = null; // the in-flight ffmpeg export child process, if any
+  let currentProxy = null;  // the in-flight ffmpeg proxy-build child process, if any
 
   function ffmpegAvailable() {
     return !!ffmpegPath && fs.existsSync(ffmpegPath);
@@ -54,7 +92,8 @@ function init(ctx) {
           const height = videoMatch ? parseInt(videoMatch[2], 10) : null;
           const fpsMatch = stderr.match(/(\d+(?:\.\d+)?)\s*fps/);
           const fps = fpsMatch ? parseFloat(fpsMatch[1]) : null;
-          const hasAudio = /Stream #\d+:\d+(?:\[[^\]]*\])?(?:\([^)]*\))?:\s*Audio:/.test(stderr);
+          const audioTracks = parseAudioTracks(stderr);
+          const hasAudio = audioTracks.length > 0;
           let sizeBytes = 0;
           try { sizeBytes = fs.statSync(inputPath).size; } catch (e) { /* ignore */ }
 
@@ -62,7 +101,7 @@ function init(ctx) {
             resolve(null);
             return;
           }
-          resolve({ durationMs: Math.round(durationMs), width, height, fps, hasAudio, sizeBytes });
+          resolve({ durationMs: Math.round(durationMs), width, height, fps, hasAudio, audioTracks, sizeBytes });
         } catch (e) {
           logger.error('ffmpeg probe parse failed', e);
           resolve(null);
@@ -76,7 +115,108 @@ function init(ctx) {
     if (win && !win.isDestroyed()) win.webContents.send('video-export-progress', payload);
   }
 
+  function sendProxyProgress(payload) {
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) win.webContents.send('video-proxy-progress', payload);
+  }
+
+  // A proxy is uniquely identified by the source path + its size + mtime + the
+  // target height, so an edited/replaced file never reuses a stale preview.
+  function proxyPathFor(inputPath, height) {
+    let stat;
+    try { stat = fs.statSync(inputPath); } catch (e) { stat = { size: 0, mtimeMs: 0 }; }
+    const key = crypto.createHash('md5')
+      .update(`${path.resolve(inputPath)}|${stat.size}|${Math.round(stat.mtimeMs)}|${height}`)
+      .digest('hex').slice(0, 16);
+    return path.join(PROXY_DIR, `proxy-${height}p-${key}.mp4`);
+  }
+
   ipcMain.handle('video-check', () => ({ available: ffmpegAvailable() }));
+
+  // Builds (or returns a cached) low-res H.264 proxy for smooth preview playback.
+  // Fast, throwaway quality (ultrafast/CRF 30) — it's only ever shown in the
+  // small preview, never exported.
+  ipcMain.handle('video-make-proxy', async (_event, opts) => {
+    if (!ffmpegAvailable()) return { ok: false, error: 'FFmpeg is unavailable' };
+    const inputPath = opts?.inputPath;
+    const height = Math.round(Number(opts?.height) || 0);
+    if (!inputPath || !fs.existsSync(inputPath)) return { ok: false, error: 'Source video not found' };
+    if (!PROXY_HEIGHTS.includes(height)) return { ok: false, error: 'Unsupported preview quality' };
+
+    const outPath = proxyPathFor(inputPath, height);
+    try {
+      if (fs.existsSync(outPath) && fs.statSync(outPath).size > 0) {
+        return { ok: true, path: outPath, cached: true };
+      }
+    } catch (e) { /* fall through and rebuild */ }
+
+    // Only one proxy build at a time — a new request supersedes the old one.
+    if (currentProxy) { try { currentProxy.kill('SIGKILL'); } catch (e) { /* ignore */ } currentProxy = null; }
+    try { fs.mkdirSync(PROXY_DIR, { recursive: true }); } catch (e) { /* ignore */ }
+
+    const durationSec = (Number(opts?.durationMs) || 0) / 1000;
+    // scale=-2 keeps the aspect ratio and forces an even width (H.264 requires it).
+    const args = [
+      '-y', '-i', inputPath,
+      '-vf', `scale=-2:${height}`,
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '30', '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', '128k',
+      '-movflags', '+faststart',
+      '-progress', 'pipe:1', '-nostats', outPath
+    ];
+    logger.log('Video proxy build started', 'INFO', { inputPath, height });
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let stderrTail = '';
+      const child = spawn(ffmpegPath, args);
+      currentProxy = child;
+
+      child.stdout.on('data', (d) => {
+        const m = d.toString().match(/out_time_us=(\d+)/);
+        if (m && durationSec > 0) {
+          const pct = Math.max(0, Math.min(100, (parseInt(m[1], 10) / 1e6 / durationSec) * 100));
+          sendProxyProgress({ percent: pct });
+        }
+      });
+      child.stderr.on('data', (d) => { stderrTail = (stderrTail + d.toString()).slice(-2000); });
+      child.on('error', (e) => {
+        if (settled) return;
+        settled = true;
+        currentProxy = null;
+        logger.error('Video proxy spawn failed', e);
+        resolve({ ok: false, error: e.message });
+      });
+      child.on('close', (code) => {
+        if (settled) return;
+        settled = true;
+        const wasCancelled = child.killed;
+        currentProxy = null;
+        if (wasCancelled) {
+          try { if (fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch (e) { /* ignore */ }
+          resolve({ ok: false, cancelled: true });
+          return;
+        }
+        if (code === 0) {
+          sendProxyProgress({ percent: 100 });
+          logger.success('Video proxy built', { outPath, height });
+          resolve({ ok: true, path: outPath });
+        } else {
+          try { if (fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch (e) { /* ignore */ }
+          logger.error('Video proxy build failed', null, { code, stderrTail });
+          resolve({ ok: false, error: 'Could not build the preview' });
+        }
+      });
+    });
+  });
+
+  ipcMain.handle('video-cancel-proxy', () => {
+    if (currentProxy) {
+      try { currentProxy.kill('SIGKILL'); } catch (e) { /* ignore */ }
+      return { ok: true };
+    }
+    return { ok: false };
+  });
 
   ipcMain.handle('video-pick-input', async () => {
     if (!ffmpegAvailable()) return { ok: false, error: 'FFmpeg is unavailable' };
@@ -109,8 +249,13 @@ function init(ctx) {
   // re-encode, no quality loss, keyframe-aligned cut); precise mode re-encodes
   // the video with a visually-lossless CRF for an exact frame boundary. Audio is
   // copied when kept (or re-encoded to AAC in precise mode) and dropped with -an.
-  function buildArgs({ inputPath, startSec, durationSec, keepAudio, precise, outputPath }) {
+  function buildArgs({ inputPath, startSec, durationSec, keepAudio, precise, outputPath, audioTrack }) {
     const args = ['-y', '-ss', String(startSec), '-i', inputPath, '-t', String(durationSec)];
+    // When the source has several audio tracks and the user picked one, map the
+    // video plus exactly that audio stream; otherwise let ffmpeg auto-select.
+    if (keepAudio && Number.isInteger(audioTrack)) {
+      args.push('-map', '0:v:0', '-map', `0:a:${audioTrack}`);
+    }
     if (precise) {
       args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p');
       if (keepAudio) args.push('-c:a', 'aac', '-b:a', '192k');
@@ -135,6 +280,7 @@ function init(ctx) {
     const endMs = Number(opts?.endMs) || 0;
     const keepAudio = opts?.keepAudio !== false;
     const precise = !!opts?.precise;
+    const audioTrack = Number.isInteger(opts?.audioTrack) ? opts.audioTrack : null;
 
     if (!inputPath || !fs.existsSync(inputPath)) return { ok: false, error: 'Source video not found' };
     if (!outputPath) return { ok: false, error: 'No save location chosen' };
@@ -146,9 +292,9 @@ function init(ctx) {
 
     const durationSec = (endMs - startMs) / 1000;
     const startSec = startMs / 1000;
-    const args = buildArgs({ inputPath, startSec, durationSec, keepAudio, precise, outputPath });
+    const args = buildArgs({ inputPath, startSec, durationSec, keepAudio, precise, outputPath, audioTrack });
 
-    logger.log('Video export started', 'INFO', { outputPath, startMs, endMs, keepAudio, precise });
+    logger.log('Video export started', 'INFO', { outputPath, startMs, endMs, keepAudio, precise, audioTrack });
 
     return new Promise((resolve) => {
       let settled = false;
@@ -215,7 +361,12 @@ function init(ctx) {
   });
 
   return {
-    teardown: () => { if (currentExport) { try { currentExport.kill('SIGKILL'); } catch (e) { /* ignore */ } } }
+    teardown: () => {
+      if (currentExport) { try { currentExport.kill('SIGKILL'); } catch (e) { /* ignore */ } }
+      if (currentProxy) { try { currentProxy.kill('SIGKILL'); } catch (e) { /* ignore */ } }
+      // Preview proxies are throwaway temp files — clear them on quit.
+      try { fs.rmSync(PROXY_DIR, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+    }
   };
 }
 

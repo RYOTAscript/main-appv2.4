@@ -5,6 +5,35 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.18.0] — 2026-07-09
+
+### Added
+
+- **Video Editor keyboard controls:** with the preview on screen, **Space**
+  plays/pauses and the **← / →** arrow keys step one frame at a time (a hint
+  under the controls spells this out). Keys are ignored while typing in a field.
+- **Player settings (gear icon):** a new gear button on the imported clip opens
+  a small settings area with:
+  - **Preview quality** — *Original / 1080p / 720p / 360p*. Choosing a lower
+    quality builds a fast, cached low-res **proxy** with the bundled FFmpeg so
+    heavy/4K clips scrub and play back smoothly, with a progress bar and Cancel.
+    Qualities at or above the source resolution are disabled, and **exports
+    always use the original full-quality source** — the proxy is preview-only.
+  - **Audio track detection & selection** — when a file carries more than one
+    audio track they're detected and listed (language / title / channels /
+    codec), and you can **choose which track is kept** in the exported trim.
+
+### Files changed
+
+- `main/videoEditor.js` — audio-stream enumeration in the probe; low-res preview
+  proxy build/cancel (cached in temp, cleaned on quit); audio-track mapping on
+  export.
+- `preload.js` — `videoMakeProxy` / `videoCancelProxy` / `onVideoProxyProgress`.
+- `renderer/video-editor.js` — gear settings panel (preview quality + audio
+  track), proxy handling with position-preserving source swap, and the
+  Space/←/→ keyboard controls.
+- `renderer/core.js`, `main.html`, `package.json`, `main.js` — version → 3.18.0.
+
 ## [3.17.0] — 2026-07-09
 
 ### Added

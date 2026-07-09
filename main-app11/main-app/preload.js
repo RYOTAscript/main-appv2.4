@@ -102,7 +102,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   videoExport: (opts) => ipcRenderer.invoke('video-export', opts),
   videoCancel: () => ipcRenderer.invoke('video-cancel'),
   videoReveal: (filePath) => ipcRenderer.invoke('video-reveal', filePath),
+  videoMakeProxy: (opts) => ipcRenderer.invoke('video-make-proxy', opts),
+  videoCancelProxy: () => ipcRenderer.invoke('video-cancel-proxy'),
   onVideoExportProgress: (callback) => ipcRenderer.on('video-export-progress', (_event, data) => callback(data)),
+  onVideoProxyProgress: (callback) => ipcRenderer.on('video-proxy-progress', (_event, data) => callback(data)),
 
   // Mini Widgets: Bluetooth Manager
   bluetoothList: () => ipcRenderer.invoke('bluetooth-list'),
