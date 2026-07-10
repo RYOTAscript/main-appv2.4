@@ -5,6 +5,36 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.21.0] — 2026-07-10
+
+### Added
+
+- **Preview now reflects per-track audio edits.** Muting a track or changing its
+  volume on the timeline is heard live in the preview, not just on export. For
+  clips with a single audio track this drives the video's own volume/mute; for
+  multi-track clips each track is extracted to a cached audio stem and the enabled
+  ones are mixed together, kept in sync with the (muted) video. (Preview volume
+  caps at 100% — a boost above that still applies to the exported file.)
+
+### Changed
+
+- **Escape now exits the Settings search box** (clears the filter and drops focus)
+  instead of closing the whole Settings window when the search field is focused.
+
+### Files changed
+
+- `main/videoEditor.js` — `video-audio-stems` handler that extracts each audio
+  track to a cached AAC stem for the preview mixer.
+- `preload.js` — `videoAudioStems` passthrough.
+- `renderer/video-editor.js` — preview audio mixer (native single-track path +
+  hidden-`<audio>` stem mix for multi-track), synced to the video's play/pause/
+  seek/rate/drift; live updates from the lane checkbox & volume slider.
+- `renderer/spotify-widget.js` — Escape exits the search box before the
+  close-window shortcut runs.
+- `renderer/core.js`, `main.html`, `package.json`, `main.js` — version → 3.21.0.
+
+---
+
 ## [3.20.0] — 2026-07-10
 
 ### Added

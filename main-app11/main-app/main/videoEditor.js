@@ -284,6 +284,41 @@ function init(ctx) {
     return { ok: true, filmstrip, waveforms };
   });
 
+  // ── Preview audio stems ──
+  // A plain <video> element only decodes one (default) audio track, so it can't
+  // honour per-track volume/mute on its own. We extract each audio track to a
+  // small cached AAC file; the renderer mixes them through Web Audio, synced to
+  // the muted video, so the preview sounds like the export will.
+  function stemPathFor(inputPath, aIndex) {
+    let stat;
+    try { stat = fs.statSync(inputPath); } catch (e) { stat = { size: 0, mtimeMs: 0 }; }
+    const key = crypto.createHash('md5')
+      .update(`${path.resolve(inputPath)}|${stat.size}|${Math.round(stat.mtimeMs)}|stem-a${aIndex}`)
+      .digest('hex').slice(0, 16);
+    return path.join(PROXY_DIR, `stem-a${aIndex}-${key}.m4a`);
+  }
+
+  ipcMain.handle('video-audio-stems', async (_event, opts) => {
+    if (!ffmpegAvailable()) return { ok: false, error: 'FFmpeg is unavailable' };
+    const inputPath = opts?.inputPath;
+    if (!inputPath || !fs.existsSync(inputPath)) return { ok: false, error: 'Source video not found' };
+    const audioIndices = Array.isArray(opts?.audioIndices) ? opts.audioIndices : [];
+    try { fs.mkdirSync(PROXY_DIR, { recursive: true }); } catch (e) { /* ignore */ }
+
+    const stems = [];
+    for (const aIndex of audioIndices) {
+      if (!Number.isInteger(aIndex)) continue;
+      const outPath = stemPathFor(inputPath, aIndex);
+      if (fileReady(outPath)) { stems.push({ aIndex, path: outPath }); continue; }
+      const ok = await runFfmpegImage([
+        '-y', '-i', inputPath, '-vn', '-map', `0:a:${aIndex}`,
+        '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', outPath
+      ]);
+      if (ok && fileReady(outPath)) stems.push({ aIndex, path: outPath });
+    }
+    return { ok: true, stems };
+  });
+
   ipcMain.handle('video-pick-input', async () => {
     if (!ffmpegAvailable()) return { ok: false, error: 'FFmpeg is unavailable' };
     const win = getMainWindow();

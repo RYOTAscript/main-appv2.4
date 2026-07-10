@@ -24,7 +24,9 @@
             filmstrip: null,    // video-lane thumbnail-strip image path
             waveforms: {},      // aIndex -> waveform image path
             assetsBusy: false,  // timeline assets (filmstrip/waveforms) are rendering
-            assetsKey: null     // input path the current assets belong to
+            assetsKey: null,    // input path the current assets belong to
+            stems: {},          // aIndex -> { el, path } hidden <audio> preview stems
+            stemsKey: null      // input path the current stems belong to
         };
         let veDragging = null;  // 'in' | 'out' | null
         let veProgressBound = false;
@@ -200,6 +202,8 @@
             veApplyPreviewQuality();
             // Fetch/paint the track waveforms + video filmstrip.
             veLoadTimelineAssets();
+            // Prepare the per-track preview mixer (extract stems for multi-track).
+            veLoadAudioStems();
         }
 
         function bindVideoEditor() {
@@ -219,16 +223,20 @@
                         ve.playheadMs = ve.outMs;
                         veReflectPlayState();
                     }
+                    veStemsDrift();
                     veUpdatePlayhead();
                 });
-                video.addEventListener('play', veReflectPlayState);
-                video.addEventListener('pause', veReflectPlayState);
+                video.addEventListener('play', () => { veStemsSyncPlay(); veReflectPlayState(); });
+                video.addEventListener('pause', () => { veStemsPause(); veReflectPlayState(); });
+                video.addEventListener('seeking', veStemsSeek);
+                video.addEventListener('ratechange', veStemsSyncRate);
                 video.addEventListener('loadedmetadata', () => {
                     // A preview-quality swap sets a pending position so the playhead
                     // stays put; otherwise land on the trim in-point.
                     const seekTo = (ve._pendingSeekSec != null) ? ve._pendingSeekSec : ve.inMs / 1000;
                     try { video.currentTime = seekTo; } catch (e) { /* ignore */ }
                     ve._pendingSeekSec = null;
+                    veStemsSeek();
                     if (ve._resumeAfterLoad) { ve._resumeAfterLoad = false; video.play().catch(() => {}); }
                 });
             }
@@ -420,6 +428,8 @@
             ve.waveforms = {};
             ve.assetsKey = null;
             ve.assetsBusy = false;
+            // Drop the previous clip's preview-audio stems.
+            veTeardownStems();
             veResetExportUI();
             renderVideoEditorPanel();
             showToast('Video imported');
@@ -704,6 +714,7 @@
             if (t) t.enabled = !!enabled;
             const lane = document.querySelector(`.ve-lane-audio[data-aindex="${aIndex}"]`);
             if (lane) lane.classList.toggle('ve-lane-disabled', !enabled);
+            veApplyPreviewAudio();   // reflect mute/unmute in the preview
             renderVeAudioTracks();   // refresh the "N exporting" summary
             veUpdateEstimate();
         }
@@ -715,6 +726,7 @@
             if (t) t.volume = pct / 100;
             const out = document.getElementById(`ve-vol-val-${aIndex}`);
             if (out) out.textContent = `${pct}%`;
+            veApplyPreviewAudio();   // reflect the new level in the preview
         }
 
         // Space = play/pause, ←/→ = step one frame. Active only while the Video
@@ -830,4 +842,139 @@
                 (res.waveforms || []).forEach((w) => { ve.waveforms[w.aIndex] = w.path; });
             }
             veApplyTrackAssets();
+        }
+
+        // ── Preview audio: reflect each track's volume & enabled state ──
+        // A single <video> only plays its default audio track, so per-track
+        // volume/mute can't be honoured natively when there are several tracks.
+        // For one (or zero) tracks we drive the video's own volume/mute; for two
+        // or more we extract each track to a stem, play them as hidden <audio>
+        // elements mixed by the browser, and keep them time-synced to the (muted)
+        // video — so the preview matches what the export will sound like.
+        // (Element volume caps at 100%; boosts above that still apply on export.)
+
+        // Pushes current per-track volume/enabled state onto whichever audio path
+        // is live. Cheap — safe to call on every slider tick / toggle.
+        function veApplyPreviewAudio() {
+            const video = document.getElementById('ve-video');
+            if (!video || !ve.input) return;
+            const tracks = ve.audioTracks || [];
+            const haveStems = Object.keys(ve.stems || {}).length > 0;
+            // Native path: single/no track, or the stems aren't available.
+            if (tracks.length <= 1 || !haveStems) {
+                const t = tracks[0];
+                if (!t) { video.muted = false; return; }
+                video.muted = t.enabled === false;
+                const v = t.volume == null ? 1 : t.volume;
+                video.volume = Math.max(0, Math.min(1, v)); // element caps at 100%
+                return;
+            }
+            // Stem mixer path — the video's own default track would double a stem.
+            video.muted = true;
+            Object.entries(ve.stems).forEach(([aIndexStr, s]) => {
+                const t = tracks.find((x) => x.aIndex === Number(aIndexStr));
+                const on = t && t.enabled !== false;
+                const vol = t ? (t.volume == null ? 1 : t.volume) : 1;
+                try {
+                    s.el.muted = !on;
+                    s.el.volume = Math.max(0, Math.min(1, vol));
+                } catch (e) { /* ignore */ }
+            });
+        }
+
+        // Tears down the hidden stem audio elements.
+        function veTeardownStems() {
+            Object.values(ve.stems || {}).forEach((s) => {
+                try { s.el.pause(); } catch (e) { /* ignore */ }
+                try { s.el.removeAttribute('src'); s.el.load(); } catch (e) { /* ignore */ }
+            });
+            ve.stems = {};
+            ve.stemsKey = null;
+        }
+
+        // Builds a hidden <audio> element per stem.
+        function veBuildStems(stems) {
+            const video = document.getElementById('ve-video');
+            if (!video || !ve.input) return;
+            veTeardownStems();
+            ve.stems = {};
+            stems.forEach((st) => {
+                try {
+                    const el = new Audio();
+                    el.src = veFileUrl(st.path);
+                    el.preload = 'auto';
+                    el.muted = true; // silent until veApplyPreviewAudio decides
+                    ve.stems[st.aIndex] = { el, path: st.path };
+                } catch (e) { /* skip a stem that won't load */ }
+            });
+            if (!Object.keys(ve.stems).length) { veApplyPreviewAudio(); return; }
+            ve.stemsKey = ve.input.path;
+            veApplyPreviewAudio();
+            if (!video.paused) veStemsSyncPlay(); // built mid-playback → catch up
+        }
+
+        // Requests (or reuses) the audio stems for the current multi-track clip.
+        async function veLoadAudioStems() {
+            const video = document.getElementById('ve-video');
+            if (!video || !ve.input) return;
+            const tracks = ve.audioTracks || [];
+            // One/zero tracks: native path handles it, no stems needed.
+            if (tracks.length <= 1 || !window.electronAPI?.videoAudioStems) { veApplyPreviewAudio(); return; }
+            // Already built for this exact file.
+            if (ve.stemsKey === ve.input.path && Object.keys(ve.stems || {}).length) { veApplyPreviewAudio(); return; }
+            video.muted = true; // avoid the default track blaring while stems build
+            const inputAtRequest = ve.input.path;
+            const res = await window.electronAPI.videoAudioStems({
+                inputPath: inputAtRequest,
+                audioIndices: tracks.map((t) => t.aIndex)
+            });
+            if (!ve.input || ve.input.path !== inputAtRequest) return; // clip swapped
+            if (res?.ok && Array.isArray(res.stems) && res.stems.length) {
+                veBuildStems(res.stems);
+            } else {
+                // Couldn't build stems — fall back to the video's default track.
+                veApplyPreviewAudio();
+            }
+        }
+
+        function veStemsSyncPlay() {
+            const video = document.getElementById('ve-video');
+            if (!video) return;
+            Object.values(ve.stems || {}).forEach((s) => {
+                try {
+                    if (Math.abs(s.el.currentTime - video.currentTime) > 0.15) s.el.currentTime = video.currentTime;
+                    s.el.playbackRate = video.playbackRate;
+                    const p = s.el.play();
+                    if (p && p.catch) p.catch(() => {});
+                } catch (e) { /* ignore */ }
+            });
+        }
+
+        function veStemsPause() {
+            Object.values(ve.stems || {}).forEach((s) => { try { s.el.pause(); } catch (e) { /* ignore */ } });
+        }
+
+        function veStemsSeek() {
+            const video = document.getElementById('ve-video');
+            if (!video) return;
+            Object.values(ve.stems || {}).forEach((s) => { try { s.el.currentTime = video.currentTime; } catch (e) { /* ignore */ } });
+        }
+
+        function veStemsSyncRate() {
+            const video = document.getElementById('ve-video');
+            if (!video) return;
+            Object.values(ve.stems || {}).forEach((s) => { try { s.el.playbackRate = video.playbackRate; } catch (e) { /* ignore */ } });
+        }
+
+        // Nudge a drifting stem back onto the video clock during playback.
+        function veStemsDrift() {
+            const video = document.getElementById('ve-video');
+            if (!video || video.paused) return;
+            Object.values(ve.stems || {}).forEach((s) => {
+                try {
+                    if (!s.el.paused && Math.abs(s.el.currentTime - video.currentTime) > 0.28) {
+                        s.el.currentTime = video.currentTime;
+                    }
+                } catch (e) { /* ignore */ }
+            });
         }

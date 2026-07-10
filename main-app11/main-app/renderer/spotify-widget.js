@@ -676,6 +676,20 @@
                 return;
             }
 
+            // Escape while typing in the Settings search box just exits the search
+            // box (clears the filter + drops focus) rather than closing Settings —
+            // so a stray Escape doesn't throw away the whole panel.
+            if (e.key === 'Escape') {
+                const search = document.getElementById('settings-search');
+                if (search && document.activeElement === search) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (search.value) { search.value = ''; if (typeof filterSettings === 'function') filterSettings(''); }
+                    search.blur();
+                    return;
+                }
+            }
+
             if (keydownMatches(e, hotkeys.close)) {
                 e.preventDefault();
                 if (!document.getElementById('settings-modal').classList.contains('hidden')) closeSettings();
