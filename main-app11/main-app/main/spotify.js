@@ -3,7 +3,6 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { safeFetch } = require('./httpClient');
-const { BoundedCache } = require('./boundedCache');
 
 const SPOTIFY_REDIRECT_URI_CUSTOM = 'main-launcher://spotify-callback';
 
@@ -44,8 +43,6 @@ function init(ctx) {
 
   let spotifyTokens = null;
   let spotifyConfig = { clientId: '' };
-  const spotifyAnalysisCache = new BoundedCache(300);
-  const spotifyFeaturesCache = new BoundedCache(300);
   let lastRefreshAttemptTime = 0;
   const REFRESH_RETRY_COOLDOWN_MS = 15000;
   // Concurrent spotifyApiRequest calls (e.g. overlapping polls) can each decide
@@ -647,34 +644,6 @@ function init(ctx) {
       device: data.device?.name,
       volume_percent: data.device?.volume_percent
     };
-  });
-
-  ipcMain.handle('spotify-get-audio-analysis', async (_event, trackId) => {
-    if (!trackId) return { ok: false, status: 400 };
-    if (spotifyAnalysisCache.has(trackId)) {
-      return { ok: true, data: spotifyAnalysisCache.get(trackId) };
-    }
-    const data = await spotifyApiRequest(`/audio-analysis/${trackId}`);
-    if (data?._error) return { ok: false, status: data.status || 403 };
-    if (data && !data._noContent) {
-      spotifyAnalysisCache.set(trackId, data);
-      return { ok: true, data };
-    }
-    return { ok: false, status: 404 };
-  });
-
-  ipcMain.handle('spotify-get-audio-features', async (_event, trackId) => {
-    if (!trackId) return { ok: false, status: 400 };
-    if (spotifyFeaturesCache.has(trackId)) {
-      return { ok: true, data: spotifyFeaturesCache.get(trackId) };
-    }
-    const data = await spotifyApiRequest(`/audio-features/${trackId}`);
-    if (data?._error) return { ok: false, status: data.status || 403 };
-    if (data && !data._noContent) {
-      spotifyFeaturesCache.set(trackId, data);
-      return { ok: true, data };
-    }
-    return { ok: false, status: 404 };
   });
 
   ipcMain.handle('spotify-sleep-timer-start', (_event, minutes) => startSleepTimer(minutes));

@@ -14,6 +14,9 @@ class Logger {
     this.pid = process.pid;
     this.mainLog = path.join(logDir, 'main.log');
     this.errorLog = path.join(logDir, 'errors.log');
+    // DEBUG entries trace every Spotify poll (~8 lines every 2.5s), which churns
+    // the 2 MB rotation and buries real WARN/ERROR lines — so they're opt-in.
+    this.debugEnabled = process.env.LAUNCHER_DEBUG === '1';
 
     if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
   }
@@ -59,7 +62,7 @@ class Logger {
   system(message, meta) { this.log(message, 'SYSTEM', meta); }
   success(message, meta) { this.log(message, 'SUCCESS', meta); }
   warn(message, meta) { this.log(message, 'WARN', meta); }
-  debug(message, meta) { this.log(message, 'DEBUG', meta); }
+  debug(message, meta) { if (this.debugEnabled) this.log(message, 'DEBUG', meta); }
   error(message, err, meta = {}) {
     const details = { ...meta };
     if (err) {
@@ -80,7 +83,8 @@ class Logger {
       electron: process.versions.electron,
       node: process.versions.node,
       arch: process.arch,
-      logDir: this.logDir
+      logDir: this.logDir,
+      debugLogging: this.debugEnabled ? 'on' : 'off (set LAUNCHER_DEBUG=1 to enable)'
     });
   }
 
@@ -113,6 +117,20 @@ class Logger {
 
     window.webContents.on('did-fail-load', (_event, code, description, url) => {
       this.error('Page failed to load', null, { code, description, url });
+    });
+
+    // Renderer console errors (uncaught exceptions, failed loads, script errors)
+    // previously vanished unless DevTools happened to be open — record them.
+    // Electron ≥32 puts the details on the event object; older versions pass
+    // positional args (level 3 = error). Support both shapes.
+    window.webContents.on('console-message', (event, level, message, line, sourceId) => {
+      const lvl = event && event.level !== undefined ? event.level : level;
+      const isError = lvl === 'error' || lvl === 3;
+      if (!isError) return;
+      const msg = event && event.message !== undefined ? event.message : message;
+      const src = event && event.sourceId !== undefined ? event.sourceId : sourceId;
+      const ln = event && event.lineNumber !== undefined ? event.lineNumber : line;
+      this.error(`Renderer console error: ${msg}`, null, { source: src, line: ln });
     });
 
     window.on('unresponsive', () => this.warn('Window became unresponsive'));

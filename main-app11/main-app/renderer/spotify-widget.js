@@ -692,7 +692,7 @@
 
             if (keydownMatches(e, hotkeys.close)) {
                 e.preventDefault();
-                if (!document.getElementById('settings-modal').classList.contains('hidden')) closeSettings();
+                if (!document.getElementById('settings-modal').classList.contains('hidden')) closeSettingsDone();
                 else closeApp();
                 return;
             }

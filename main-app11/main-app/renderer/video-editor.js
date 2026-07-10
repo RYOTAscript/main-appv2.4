@@ -69,7 +69,11 @@
         async function renderVideoEditorPanel() {
             const panel = document.getElementById('video-editor-panel');
             if (!panel) return;
-            if (!isVideoEditorEnabled()) { panel.innerHTML = ''; return; }
+            // Rebuilding (or clearing) the panel discards the <video>, but the stem
+            // <audio> elements are detached objects that survive — pause them so a
+            // re-render mid-playback can't leave orphaned audio playing forever.
+            veStemsPause();
+            if (!isVideoEditorEnabled()) { veTeardownStems(); panel.innerHTML = ''; return; }
 
             if (!ve.checked && window.electronAPI?.videoCheck) {
                 const c = await window.electronAPI.videoCheck();
@@ -952,6 +956,14 @@
 
         function veStemsPause() {
             Object.values(ve.stems || {}).forEach((s) => { try { s.el.pause(); } catch (e) { /* ignore */ } });
+        }
+
+        // Pauses the whole preview (video + stems). Called when Settings closes so
+        // playback doesn't keep sounding from inside a hidden modal.
+        function vePausePreview() {
+            const video = document.getElementById('ve-video');
+            if (video && !video.paused) { try { video.pause(); } catch (e) { /* ignore */ } }
+            veStemsPause();
         }
 
         function veStemsSeek() {

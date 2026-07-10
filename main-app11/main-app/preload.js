@@ -50,8 +50,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   enableAllHotkeys: () => ipcRenderer.invoke('enable-all-hotkeys'),
   onSpotifyVolumeAdjust: (callback) => ipcRenderer.on('spotify-volume-adjust', (_event, delta) => callback(delta)),
   getWeather: () => ipcRenderer.invoke('get-weather'),
-  spotifyGetAudioAnalysis: (trackId) => ipcRenderer.invoke('spotify-get-audio-analysis', trackId),
-  spotifyGetAudioFeatures: (trackId) => ipcRenderer.invoke('spotify-get-audio-features', trackId),
   getCloseWindowsStartup: () => ipcRenderer.invoke('get-close-windows-startup'),
   setCloseWindowsStartup: (enabled) => ipcRenderer.invoke('set-close-windows-startup', enabled),
   getLyrics: (trackName, artistName, albumName, durationMs) => ipcRenderer.invoke('get-lyrics', trackName, artistName, albumName, durationMs),

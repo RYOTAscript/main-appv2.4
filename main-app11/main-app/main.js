@@ -19,7 +19,7 @@ const bluetooth = require('./main/bluetooth');
 const videoEditor = require('./main/videoEditor');
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v3.21.0';
+const APP_VERSION = 'v3.21.1';
 
 // ── Crash handling (this is what removes the Windows "System Error" dialog) ──
 // The renderer very occasionally dies with STATUS_STACK_BUFFER_OVERRUN (0xC0000409)
@@ -302,13 +302,11 @@ if (!gotSingleInstanceLock) {
 
   app.on('second-instance', () => focusMainWindow());
 
-  app.on('web-contents-created', (event, contents) => {
-    // Close any windows that aren't the main window (like the Electron welcome page)
-    if (mainWindow && contents.id !== mainWindow.webContents.id) {
-      const window = BrowserWindow.fromWebContents(contents);
-      if (window) window.close();
-    }
-  });
+  // NOTE: an old 'web-contents-created' handler here tried to close every window
+  // that wasn't the main one. It was a silent no-op (BrowserWindow.fromWebContents
+  // returns null while that event fires), and if it ever HAD worked it would have
+  // instantly closed the Spotify auth window and the mic-mute overlay — so it was
+  // removed rather than fixed.
 
   app.on('window-all-closed', () => {
     logger.system('All windows closed — quitting');
@@ -405,7 +403,15 @@ if (!gotSingleInstanceLock) {
   });
 
   ipcMain.handle('open-external', async (_event, url) => {
-    await shell.openExternal(url);
+    // Only ever open web links — a file:// or custom-protocol URL handed to the
+    // OS shell could launch arbitrary programs.
+    let parsed;
+    try { parsed = new URL(String(url)); } catch (e) { parsed = null; }
+    if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) {
+      logger.warn('Blocked open-external for non-web URL', { url: String(url).slice(0, 200) });
+      return false;
+    }
+    await shell.openExternal(parsed.href);
     return true;
   });
 

@@ -41,6 +41,9 @@
             if (bindingTarget) cancelHotkeyBind();
             clearTimeout(settingsSaveTimer);
             persistSettings();
+            // Stop the Video Editor preview — otherwise its audio keeps playing
+            // from inside the now-hidden modal with no visible controls.
+            if (typeof vePausePreview === 'function') vePausePreview();
             document.getElementById('settings-modal').classList.add('hidden');
         }
 

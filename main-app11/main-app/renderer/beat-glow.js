@@ -31,8 +31,6 @@
         // every track, which was wasteful), and stop it when playback pauses/stops or
         // Beat Glow is turned off. If capture is unavailable, we fall back to a gentle
         // ambient pulse (updateSimBeat) so the disk still feels alive.
-        // Once we see the 403, we stop re-requesting Spotify beat data for the session.
-        let beatDataApiAvailable = true;
         let liveAudio = { stream: null, context: null, analyser: null, data: null, avg: 0, cooldown: 0, starting: false };
         let beatEngineState = {
             trackId: null,
@@ -232,7 +230,7 @@
         }
 
         async function loadBeatDataForTrack(trackId) {
-            if (!trackId || !window.electronAPI?.spotifyGetAudioAnalysis) return;
+            if (!trackId) return;
             if (beatEngineState.loadingTrackId === trackId) return;
             beatEngineState.loadingTrackId = trackId;
             beatEngineState.mode = 'none';
@@ -242,47 +240,10 @@
             beatEngineState.tempo = 0;
             updateBeatSyncStatus('Beat sync: loading…');
 
-            // Once Spotify has told us the beat-data API is gone (403), don't keep
-            // asking on every track — go straight to the ambient pulse.
-            if (!beatDataApiAvailable) {
-                await useLiveAudioOrAmbient();
-                return;
-            }
-
-            try {
-                const analysisResult = await window.electronAPI.spotifyGetAudioAnalysis(trackId);
-                if (beatEngineState.trackId !== trackId) return;
-                if (analysisResult && analysisResult.ok === false && analysisResult.status === 403) beatDataApiAvailable = false;
-                const analysis = analysisResult?.ok ? analysisResult.data : null;
-                if (analysis?.beats?.length) {
-                    beatEngineState.events = buildBeatEvents(analysis);
-                    beatEngineState.mode = 'analysis';
-                    syncBeatEngineProgressIndex(beatEngineState.progressMs);
-                    beatEngineState.loadingTrackId = null;
-                    updateBeatSyncStatus(`Beat sync: Spotify analysis (${beatEngineState.events.length} hits)`);
-                    return;
-                }
-            } catch (e) {
-                console.warn('Spotify audio analysis unavailable', e);
-            }
-
-            try {
-                const featuresResult = await window.electronAPI.spotifyGetAudioFeatures?.(trackId);
-                if (beatEngineState.trackId !== trackId) return;
-                if (featuresResult && featuresResult.ok === false && featuresResult.status === 403) beatDataApiAvailable = false;
-                const features = featuresResult?.ok ? featuresResult.data : null;
-                if (features?.tempo) {
-                    beatEngineState.tempo = features.tempo;
-                    beatEngineState.mode = 'bpm';
-                    beatEngineState.lastBpmBeatIndex = Math.floor(beatEngineState.progressMs / (60000 / features.tempo)) - 1;
-                    beatEngineState.loadingTrackId = null;
-                    updateBeatSyncStatus(`Beat sync: tempo estimate (${Math.round(features.tempo)} BPM)`);
-                    return;
-                }
-            } catch (e) {
-                console.warn('Spotify audio features unavailable', e);
-            }
-
+            // Spotify's /audio-analysis and /audio-features endpoints are permanently
+            // retired (HTTP 403 for every app since Nov 2024), so don't probe them —
+            // every request is a guaranteed failure and an error-log entry. Go straight
+            // to the live PC-audio listener (or the ambient pulse fallback).
             await useLiveAudioOrAmbient();
         }
 

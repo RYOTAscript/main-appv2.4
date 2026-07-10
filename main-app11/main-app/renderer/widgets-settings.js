@@ -326,12 +326,6 @@
             document.getElementById('settings-modal').classList.remove('hidden');
         }
 
-        function closeSettings() {
-            clearTimeout(settingsSaveTimer);
-            persistSettings();
-            document.getElementById('settings-modal').classList.add('hidden');
-        }
-
         function deleteApp(i) {
             pinnedApps.splice(i, 1);
             renderSettingsApps();

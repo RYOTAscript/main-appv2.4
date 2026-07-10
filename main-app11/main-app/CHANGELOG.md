@@ -5,6 +5,64 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.21.1] — 2026-07-10
+
+Debugging pass: no new features, just fixes and cleanup.
+
+### Fixed
+
+- **Beat Glow no longer probes Spotify's retired beat-data API.** Every session
+  fired two doomed requests at `/audio-analysis` + `/audio-features` (retired by
+  Spotify, always HTTP 403) before falling back to live audio — guaranteed error
+  spam in `errors.log` on every launch. The probe, its IPC handlers and caches
+  are gone; Beat Glow goes straight to the live PC-audio listener.
+- **Video Editor: orphaned preview audio could play forever.** The per-track
+  preview stems are detached `<audio>` objects, so anything that rebuilt the
+  panel mid-playback (opening Settings again, toggling any mini-widget) silenced
+  the video but left the stems playing with no way to stop them. The panel now
+  pauses stems on every rebuild and tears them down when the widget is disabled.
+- **Video Editor: preview kept sounding after Settings closed.** Closing the
+  Settings window now pauses the preview (video + stems) instead of letting it
+  play on invisibly inside the hidden modal.
+- **Removed a booby-trapped `web-contents-created` handler** in `main.js` that
+  tried to close every non-main window. It has always been a silent no-op
+  (`BrowserWindow.fromWebContents` returns null while that event fires), but if
+  Electron ever changed that timing it would have instantly closed the Spotify
+  auth window and the mic-mute overlay.
+- **Deleted four stray zero-byte files** from the app folder (`` ` ``, `{`,
+  `localStorage.setItem('main-notes'`, `notif.remove()`) — leftover shell
+  artifacts from an earlier session.
+
+### Changed
+
+- **DEBUG logging is now opt-in** (`LAUNCHER_DEBUG=1`). The Spotify poll wrote
+  ~8 DEBUG lines to `main.log` every 2.5 s — constant disk churn that rotated
+  away real errors. INFO/WARN/ERROR/SUCCESS logging is unchanged, and the
+  startup banner says how to turn DEBUG back on.
+- **Renderer console errors are now recorded** in the main log (they previously
+  vanished unless DevTools was open) — no more silent renderer failures.
+- **`open-external` only accepts http/https URLs** — a file:// or
+  custom-protocol URL handed to the OS shell could launch arbitrary programs.
+- **Single Settings close path.** `closeSettings()` (widgets-settings.js) was a
+  near-duplicate of `closeSettingsDone()` minus the hotkey-bind cancel; the
+  duplicate is gone and the Escape shortcut now uses the full version.
+
+### Files changed
+
+- `renderer/beat-glow.js` — dead-API probe removed from `loadBeatDataForTrack`.
+- `main/spotify.js` — `spotify-get-audio-analysis` / `spotify-get-audio-features`
+  handlers and their caches removed.
+- `preload.js` — the two matching bridge entries removed.
+- `renderer/video-editor.js` — stems paused on panel rebuild; `vePausePreview()`.
+- `renderer/settings.js` — `closeSettingsDone()` pauses the preview.
+- `renderer/widgets-settings.js` — duplicate `closeSettings()` removed.
+- `renderer/spotify-widget.js` — Escape path now calls `closeSettingsDone()`.
+- `logger.js` — opt-in `debug()`, renderer `console-message` error capture.
+- `main.js` — `web-contents-created` handler removed; `open-external` validation.
+- `renderer/core.js`, `main.html`, `package.json` — version → 3.21.1.
+
+---
+
 ## [3.21.0] — 2026-07-10
 
 ### Added
