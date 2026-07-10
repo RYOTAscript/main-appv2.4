@@ -694,7 +694,11 @@
                 const alreadyTyping = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (active && active.isContentEditable);
                 const macroRecording = typeof isMacroRecording === 'function' && isMacroRecording();
                 const macroBinding = typeof isMacroBinding === 'function' && isMacroBinding();
-                if (!alreadyTyping && !macroRecording && !macroBinding && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                // Also suspended while the Video Editor preview is on screen — its
+                // playback hotkeys (Space, etc.) belong to the editor, not the
+                // search box (see renderer/video-editor.js).
+                const videoEditing = typeof veIsPreviewOnScreen === 'function' && veIsPreviewOnScreen();
+                if (!alreadyTyping && !macroRecording && !macroBinding && !videoEditing && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
                     const search = document.getElementById('settings-search');
                     if (search) search.focus();
                 }

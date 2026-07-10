@@ -19,7 +19,7 @@ const bluetooth = require('./main/bluetooth');
 const videoEditor = require('./main/videoEditor');
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v3.19.0';
+const APP_VERSION = 'v3.20.0';
 
 // ── Crash handling (this is what removes the Windows "System Error" dialog) ──
 // The renderer very occasionally dies with STATUS_STACK_BUFFER_OVERRUN (0xC0000409)

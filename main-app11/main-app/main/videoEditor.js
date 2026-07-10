@@ -313,22 +313,52 @@ function init(ctx) {
 
   // Builds the ffmpeg argument list for a trim. Lossless mode stream-copies (no
   // re-encode, no quality loss, keyframe-aligned cut); precise mode re-encodes
-  // the video with a visually-lossless CRF for an exact frame boundary. Audio is
-  // copied when kept (or re-encoded to AAC in precise mode) and dropped with -an.
-  function buildArgs({ inputPath, startSec, durationSec, keepAudio, precise, outputPath, audioTrack }) {
+  // the video with a visually-lossless CRF for an exact frame boundary.
+  //
+  // Audio: `audioSelections` is the (ordered) list of tracks to keep, each with a
+  // volume multiplier (1 = unchanged). Every selected track is muxed into the
+  // output as its own stream. When every kept track is at 100% and we're not
+  // re-encoding, audio is stream-copied losslessly; if any track's volume differs
+  // from 100% (or precise mode is on), the selected tracks are re-encoded to AAC
+  // with a per-stream `volume` filter. No selections (or keepAudio off) => -an.
+  function buildArgs({ inputPath, startSec, durationSec, keepAudio, precise, outputPath, audioSelections }) {
     const args = ['-y', '-ss', String(startSec), '-i', inputPath, '-t', String(durationSec)];
-    // When the source has several audio tracks and the user picked one, map the
-    // video plus exactly that audio stream; otherwise let ffmpeg auto-select.
-    if (keepAudio && Number.isInteger(audioTrack)) {
-      args.push('-map', '0:v:0', '-map', `0:a:${audioTrack}`);
-    }
+    const sels = (keepAudio && Array.isArray(audioSelections)) ? audioSelections : [];
+    const wantAudio = sels.length > 0;
+
+    // Always map the first video stream explicitly (so we don't accidentally pull
+    // in a cover-art "video" stream some containers carry) plus each kept track.
+    args.push('-map', '0:v:0');
+    for (const s of sels) args.push('-map', `0:a:${s.aIndex}`);
+
+    // Video codec.
     if (precise) {
       args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p');
-      if (keepAudio) args.push('-c:a', 'aac', '-b:a', '192k');
-      else args.push('-an');
     } else {
-      args.push('-c', 'copy');
-      if (!keepAudio) args.push('-an');
+      args.push('-c:v', 'copy');
+    }
+
+    // Audio codec / per-track volume.
+    if (!wantAudio) {
+      args.push('-an');
+    } else {
+      const anyVolumeChange = sels.some((s) => Math.abs((Number(s.volume) || 0) - 1) > 0.001);
+      if (precise || anyVolumeChange) {
+        args.push('-c:a', 'aac', '-b:a', '192k');
+        // -filter:a:<outIndex> targets the Nth *output* audio stream, which follows
+        // the order the tracks were mapped above.
+        sels.forEach((s, i) => {
+          const v = Number(s.volume);
+          if (Number.isFinite(v) && Math.abs(v - 1) > 0.001) {
+            args.push(`-filter:a:${i}`, `volume=${Math.max(0, v).toFixed(3)}`);
+          }
+        });
+      } else {
+        args.push('-c:a', 'copy');
+      }
+    }
+
+    if (!precise) {
       // Avoids a leading gap/negative timestamps when copying from a non-zero cut.
       args.push('-avoid_negative_ts', 'make_zero');
     }
@@ -346,7 +376,12 @@ function init(ctx) {
     const endMs = Number(opts?.endMs) || 0;
     const keepAudio = opts?.keepAudio !== false;
     const precise = !!opts?.precise;
-    const audioTrack = Number.isInteger(opts?.audioTrack) ? opts.audioTrack : null;
+    // Sanitise the per-track selection list: valid integer a:index, volume clamped.
+    const audioSelections = Array.isArray(opts?.audioSelections)
+      ? opts.audioSelections
+          .filter((s) => Number.isInteger(s?.aIndex))
+          .map((s) => ({ aIndex: s.aIndex, volume: Math.max(0, Math.min(4, Number(s.volume) || 1)) }))
+      : [];
 
     if (!inputPath || !fs.existsSync(inputPath)) return { ok: false, error: 'Source video not found' };
     if (!outputPath) return { ok: false, error: 'No save location chosen' };
@@ -358,9 +393,9 @@ function init(ctx) {
 
     const durationSec = (endMs - startMs) / 1000;
     const startSec = startMs / 1000;
-    const args = buildArgs({ inputPath, startSec, durationSec, keepAudio, precise, outputPath, audioTrack });
+    const args = buildArgs({ inputPath, startSec, durationSec, keepAudio, precise, outputPath, audioSelections });
 
-    logger.log('Video export started', 'INFO', { outputPath, startMs, endMs, keepAudio, precise, audioTrack });
+    logger.log('Video export started', 'INFO', { outputPath, startMs, endMs, keepAudio, precise, audioSelections });
 
     return new Promise((resolve) => {
       let settled = false;

@@ -646,6 +646,60 @@
             font-size: 14px;
         }
 
+        /* Per-track include checkbox (top-left) — pushes the audio lane's label
+           over to make room. */
+        .ve-lane-check {
+            position: absolute;
+            top: 4px;
+            left: 6px;
+            z-index: 8;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .ve-lane-check input {
+            width: 13px;
+            height: 13px;
+            margin: 0;
+            accent-color: #8ab4f8;
+            cursor: pointer;
+        }
+        .ve-lane-audio .ve-lane-tag { left: 26px; }
+
+        /* An unticked (excluded) track: greyed out, won't be exported. */
+        .ve-lane-disabled { opacity: 0.45; filter: grayscale(0.85); }
+        .ve-lane-disabled .ve-wave { opacity: 0.5; }
+
+        /* Per-track volume slider, centred in the lane like Vegas' clip gain line. */
+        .ve-lane-vol {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 7;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 9px;
+            border-radius: 9px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .ve-lane-vol i { font-size: 9px; color: #cbd5e1; }
+        .ve-vol-slider {
+            width: 96px;
+            height: 4px;
+            accent-color: #8ab4f8;
+            cursor: pointer;
+        }
+        .ve-vol-val {
+            font-size: 8.5px;
+            color: #cbd5e1;
+            min-width: 30px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
         /* Loading shimmer while FFmpeg renders the waveform/filmstrip. */
         .ve-lane-loading::after {
             content: '';

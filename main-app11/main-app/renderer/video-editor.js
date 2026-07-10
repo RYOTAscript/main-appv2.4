@@ -14,8 +14,7 @@
             exporting: false,
             checked: false,     // whether we've confirmed ffmpeg availability
             available: true,
-            audioTracks: [],    // [{ aIndex, language, codec, channels, title }]
-            audioTrack: null,   // chosen a:index to keep on export (only when >1 track)
+            audioTracks: [],    // [{ aIndex, language, codec, channels, title, enabled, volume }]
             previewQuality: 'original', // original | 1080 | 720 | 360
             proxyPath: null,    // path of the low-res preview currently in use, if any
             proxyKey: null,     // "<inputPath>|<height>" the current proxy was built for
@@ -252,7 +251,12 @@
             // exact horizontal extent, so the same percentage math applies.
             const tracks = document.getElementById('ve-tracks');
             if (tracks) {
-                tracks.addEventListener('mousedown', (e) => veSeekFromEvent(e));
+                tracks.addEventListener('mousedown', (e) => {
+                    // Don't seek when the user is grabbing a track's checkbox or
+                    // volume slider — those own their own interaction.
+                    if (e.target.closest('.ve-lane-check, .ve-lane-vol')) return;
+                    veSeekFromEvent(e);
+                });
             }
         }
 
@@ -403,9 +407,10 @@
             ve.outMs = res.durationMs;
             ve.playheadMs = 0;
             ve.outputPath = veSuggestOutput(res.path);
-            ve.audioTracks = Array.isArray(res.audioTracks) ? res.audioTracks : [];
-            // Default to the first track when there's a choice to make.
-            ve.audioTrack = ve.audioTracks.length > 1 ? ve.audioTracks[0].aIndex : null;
+            // Every track starts enabled at full volume — by default all of them
+            // are exported. The per-lane checkbox/slider mutate these in place.
+            ve.audioTracks = (Array.isArray(res.audioTracks) ? res.audioTracks : [])
+                .map((t) => ({ ...t, enabled: true, volume: 1 }));
             // The old file's proxy no longer applies to this one.
             ve.proxyPath = null;
             ve.proxyKey = null;
@@ -452,8 +457,12 @@
 
             const keepAudio = document.getElementById('ve-keep-audio')?.checked !== false && ve.input.hasAudio;
             const precise = !!document.getElementById('ve-precise')?.checked;
-            // Only pin a specific audio stream when the source actually has a choice.
-            const audioTrack = (keepAudio && ve.audioTracks.length > 1 && Number.isInteger(ve.audioTrack)) ? ve.audioTrack : null;
+            // Keep every ticked track, each carrying its own volume multiplier.
+            const audioSelections = keepAudio
+                ? (ve.audioTracks || [])
+                    .filter((t) => t.enabled !== false)
+                    .map((t) => ({ aIndex: t.aIndex, volume: t.volume == null ? 1 : t.volume }))
+                : [];
 
             ve.exporting = true;
             veResetExportUI();
@@ -473,7 +482,7 @@
                     endMs: Math.round(ve.outMs),
                     keepAudio,
                     precise,
-                    audioTrack
+                    audioSelections
                 });
                 if (res?.ok) {
                     document.getElementById('ve-progress-wrap')?.classList.add('hidden');
@@ -658,36 +667,54 @@
             renderVeAudioTracks();
         }
 
-        function veAudioTrackLabel(t, i) {
-            const bits = [];
-            if (t.title) bits.push(t.title);
-            if (t.language) bits.push(t.language.toUpperCase());
-            if (t.channels) bits.push(t.channels);
-            if (t.codec) bits.push(t.codec.toUpperCase());
-            return `Track ${i + 1}${bits.length ? ' — ' + bits.join(', ') : ''}`;
-        }
-
         function renderVeAudioTracks() {
             const wrap = document.getElementById('ve-audio-tracks-wrap');
             if (!wrap || !ve.input) return;
             const tracks = ve.audioTracks || [];
-            if (tracks.length <= 1) {
-                wrap.innerHTML = tracks.length === 1
-                    ? `<p class="text-[10px] text-neutral-600"><i class="fas fa-volume-high mr-1"></i>1 audio track</p>`
-                    : `<p class="text-[10px] text-neutral-600"><i class="fas fa-volume-xmark mr-1"></i>No audio track in this file</p>`;
+            if (tracks.length === 0) {
+                wrap.innerHTML = `<p class="text-[10px] text-neutral-600"><i class="fas fa-volume-xmark mr-1"></i>No audio track in this file</p>`;
                 return;
             }
-            const options = tracks.map((t, i) =>
-                `<option value="${t.aIndex}" ${ve.audioTrack === t.aIndex ? 'selected' : ''}>${esc(veAudioTrackLabel(t, i))}</option>`
-            ).join('');
-            wrap.innerHTML = `<p class="text-[11px] text-neutral-300 mb-1.5"><i class="fas fa-layer-group mr-1 text-neutral-500"></i>${tracks.length} audio tracks detected</p>
-                <select id="ve-audio-select" onchange="veSetAudioTrack(this.value)" class="w-full bg-neutral-900 border border-neutral-700 rounded-lg text-xs text-neutral-200 px-2 py-1.5 focus:outline-none focus:border-neutral-500 no-drag">${options}</select>
-                <p class="text-[10px] text-neutral-600 mt-1">The chosen track is the one kept in the exported trim.</p>`;
+            const enabledCount = tracks.filter((t) => t.enabled !== false).length;
+            const noun = tracks.length === 1 ? 'audio track' : 'audio tracks';
+            wrap.innerHTML = `<p class="text-[11px] text-neutral-300 mb-1"><i class="fas fa-layer-group mr-1 text-neutral-500"></i>${tracks.length} ${noun} detected${tracks.length > 1 ? ` — ${enabledCount} exporting` : ''}</p>
+                <p class="text-[10px] text-neutral-600">Tick a track to include it in the export and drag its slider to set volume, right on the timeline lanes below. All tracks export by default.</p>`;
         }
 
-        function veSetAudioTrack(v) {
-            const n = parseInt(v, 10);
-            ve.audioTrack = Number.isInteger(n) ? n : null;
+        // True when the Video Editor's preview is genuinely visible on screen:
+        // getClientRects() is empty if any ancestor is display:none (Settings
+        // closed / a different widget's panel), and the viewport test rejects the
+        // case where the user has scrolled it out of view. Used both to scope the
+        // playback hotkeys and to stop stray keystrokes from hijacking the
+        // Settings search box (renderer/spotify-widget.js) while editing.
+        function veIsPreviewOnScreen() {
+            if (!isVideoEditorEnabled()) return false;
+            const video = document.getElementById('ve-video');
+            if (!video || !ve.input) return false;
+            if (video.getClientRects().length === 0) return false;
+            const r = video.getBoundingClientRect();
+            const vh = window.innerHeight || document.documentElement.clientHeight;
+            if (r.width === 0 || r.bottom <= 0 || r.top >= vh) return false;
+            return true;
+        }
+
+        // Toggles whether a track is included in the export and greys its lane out.
+        function veToggleTrack(aIndex, enabled) {
+            const t = (ve.audioTracks || []).find((x) => x.aIndex === aIndex);
+            if (t) t.enabled = !!enabled;
+            const lane = document.querySelector(`.ve-lane-audio[data-aindex="${aIndex}"]`);
+            if (lane) lane.classList.toggle('ve-lane-disabled', !enabled);
+            renderVeAudioTracks();   // refresh the "N exporting" summary
+            veUpdateEstimate();
+        }
+
+        // Sets a track's volume multiplier (slider is a percentage, 0–150%).
+        function veSetTrackVolume(aIndex, val) {
+            const pct = Math.max(0, Math.min(150, parseInt(val, 10) || 0));
+            const t = (ve.audioTracks || []).find((x) => x.aIndex === aIndex);
+            if (t) t.volume = pct / 100;
+            const out = document.getElementById(`ve-vol-val-${aIndex}`);
+            if (out) out.textContent = `${pct}%`;
         }
 
         // Space = play/pause, ←/→ = step one frame. Active only while the Video
@@ -697,16 +724,7 @@
             if (veKeysBound) return;
             veKeysBound = true;
             document.addEventListener('keydown', (e) => {
-                if (!isVideoEditorEnabled()) return;
-                const video = document.getElementById('ve-video');
-                if (!video || !ve.input) return;
-                // Only when the preview is genuinely on screen: getClientRects() is
-                // empty if any ancestor is display:none (Settings closed), and the
-                // viewport test avoids acting while the user scrolled elsewhere.
-                if (video.getClientRects().length === 0) return;
-                const r = video.getBoundingClientRect();
-                const vh = window.innerHeight || document.documentElement.clientHeight;
-                if (r.width === 0 || r.bottom <= 0 || r.top >= vh) return;
+                if (!veIsPreviewOnScreen()) return;
                 const t = e.target;
                 const tag = t && t.tagName ? t.tagName.toUpperCase() : '';
                 if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
@@ -748,7 +766,18 @@
             tracks.forEach((t, i) => {
                 const wf = ve.waveforms[t.aIndex];
                 const waveStyle = wf ? ` style="background-image:url('${veFileUrl(wf)}')"` : '';
-                html += `<div class="ve-lane ve-lane-audio" data-aindex="${t.aIndex}"><span class="ve-lane-tag">${esc(veLaneLabel(t, i))}</span><div class="ve-wave" id="ve-wave-lane-${t.aIndex}"${waveStyle}></div></div>`;
+                const enabled = t.enabled !== false;
+                const volPct = Math.round((t.volume == null ? 1 : t.volume) * 100);
+                html += `<div class="ve-lane ve-lane-audio${enabled ? '' : ' ve-lane-disabled'}" data-aindex="${t.aIndex}">
+                    <label class="ve-lane-check no-drag" title="Include this track in the export"><input type="checkbox" ${enabled ? 'checked' : ''} onchange="veToggleTrack(${t.aIndex}, this.checked)"></label>
+                    <span class="ve-lane-tag">${esc(veLaneLabel(t, i))}</span>
+                    <div class="ve-wave" id="ve-wave-lane-${t.aIndex}"${waveStyle}></div>
+                    <div class="ve-lane-vol no-drag" title="Track volume">
+                        <i class="fas fa-volume-high"></i>
+                        <input type="range" min="0" max="150" value="${volPct}" class="ve-vol-slider" oninput="veSetTrackVolume(${t.aIndex}, this.value)">
+                        <span class="ve-vol-val" id="ve-vol-val-${t.aIndex}">${volPct}%</span>
+                    </div>
+                </div>`;
             });
             return html;
         }

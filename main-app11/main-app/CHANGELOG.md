@@ -5,6 +5,43 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.20.0] — 2026-07-10
+
+### Added
+
+- **Per-track audio controls on the timeline (Vegas-style):** each audio lane now
+  carries an **include checkbox** in its top-left corner and a **volume slider**
+  in the middle. All tracks are **ticked and exported by default** — untick one to
+  grey the lane out and drop it from the export; drag a slider (0–150%) to set that
+  track's volume. Every ticked track is muxed into the output as its own stream.
+- **Multi-track export:** exports now keep *all* enabled audio tracks (previously
+  a single track was chosen). When every kept track is at 100% the audio is still
+  stream-copied losslessly; a track at any other volume is re-encoded to AAC with
+  a per-stream `volume` filter (other tracks stay untouched where possible).
+
+### Fixed
+
+- **Keystrokes no longer leak into the Settings search box while editing video.**
+  The "type to search" shortcut is now suspended whenever the Video Editor preview
+  is on screen, so Space / letters drive playback instead of landing in the search
+  field.
+
+### Files changed
+
+- `main/videoEditor.js` — `buildArgs`/export now take an `audioSelections` list
+  (per-track index + volume): maps every kept track, stream-copies at 100% or
+  re-encodes to AAC with per-stream `volume` filters otherwise.
+- `renderer/video-editor.js` — per-track `enabled`/`volume` state; lane checkbox
+  + volume slider; `veToggleTrack`/`veSetTrackVolume`; shared `veIsPreviewOnScreen`
+  helper; lane-control click guard; settings audio section reworked to a summary.
+- `renderer/spotify-widget.js` — type-to-search suppressed while the video preview
+  is visible.
+- `styles/main.css` — lane checkbox, disabled (greyed) lane, and volume-slider
+  styles.
+- `renderer/core.js`, `main.html`, `package.json`, `main.js` — version → 3.20.0.
+
+---
+
 ## [3.19.0] — 2026-07-09
 
 ### Added
