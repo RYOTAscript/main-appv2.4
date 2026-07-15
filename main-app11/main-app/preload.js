@@ -60,6 +60,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   registerMicMuteHotkey: (accelerator) => ipcRenderer.invoke('register-mic-mute-hotkey', accelerator),
   setMicMuteOverlayEnabled: (enabled) => ipcRenderer.invoke('set-mic-mute-overlay-enabled', enabled),
 
+  // Mini Widgets: Crosshair
+  crosshairApply: (state) => ipcRenderer.invoke('crosshair-apply', state),
+  registerCrosshairHotkey: (accelerator) => ipcRenderer.invoke('register-crosshair-hotkey', accelerator),
+  onCrosshairVisibilityChanged: (callback) => ipcRenderer.on('crosshair-visibility-changed', (_event, visible) => callback(visible)),
+
   // Display monitor selection
   getDisplays: () => ipcRenderer.invoke('get-displays'),
   getSelectedDisplay: () => ipcRenderer.invoke('get-selected-display'),

@@ -121,16 +121,11 @@ class Logger {
 
     // Renderer console errors (uncaught exceptions, failed loads, script errors)
     // previously vanished unless DevTools happened to be open — record them.
-    // Electron ≥32 puts the details on the event object; older versions pass
-    // positional args (level 3 = error). Support both shapes.
-    window.webContents.on('console-message', (event, level, message, line, sourceId) => {
-      const lvl = event && event.level !== undefined ? event.level : level;
-      const isError = lvl === 'error' || lvl === 3;
-      if (!isError) return;
-      const msg = event && event.message !== undefined ? event.message : message;
-      const src = event && event.sourceId !== undefined ? event.sourceId : sourceId;
-      const ln = event && event.lineNumber !== undefined ? event.lineNumber : line;
-      this.error(`Renderer console error: ${msg}`, null, { source: src, line: ln });
+    // Event-object form only (Electron ≥32; this app pins ≥42 — declaring the
+    // legacy positional args triggers a deprecation warning).
+    window.webContents.on('console-message', (event) => {
+      if (!event || event.level !== 'error') return;
+      this.error(`Renderer console error: ${event.message}`, null, { source: event.sourceId, line: event.lineNumber });
     });
 
     window.on('unresponsive', () => this.warn('Window became unresponsive'));

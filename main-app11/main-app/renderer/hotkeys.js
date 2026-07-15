@@ -95,7 +95,7 @@
         }
 
         function updateHotkeyDisplays() {
-            const ids = ['focus', 'close', 'spotifyPlay', 'spotifyPause', 'spotifyNext', 'spotifyPrevious', 'spotifyVolumeUp', 'spotifyVolumeDown', 'micMute'];
+            const ids = ['focus', 'close', 'spotifyPlay', 'spotifyPause', 'spotifyNext', 'spotifyPrevious', 'spotifyVolumeUp', 'spotifyVolumeDown', 'micMute', 'crosshair'];
             for (const type of ids) {
                 const btn = document.getElementById(getHotkeyButtonId(type));
                 if (btn) btn.textContent = formatHotkeyDisplay(hotkeys[type] || DEFAULT_HOTKEYS[type]);
@@ -239,6 +239,11 @@
             await window.electronAPI.registerMicMuteHotkey(toElectronAccelerator(hotkeys.micMute || DEFAULT_HOTKEYS.micMute));
         }
 
+        async function sendCrosshairHotkeyToMain() {
+            if (!window.electronAPI?.registerCrosshairHotkey) return;
+            await window.electronAPI.registerCrosshairHotkey(toElectronAccelerator(hotkeys.crosshair || DEFAULT_HOTKEYS.crosshair));
+        }
+
         async function initHotkeys() {
             updateHotkeyDisplays();
             if (window.electronAPI?.setFocusHotkey) {
@@ -252,4 +257,5 @@
             }
             await sendSpotifyHotkeysToMain();
             await sendMicMuteHotkeyToMain();
+            await sendCrosshairHotkeyToMain();
         }

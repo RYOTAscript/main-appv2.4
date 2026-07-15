@@ -5,6 +5,183 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.23.0] — 2026-07-15
+
+### Added
+
+- **Clipboard History now records images and files, not just text.**
+  - Copying an image (screenshots, right-click → Copy Image in a browser,
+    image editors) saves it to history with a thumbnail preview and its
+    dimensions. Clicking the entry puts the image back on the clipboard,
+    ready to paste. Full-size copies are cached in
+    `%APPDATA%/main-launcher/clipboard-images/` and cleaned up when the
+    entry is deleted, cleared, or evicted by the 50-item cap.
+  - Copying files or folders in Windows Explorer records the copied paths.
+    The entry lists the file names (first 3, with a "+N more" overflow and
+    full paths in the tooltip). Clicking it re-copies the files so they can
+    be pasted into any folder; files that have since been deleted are
+    skipped, with a clear message if none remain.
+  - Text, image, and file entries share the same pin / delete / clear
+    controls and the existing 50-item history cap. Existing history files
+    from older versions load unchanged.
+  - Sensitive clipboard writes (password managers) are still excluded, and
+    re-copying an entry from the widget doesn't create a duplicate row.
+
+**Files changed:** `main/clipboard.js`, `renderer/clipboard.js`,
+`renderer/core.js`, `main.js`, `package.json`, `CHANGELOG.md`
+
+---
+
+## [3.22.3] — 2026-07-15
+
+### Fixed
+
+- **Pasted app paths wrapped in quotes now work.** Windows Explorer's
+  "Copy as path" wraps the path in double quotes (e.g.
+  `"C:\Users\you\app.exe"`), which previously failed with "File not found"
+  when pasted into a quick-launch app's path field. Surrounding quotes
+  (double or single) and stray whitespace are now stripped automatically
+  when the path is entered, and also at launch time so entries saved with
+  quotes before this fix keep working.
+
+**Files changed:** `renderer/widgets-settings.js`, `main/appLauncher.js`,
+`main.js`, `package.json`, `CHANGELOG.md`
+
+---
+
+## [3.22.2] — 2026-07-14
+
+Follow-up debugging pass after the v3.22.1 crash fix.
+
+### Fixed
+
+- **The music Visualizer had the same crash-prone loopback capture as Beat Glow,
+  and it was still unguarded.** `updateVisualizerActiveState()` runs on every
+  Spotify poll, and while capture was failed/null it re-opened the loopback
+  `getDisplayMedia` audio stream every time — the exact audio-service thrashing
+  that precedes the STATUS_STACK_BUFFER_OVERRUN renderer crash. Fixing Beat Glow
+  alone (v3.22.1) left this second path open. The Visualizer now uses the same
+  `vizAudioUnsupported` session latch (plus an `onstatechange` handler for
+  mid-stream device errors, which it previously lacked), so a failed/erroring
+  capture falls back to synthetic motion instead of being retried. This completes
+  the v3.22.1 crash fix.
+- **Spotify polling could revive itself after being stopped.**
+  `startSpotifyPolling()` scheduled its first poll on a 200 ms `setTimeout` whose
+  handle wasn't tracked, so `stopSpotifyPolling()` couldn't cancel it. A
+  disconnect within that window left the timer pending, and it recreated the poll
+  interval right after the stop — reconnecting/polling against a disconnected
+  account. The handle is now tracked and cleared on stop, matching the existing
+  retry-timer handling.
+
+### Files changed
+
+- `renderer/visualizer.js` — added the `vizAudioUnsupported` latch and an
+  `onstatechange` teardown so a failed/erroring loopback capture stops being
+  re-opened (mirrors `renderer/beat-glow.js`).
+- `renderer/spotify-widget.js` — track the initial-poll `setTimeout` in
+  `spotifyInitialPollTimeout` and clear it in `stopSpotifyPolling()`.
+- `main.js`, `package.json` — version → v3.22.2.
+
+---
+
+## [3.22.1] — 2026-07-14
+
+### Fixed
+
+- **The Windows "System Error — stack-based buffer overrun" dialog on this
+  machine.** Root cause was two separate problems stacked on top of each other:
+  1. **The renderer intermittently crashes with STATUS_STACK_BUFFER_OVERRUN
+     (0xC0000409), and the crash was not being suppressed.** The suppression
+     depends on Electron's Crashpad handler (`chrome_crashpad_handler.exe`) and
+     its WER runtime-exception module (`chrome_wer.dll`). This machine's Electron
+     dist is missing both binaries, so `crashReporter.start()` had nothing to
+     hand the crash to and Windows Error Reporting showed its modal dialog. A new
+     `verifyCrashHandler()` check now logs a clear, actionable error at startup
+     when those binaries are absent (reinstall/repair Electron, or check
+     antivirus quarantine — crashpad handlers are a known false positive),
+     instead of failing silently.
+  2. **The crash itself was being triggered by the Beat Glow live-audio
+     capture.** The logs show the audio device / WebAudio renderer repeatedly
+     erroring ("The AudioContext encountered an error…") right before each crash.
+     The loopback capture was re-opened on every track change even after it had
+     errored, thrashing the audio service until the renderer went down. Beat Glow
+     now **latches to the ambient pulse for the rest of the session** the first
+     time loopback capture fails or errors, so it stops re-spinning the
+     crash-prone capture. Restarting the app retries live capture as before.
+- **Crashpad database now lives with the rest of the app's data.**
+  `crashReporter.start()` was running before `userData` was pointed at
+  `%APPDATA%/main-launcher`, so Crashpad initialised against Electron's default
+  path and orphaned its database under `%APPDATA%/main-app`. `userData` is now
+  set first, so crash data lands in the app's own folder.
+
+### Files changed
+
+- `main.js` — set `userData` before `crashReporter.start()`; added
+  `verifyCrashHandler()` startup integrity check; `APP_VERSION` → v3.22.1.
+- `renderer/beat-glow.js` — added the `liveAudioUnsupported` session latch so a
+  failed/erroring loopback capture falls back to the ambient pulse permanently
+  for the session instead of being retried on every track change.
+- `package.json` — version → 3.22.1.
+
+---
+
+## [3.22.0] — 2026-07-10
+
+### Added
+
+- **Crosshair mini widget** (Crosshair X-style). Draws a customizable crosshair
+  dead-center on the primary display, above every window — click-through and
+  unfocusable, so it never steals input from the game underneath.
+  - **Styles:** Cross, T, X, Circle, Dot.
+  - **Options:** color (6 presets + custom picker), size, gap, thickness,
+    opacity, optional black outline, optional independent center dot with its
+    own size.
+  - **Live preview** in Settings on a game-like backdrop — rendered by the same
+    shared draw code as the overlay, so the preview is pixel-exact.
+  - **Global show/hide hotkey** (default `Ctrl+Shift+X`), rebindable in Settings
+    like every other hotkey; works while a game has focus, and the Settings
+    toggle stays in sync when used.
+  - The overlay recenters itself automatically when the display resolution
+    changes (including via the Screen Resolution widget) or monitors are
+    added/removed.
+  - Like all overlay apps: visible over windowed/borderless games; true
+    exclusive-fullscreen games draw over it (the panel explains this).
+
+### Fixed
+
+- **Beat Glow recovers when the audio device errors mid-capture.** If the
+  WebAudio renderer/audio device fails while live capture is running (seen as
+  "The AudioContext encountered an error" in the new renderer-error log), the
+  glow now falls back to the ambient pulse instead of silently freezing in a
+  dead 'live' mode.
+- Renderer console-error capture (added in 3.21.1) now uses Electron's
+  event-object form, silencing a deprecation warning on Electron 42.
+
+### Files changed
+
+- `main/crosshair.js` *(new)* — overlay window (transparent/click-through/
+  always-on-top), `crosshair-apply` + `register-crosshair-hotkey` IPC, display
+  recentering, hotkey toggle.
+- `crosshair-overlay.html`, `crosshair-overlay-preload.js` *(new)* — the
+  overlay page; paints via the shared renderer at devicePixelRatio.
+- `renderer/crosshair-draw.js` *(new)* — shared pure canvas draw code used by
+  both the overlay and the Settings preview.
+- `renderer/crosshair.js` *(new)* — Settings panel (preview, style/color/
+  sliders/toggles), config persistence, visibility sync.
+- `renderer/core.js` — `crosshair` MINI_WIDGETS entry + default hotkey.
+- `renderer/hotkeys.js` — crosshair in hotkey displays, `sendCrosshairHotkeyToMain`.
+- `renderer/spotify-widget.js` — crosshair category in the rebind-conflict sync.
+- `renderer/widgets-settings.js` — panel render + enable hook.
+- `preload.js` — `crosshairApply`, `registerCrosshairHotkey`,
+  `onCrosshairVisibilityChanged` bridges.
+- `main.js` — module init, hotkey reapply on enable-all, teardown on quit.
+- `renderer/beat-glow.js` — AudioContext state-change fallback.
+- `logger.js` — console-message handler modernized.
+- `main.html` — script tags; `package.json` — overlay files added to the build
+  list; version → 3.22.0.
+
+---
+
 ## [3.21.1] — 2026-07-10
 
 Debugging pass: no new features, just fixes and cleanup.

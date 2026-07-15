@@ -182,6 +182,7 @@
             if (typeof renderScreenResolutionPanel === 'function') renderScreenResolutionPanel();
             if (typeof renderBluetoothPanel === 'function') renderBluetoothPanel();
             if (typeof renderVideoEditorPanel === 'function') renderVideoEditorPanel();
+            if (typeof renderCrosshairPanel === 'function') renderCrosshairPanel();
         }
 
         function saveMiniWidgetPrefs() {
@@ -227,6 +228,11 @@
             // load the device list immediately when turned on.
             if (typeof applyBluetoothEnabled === 'function') {
                 applyBluetoothEnabled(!!prefs.bluetooth);
+            }
+            // Crosshair: show/hide the overlay window (main process) to match the
+            // toggle, and (re)render its settings panel.
+            if (typeof applyCrosshairEnabled === 'function') {
+                applyCrosshairEnabled();
             }
         }
 
@@ -394,7 +400,25 @@
         }
 
         function updateAppName(i, val) { pinnedApps[i].name = val; scheduleSettingsSave(); }
-        function updateAppPath(i, val) { pinnedApps[i].path = val; scheduleSettingsSave(); }
+
+        // Windows Explorer's "Copy as path" wraps the path in double quotes;
+        // strip surrounding quotes so pasted paths launch without manual cleanup.
+        function cleanAppPath(val) {
+            let p = String(val).trim();
+            while (p.length >= 2 && ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith("'") && p.endsWith("'")))) {
+                p = p.slice(1, -1).trim();
+            }
+            return p;
+        }
+
+        function updateAppPath(i, val) {
+            const cleaned = cleanAppPath(val);
+            pinnedApps[i].path = cleaned;
+            scheduleSettingsSave();
+            // onchange fires on blur/Enter, so re-rendering here is safe and
+            // makes the field show the corrected path immediately.
+            if (cleaned !== val) renderSettingsApps();
+        }
 
         async function changeIcon(i) {
             if (!window.electronAPI?.selectIcon) {

@@ -1,5 +1,5 @@
-        const APP_VERSION = 'v3.21.1';
-        const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M' };
+        const APP_VERSION = 'v3.22.0';
+        const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M', crosshair: 'Control+Shift+X' };
 
         // Registry of "Mini Widgets" -- small, self-contained utilities that each get
         // an enable toggle + a hotkey in Settings. Adding a future widget (Bluetooth
@@ -25,7 +25,7 @@
                 id: 'clipboard',
                 label: 'Clipboard History',
                 icon: 'fa-clipboard',
-                description: 'Keeps a running history of everything you copy so you can re-copy, pin, or delete past snippets.',
+                description: 'Keeps a running history of everything you copy — text, images, and files — so you can re-copy, pin, or delete past items.',
                 panelId: 'clipboard-panel'
             },
             {
@@ -56,6 +56,14 @@
                 icon: 'fa-film',
                 description: 'A fast, simple video trimmer. Import a clip, set in/out points on the timeline, keep or drop audio, and export losslessly (or with a precise frame-accurate re-encode). Powered by bundled FFmpeg.',
                 panelId: 'video-editor-panel'
+            },
+            {
+                id: 'crosshair',
+                label: 'Crosshair',
+                icon: 'fa-crosshairs',
+                description: 'Draws a customizable crosshair in the center of your screen, above every window — for games without one or with one that\'s hard to see. Pick a style, color, size, gap and opacity; toggle it with a hotkey.',
+                defaultHotkey: 'Control+Shift+X',
+                panelId: 'crosshair-panel'
             }
         ];
 

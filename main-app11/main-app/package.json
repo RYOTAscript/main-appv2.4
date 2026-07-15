@@ -1,6 +1,6 @@
 {
   "name": "main-app",
-  "version": "3.21.1",
+  "version": "3.23.0",
   "description": "Personal gaming & productivity launcher",
   "main": "main.js",
   "scripts": {
@@ -29,6 +29,8 @@
       "styles/**/*",
       "mic-mute-overlay.html",
       "mic-mute-overlay-preload.js",
+      "crosshair-overlay.html",
+      "crosshair-overlay-preload.js",
       "icons/**/*",
       "node_modules/ffmpeg-static/**/*"
     ],

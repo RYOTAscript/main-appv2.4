@@ -32,6 +32,14 @@
         // Beat Glow is turned off. If capture is unavailable, we fall back to a gentle
         // ambient pulse (updateSimBeat) so the disk still feels alive.
         let liveAudio = { stream: null, context: null, analyser: null, data: null, avg: 0, cooldown: 0, starting: false };
+        // Some machines' audio devices/WebAudio renderer repeatedly error out of the
+        // loopback capture ("The AudioContext encountered an error from the audio
+        // device or the WebAudio renderer"). Re-opening the capture on every track
+        // change then thrashes the audio service, which on those devices can escalate
+        // to a renderer crash (STATUS_STACK_BUFFER_OVERRUN). Once loopback capture has
+        // failed or errored this session, latch this flag so we stay on the ambient
+        // pulse instead of re-spinning it. Cleared only by restarting the app.
+        let liveAudioUnsupported = false;
         let beatEngineState = {
             trackId: null,
             mode: 'none',
@@ -73,6 +81,7 @@
         // we only want the audio.
         async function ensureLiveAudioAnalyser() {
             if (liveAudio.analyser) return true;
+            if (liveAudioUnsupported) return false; // errored earlier this session — stay on ambient
             if (liveAudio.starting) return false;
             liveAudio.starting = true;
             try {
@@ -85,6 +94,7 @@
                 if (!audioTracks.length) {
                     stream.getTracks().forEach((t) => t.stop());
                     liveAudio.starting = false;
+                    liveAudioUnsupported = true; // no loopback audio device — don't keep retrying
                     return false;
                 }
                 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -104,11 +114,28 @@
                     stopLiveAudioAnalyser();
                     if (beatEngineState.mode === 'live') beatEngineState.mode = 'sim';
                 });
+                // Same if the audio device / WebAudio renderer errors out mid-stream
+                // (seen as "The AudioContext encountered an error" on some devices) —
+                // otherwise the mode would stay 'live' with a dead analyser and the
+                // glow would silently freeze. An unexpected close/interrupt here is the
+                // audio-device fault that precedes the renderer crash, so latch
+                // liveAudioUnsupported to stop re-opening the capture this session.
+                audioContext.onstatechange = () => {
+                    if (liveAudio.context !== audioContext) return; // already torn down
+                    const st = audioContext.state;
+                    if (st === 'closed' || st === 'interrupted') {
+                        liveAudioUnsupported = true;
+                        stopLiveAudioAnalyser();
+                        if (beatEngineState.mode === 'live') beatEngineState.mode = 'sim';
+                        updateBeatSyncStatus('Beat sync: ambient pulse');
+                    }
+                };
                 updateBeatSyncStatus('Beat sync: live audio (reacting to PC sound)');
                 return true;
             } catch (e) {
                 console.warn('Live audio capture unavailable', e);
                 liveAudio.starting = false;
+                liveAudioUnsupported = true; // capture threw — fall back to ambient for the session
                 return false;
             }
         }

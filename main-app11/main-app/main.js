@@ -17,21 +17,36 @@ const clipboardHistory = require('./main/clipboard');
 const screenResolution = require('./main/screenResolution');
 const bluetooth = require('./main/bluetooth');
 const videoEditor = require('./main/videoEditor');
+const crosshair = require('./main/crosshair');
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v3.21.1';
+const APP_VERSION = 'v3.23.0';
+
+// Point every per-user path (userData, and therefore crashDumps) at our own
+// folder BEFORE anything reads them. This has to happen before crashReporter.start()
+// below, otherwise Crashpad initialises against Electron's default location
+// (%APPDATA%/main-app) and its database/dumps end up orphaned there instead of
+// living with the rest of the app's data in %APPDATA%/main-launcher.
+const userDataPath = path.join(app.getPath('appData'), 'main-launcher');
+app.setPath('userData', userDataPath);
 
 // ── Crash handling (this is what removes the Windows "System Error" dialog) ──
 // The renderer very occasionally dies with STATUS_STACK_BUFFER_OVERRUN (0xC0000409)
 // — an intermittent low-level Chromium/Windows fault (seen since v2.3.0, unaffected
-// by GPU mode or JIT). The reason a *Windows* error dialog appeared for it is that
-// the app never initialised Electron's own crash handler, so Windows Error Reporting
-// took over the crash and showed its modal dialog. Starting the crashReporter installs
-// Chromium's Crashpad handler (including its WER runtime-exception module, which
-// specifically catches __fastfail/stack-protection crashes), so the crash is handled
-// silently in-process instead of by Windows. Combined with the auto-reload in
-// createWindow(), an occasional renderer blip becomes invisible and self-healing.
-// uploadToServer:false keeps everything local — nothing is sent anywhere.
+// by GPU mode or JIT). The reason a *Windows* error dialog appears for it is that
+// Windows Error Reporting takes over any crash the app's own crash handler didn't
+// catch and shows its modal dialog. Starting the crashReporter installs Chromium's
+// Crashpad handler (chrome_crashpad_handler.exe) plus its WER runtime-exception
+// module (chrome_wer.dll), which specifically catches __fastfail/stack-protection
+// crashes, so the crash is handled silently in-process instead of by Windows.
+// Combined with the auto-reload in createWindow(), an occasional renderer blip
+// becomes invisible and self-healing. uploadToServer:false keeps everything local.
+//
+// IMPORTANT: this only works if those two binaries are actually present in the
+// Electron dist. If the install is incomplete (partial copy, or antivirus
+// quarantining the crashpad handler — a known false positive), Crashpad can't run,
+// no crash is captured, and the Windows dialog reappears. verifyCrashHandler()
+// (called after the logger exists) surfaces that instead of failing silently.
 try {
   crashReporter.start({
     productName: 'Launcher',
@@ -45,6 +60,30 @@ try {
   console.error('crashReporter.start failed:', e && e.message);
 }
 
+// Confirms the Crashpad binaries the dialog-suppression relies on are actually on
+// disk. Missing binaries are exactly why the "stack-based buffer overrun" dialog
+// can still appear despite crashReporter.start() above — so make it loud and
+// actionable in the log rather than a silent, baffling failure.
+function verifyCrashHandler(logger) {
+  if (process.platform !== 'win32') return;
+  try {
+    const distDir = path.dirname(process.execPath);
+    const required = ['chrome_crashpad_handler.exe', 'chrome_wer.dll'];
+    const missing = required.filter((f) => !fs.existsSync(path.join(distDir, f)));
+    if (missing.length) {
+      logger.error(
+        'Crash handler binaries missing — the Windows crash dialog will NOT be suppressed. Reinstall/repair Electron (npm install) or check antivirus quarantine.',
+        null,
+        { distDir, missing }
+      );
+    } else {
+      logger.system('Crash handler verified', { handler: 'crashpad + WER module present' });
+    }
+  } catch (e) {
+    logger.warn('Crash handler verification failed', e);
+  }
+}
+
 // ── Windows renderer stability ──
 // Keep RendererCodeIntegrity disabled (pre-existing) to avoid unsigned-DLL load
 // conflicts in the renderer on some Windows setups. NOTE: earlier attempts to stop
@@ -56,9 +95,6 @@ try {
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('disable-features', 'RendererCodeIntegrity');
 }
-
-const userDataPath = path.join(app.getPath('appData'), 'main-launcher');
-app.setPath('userData', userDataPath);
 
 // ── Graphics mode (optional override) ──
 // Hardware acceleration is ON by default. The GPU was NOT the cause of the
@@ -108,6 +144,7 @@ if (!gotSingleInstanceLock) {
   logger.attachProcessHandlers();
   logger.startupBanner();
   logger.system('Graphics mode', { graphicsMode, hint: 'change via graphics-config.json (no-accel | angle-gl | gpu)' });
+  verifyCrashHandler(logger);
 
   function verifyFeatures() {
     const iconsFolder = path.join(__dirname, 'icons');
@@ -123,6 +160,7 @@ if (!gotSingleInstanceLock) {
   let spotifyModule = null;
   let macrosModule = null;
   let videoEditorModule = null;
+  let crosshairModule = null;
 
   function registerFocusHotkey(accelerator) {
     if (!accelerator || typeof accelerator !== 'string' || accelerator === '-') return false;
@@ -294,6 +332,7 @@ if (!gotSingleInstanceLock) {
     screenResolution.init(ctx);
     bluetooth.init(ctx);
     videoEditorModule = videoEditor.init(ctx);
+    crosshairModule = crosshair.init(ctx);
 
     createTray();
     registerFocusHotkey(focusHotkey);
@@ -339,6 +378,7 @@ if (!gotSingleInstanceLock) {
     if (appTray) appTray.destroy();
     // Kill any in-flight ffmpeg export so it doesn't linger after the app exits.
     if (videoEditorModule) videoEditorModule.teardown();
+    if (crosshairModule) crosshairModule.teardown();
     logger.system('Application quit');
   });
 
@@ -398,6 +438,7 @@ if (!gotSingleInstanceLock) {
     if (spotifyModule) spotifyModule.reapplyShortcuts();
     if (micModule) micModule.reapplyHotkey();
     if (macrosModule) macrosModule.reapplyHotkeys();
+    if (crosshairModule) crosshairModule.reapplyHotkey();
     logger.log('All hotkeys re-enabled');
     return { success: true };
   });

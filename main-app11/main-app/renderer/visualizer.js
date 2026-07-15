@@ -30,6 +30,12 @@
         let vizAuraTime = 0;
 
         let vizAudio = { stream: null, context: null, analyser: null, freqData: null, timeData: null, starting: false };
+        // See the matching latch in beat-glow.js: once loopback capture fails or the
+        // audio device/WebAudio renderer errors out, stop re-opening it. Without this
+        // updateVisualizerActiveState() re-attempts capture on every Spotify poll,
+        // thrashing the audio service on machines where it's broken until the renderer
+        // crashes (STATUS_STACK_BUFFER_OVERRUN). Cleared only by restarting the app.
+        let vizAudioUnsupported = false;
         let vizRafId = null;
         let vizIsPlaying = false;
         let vizLastFrameAt = 0;
@@ -238,6 +244,7 @@
         // on or off without affecting the other's audio pipeline.
         async function ensureVizAudioAnalyser() {
             if (vizAudio.analyser) return true;
+            if (vizAudioUnsupported) return false; // errored earlier this session — don't re-spin
             if (vizAudio.starting) return false;
             vizAudio.starting = true;
             try {
@@ -250,6 +257,7 @@
                 if (!audioTracks.length) {
                     stream.getTracks().forEach((t) => t.stop());
                     vizAudio.starting = false;
+                    vizAudioUnsupported = true; // no loopback audio device — stop retrying
                     return false;
                 }
                 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -264,10 +272,21 @@
                 vizAudio.timeData = new Uint8Array(analyser.fftSize);
                 vizAudio.starting = false;
                 audioTracks[0].addEventListener('ended', stopVizAudioAnalyser);
+                // If the audio device / WebAudio renderer errors out mid-stream, latch
+                // it off so we fall back to synthetic motion instead of re-opening the
+                // failing capture (the pattern that precedes the renderer crash).
+                audioContext.onstatechange = () => {
+                    if (vizAudio.context !== audioContext) return; // already torn down
+                    if (audioContext.state === 'closed' || audioContext.state === 'interrupted') {
+                        vizAudioUnsupported = true;
+                        stopVizAudioAnalyser();
+                    }
+                };
                 return true;
             } catch (e) {
                 console.warn('Visualizer audio capture unavailable', e);
                 vizAudio.starting = false;
+                vizAudioUnsupported = true; // capture threw — fall back to synthetic motion this session
                 return false;
             }
         }

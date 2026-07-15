@@ -111,6 +111,15 @@ Start-Sleep -Milliseconds 300
   });
 
   ipcMain.handle('launch-app', async (_event, fullPath, options = {}) => {
+    // Paths saved before the renderer started stripping quotes (Explorer's
+    // "Copy as path" wraps in double quotes) may still carry them — strip
+    // here too so those entries keep launching.
+    if (typeof fullPath === 'string') {
+      fullPath = fullPath.trim();
+      while (fullPath.length >= 2 && ((fullPath.startsWith('"') && fullPath.endsWith('"')) || (fullPath.startsWith("'") && fullPath.endsWith("'")))) {
+        fullPath = fullPath.slice(1, -1).trim();
+      }
+    }
     if (!fullPath || !fs.existsSync(fullPath)) {
       logger.error('Launch failed — file not found', null, { fullPath });
       return { success: false, error: 'File not found' };

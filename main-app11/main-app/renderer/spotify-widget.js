@@ -505,14 +505,20 @@
             }
         }
 
+        let spotifyInitialPollTimeout = null;
+
         function startSpotifyPolling() {
             stopSpotifyPolling();
             spotifyConnectionState = 'connecting';
             spotifyRetryCount = 0;
             spotifyRetryDelay = 500;
-            
-            // First attempt after short delay to allow token to fully initialize
-            setTimeout(() => {
+
+            // First attempt after short delay to allow token to fully initialize.
+            // Tracked so stopSpotifyPolling() can cancel it — otherwise a disconnect
+            // within this 200ms window leaves the timer pending, and it revives
+            // polling right after the stop it was supposed to honor.
+            spotifyInitialPollTimeout = setTimeout(() => {
+                spotifyInitialPollTimeout = null;
                 if (!spotifyUpdateInterval) {
                     updateSpotifyWidget();
                     // Poll every 2.5s rather than 1s. Spotify rate-limits (HTTP 429)
@@ -526,6 +532,10 @@
         }
 
         function stopSpotifyPolling() {
+            if (spotifyInitialPollTimeout) {
+                clearTimeout(spotifyInitialPollTimeout);
+                spotifyInitialPollTimeout = null;
+            }
             if (spotifyUpdateInterval) {
                 clearInterval(spotifyUpdateInterval);
                 spotifyUpdateInterval = null;
@@ -663,14 +673,17 @@
 
                 let spotifyNeedsSync = type.startsWith('spotify');
                 let micMuteNeedsSync = type === 'micMute';
+                let crosshairNeedsSync = type === 'crosshair';
                 let focusNeedsRelease = false;
                 for (const key of clearedKeys) {
                     if (key.startsWith('spotify')) spotifyNeedsSync = true;
                     else if (key === 'micMute') micMuteNeedsSync = true;
+                    else if (key === 'crosshair') crosshairNeedsSync = true;
                     else if (key === 'focus') focusNeedsRelease = true;
                 }
                 if (spotifyNeedsSync) await sendSpotifyHotkeysToMain();
                 if (micMuteNeedsSync) await sendMicMuteHotkeyToMain();
+                if (crosshairNeedsSync) await sendCrosshairHotkeyToMain();
                 if (focusNeedsRelease) await releaseFocusHotkeyFromMain();
                 showToast('Hotkey updated');
                 return;
