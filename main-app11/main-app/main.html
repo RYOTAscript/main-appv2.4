@@ -19,13 +19,13 @@
         <div class="relative z-10 h-full flex flex-col" id="content-layer">
 
             <!-- Header -->
-            <div class="header-drag flex items-center justify-between px-8 py-5 border-b border-white/10 select-none">
+            <div class="header-drag flex items-center justify-between px-8 py-5 border-b border-white/10 select-none reveal-item">
                 <div class="flex items-center gap-3">
                     <img src="icons/main.ico" class="w-9 h-9 rounded-2xl object-contain"
                         onerror="this.outerHTML='<div class=\'w-9 h-9 bg-white rounded-2xl flex items-center justify-center text-xl font-bold text-black\'>M</div>'">
                     <div>
                         <h1 class="text-2xl font-semibold tracking-tight text-white">main</h1>
-                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.22.0</p>
+                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.26.1</p>
                     </div>
                 </div>
                 <div class="no-drag flex items-center gap-3 text-sm">
@@ -48,14 +48,15 @@
 
             <!-- Quick Launch -->
             <div class="px-8 pt-8">
-                <h2 class="section-label mb-5">Quick Launch</h2>
+                <h2 class="section-label mb-5 reveal-item" style="animation-delay:0.08s">Quick Launch</h2>
                 <div class="grid grid-cols-6 gap-6" id="apps-grid"></div>
             </div>
 
             <!-- Widgets -->
             <div class="grid grid-cols-3 gap-5 px-8 mt-10" id="widgets-row">
                 <div id="widget-notes"
-                    class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow relative">
+                    class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow relative reveal-item"
+                    style="animation-delay:0.24s">
                     <h3 class="section-label mb-3">Quick Notes</h3>
                     <div class="relative w-full h-[7.5rem]" onclick="document.getElementById('notes').focus()">
                         <div id="placeholder"
@@ -66,7 +67,8 @@
                     </div>
                 </div>
 
-                <div id="widget-performance" class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow">
+                <div id="widget-performance" class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow reveal-item"
+                    style="animation-delay:0.32s">
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="section-label">Performance</h3>
                         <div id="stats-status" class="flex items-center gap-1.5 text-[10px] text-neutral-600 font-mono">
@@ -98,7 +100,8 @@
                 </div>
 
                 <div id="widget-spotify"
-                    class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow flex flex-col items-center justify-center text-center relative overflow-hidden">
+                    class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow flex flex-col items-center justify-center text-center relative overflow-hidden reveal-item"
+                    style="animation-delay:0.4s">
                     <div class="absolute inset-0 bg-gradient-to-b from-white/[0.03] to-transparent pointer-events-none">
                     </div>
 
@@ -322,6 +325,13 @@
                                 <option value="medium" selected>Medium</option>
                                 <option value="high">High</option>
                             </select>
+                            <label class="flex items-center gap-3 cursor-pointer text-sm mt-5">
+                                <span class="ios-toggle"><input type="checkbox" id="parallax-toggle" class="ios-toggle-input" onchange="saveParallaxPref()"><span class="ios-toggle-track"></span></span>
+                                <span>Parallax effect</span>
+                            </label>
+                            <p class="text-xs text-neutral-600 mt-2 leading-relaxed">The whole panel tilts toward your
+                                cursor in 3D while the background drifts away and the icons and widgets lean gently
+                                toward it, giving the window a subtle sense of depth. Off by default.</p>
                         </div>
 
                         <div class="mb-10">
@@ -657,9 +667,10 @@
             </div>
 
             <div
-                class="absolute bottom-5 left-8 right-8 text-[10px] text-neutral-600 flex justify-between tracking-wide">
+                class="absolute bottom-5 left-8 right-8 text-[10px] text-neutral-600 flex justify-between tracking-wide reveal-item"
+                style="animation-delay:0.5s">
                 <div id="footer-hotkeys" class="font-mono"></div>
-                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.22.0</div>
+                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.26.1</div>
             </div>
         </div>
         <div id="toast"
@@ -672,6 +683,7 @@
     <script src="renderer/hotkeys.js"></script>
     <script src="renderer/settings.js"></script>
     <script src="renderer/ui-utils.js"></script>
+    <script src="renderer/parallax.js"></script>
     <script src="renderer/widgets-settings.js"></script>
     <script src="renderer/macros.js"></script>
     <script src="renderer/clipboard.js"></script>

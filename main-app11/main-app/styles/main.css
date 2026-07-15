@@ -223,6 +223,7 @@
             letter-spacing: 0.2em;
             color: #666;
             font-weight: 500;
+            text-transform: uppercase;
         }
 
         /* Transitions are intentionally NOT on .widget-card by default — they're added
@@ -1523,4 +1524,245 @@
             transform: translateY(0) scale(1);
             margin-bottom: 1rem;
             pointer-events: auto;
+        }
+
+        /* ══════════════════════════════════════════════════════════════════
+           Motion & polish (v3.24.0)
+           ══════════════════════════════════════════════════════════════════ */
+
+        /* ── Ambient background light drift ──
+           Two huge, very faint radial "light pools" that slowly wander behind the
+           grid. Pure transform animation on soft gradients (no filter), so it's
+           GPU-composited and effectively free. Kept monochrome to match the theme. */
+        .bg-scene::before,
+        .bg-scene::after {
+            content: '';
+            position: absolute;
+            border-radius: 50%;
+            pointer-events: none;
+            will-change: transform;
+        }
+
+        .bg-scene::before {
+            width: 65%;
+            height: 60%;
+            top: -12%;
+            left: -10%;
+            background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.045), transparent 65%);
+            animation: auroraDriftA 46s ease-in-out infinite alternate;
+        }
+
+        .bg-scene::after {
+            width: 55%;
+            height: 62%;
+            bottom: -18%;
+            right: -12%;
+            background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.035), transparent 65%);
+            animation: auroraDriftB 58s ease-in-out infinite alternate;
+        }
+
+        @keyframes auroraDriftA {
+            from { transform: translate(0, 0) scale(1); }
+            to { transform: translate(20%, 14%) scale(1.18); }
+        }
+
+        @keyframes auroraDriftB {
+            from { transform: translate(0, 0) scale(1.12); }
+            to { transform: translate(-16%, -12%) scale(0.94); }
+        }
+
+        /* ── Startup reveal cascade ──
+           Elements marked .reveal-item (header, section labels, widget cards,
+           footer) and .app-reveal (Quick Launch icons, first render only) rise
+           into place with per-element animation-delay set inline/in JS.
+           fill-mode is `backwards`, NOT `both`/`forwards`: once the animation
+           ends it must release the element, otherwise the retained transform
+           would permanently override hover transforms and widget transitions. */
+        .reveal-item,
+        .app-reveal {
+            animation: revealUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+        }
+
+        @keyframes revealUp {
+            from {
+                opacity: 0;
+                transform: translateY(16px) scale(0.985);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        /* ── Quick Launch icon sheen ──
+           A light band sweeps across the tile once each time the cursor enters.
+           At rest it sits off-tile (clipped by the tile's overflow:hidden), so
+           there's nothing to animate back on mouse-out. */
+        .icon-tile {
+            position: relative;
+        }
+
+        .icon-tile::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, 0.09) 50%, transparent 68%);
+            transform: translateX(-130%);
+            pointer-events: none;
+        }
+
+        .app-icon:hover .icon-tile::after {
+            animation: iconSheen 0.65s ease;
+        }
+
+        @keyframes iconSheen {
+            to { transform: translateX(130%); }
+        }
+
+        /* Press feedback: everything clickable dips slightly while held. */
+        button:active {
+            transform: scale(0.96);
+        }
+
+        .spotify-control-btn:active {
+            transform: scale(0.95);
+        }
+
+        .app-icon:active {
+            transform: scale(1.04) translateY(-2px);
+        }
+
+        /* Widgets float up a touch on hover (only once .widgets-animate is on,
+           so startup layout stays perfectly still — same rule as the toggles). */
+        .widgets-animate .widget-card:hover {
+            transform: translateY(-3px);
+        }
+
+        /* ── Modal enter/exit ──
+           Modals previously snapped open and closed via the `hidden` class.
+           Opening: the whole overlay fades while the inner content rises/pops
+           (display:none → block restarts these animations on every open).
+           Closing: JS adds .modal-closing (see animateModalClose in ui-utils.js)
+           which plays the reverse before `hidden` is applied. */
+        #settings-modal:not(.hidden),
+        #fps-modal:not(.hidden),
+        #lyrics-modal.shown {
+            animation: overlayFadeIn 0.28s ease backwards;
+        }
+
+        @keyframes overlayFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Restarts automatically every open: the parent modal flips from
+           display:none, which resets descendant animations. Kept on the content
+           elements themselves (single id) so the .modal-closing exit rule below
+           out-ranks it in the cascade. */
+        #fps-modal-content,
+        #lyrics-modal-content {
+            animation: modalRise 0.42s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+        }
+
+        @keyframes modalRise {
+            from {
+                opacity: 0;
+                transform: translateY(22px) scale(0.985);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        /* Settings sections cascade in one after another; per-section delays are
+           assigned in openSettings(). Sections un-hidden while searching replay
+           their little rise, which makes filtering feel alive. */
+        #settings-modal .settings-panel > .mb-10 {
+            animation: revealUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+        }
+
+        /* Exit — defined after the entrance rules so it wins the cascade. */
+        #settings-modal.modal-closing,
+        #fps-modal.modal-closing,
+        #lyrics-modal.modal-closing {
+            animation: overlayFadeOut 0.2s ease forwards;
+            pointer-events: none;
+        }
+
+        .modal-closing .settings-panel,
+        .modal-closing #fps-modal-content,
+        .modal-closing #lyrics-modal-content {
+            animation: modalSink 0.2s ease forwards;
+        }
+
+        @keyframes overlayFadeOut {
+            to { opacity: 0; }
+        }
+
+        @keyframes modalSink {
+            to {
+                opacity: 0;
+                transform: translateY(10px) scale(0.975);
+            }
+        }
+
+        /* ── Toast ──
+           Slides up from the bottom edge and settles; drops away on dismiss.
+           The Tailwind -translate-x-1/2 class still centres it when no animation
+           is running, so every keyframe must carry the same translateX(-50%). */
+        #toast.toast-in {
+            animation: toastIn 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        #toast.toast-out {
+            animation: toastOut 0.24s ease both;
+        }
+
+        @keyframes toastIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, 14px) scale(0.94);
+            }
+
+            to {
+                opacity: 1;
+                transform: translate(-50%, 0) scale(1);
+            }
+        }
+
+        @keyframes toastOut {
+            from {
+                opacity: 1;
+                transform: translate(-50%, 0) scale(1);
+            }
+
+            to {
+                opacity: 0;
+                transform: translate(-50%, 10px) scale(0.96);
+            }
+        }
+
+        /* Inputs and selects ease their border/background instead of snapping. */
+        input[type="text"],
+        select,
+        textarea {
+            transition: border-color 0.25s ease, background-color 0.25s ease;
+        }
+
+        /* Respect the OS "reduce motion" setting for the purely decorative bits.
+           Functional feedback (toasts, stat bumps, toggles) is left alone. */
+        @media (prefers-reduced-motion: reduce) {
+
+            .bg-scene::before,
+            .bg-scene::after,
+            .grid-overlay,
+            .reveal-item,
+            .app-reveal,
+            #settings-modal .settings-panel > .mb-10,
+            .app-icon:hover .icon-tile::after {
+                animation: none;
+            }
         }

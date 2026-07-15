@@ -5,6 +5,110 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.26.1] — 2026-07-15
+
+### Fixed
+
+- **Parallax: cursor leaving the app now drifts slowly back to center**
+  instead of snapping — the return uses a much floatier ease (~3× slower
+  than cursor tracking), and switching focus to another app triggers the
+  same gentle return.
+- **Parallax no longer blurs the app.** Three causes, all fixed:
+  - Foreground layers (icons, widgets) and the background grid were being
+    offset by fractional pixels, smearing text and the 1px grid lines
+    across two pixels. They now move in whole pixels only.
+  - The panel tilt was strong enough to visibly soften rotated text; the
+    max lean is reduced 1.8° → 1.1° with a more distant perspective, where
+    the softness is imperceptible.
+  - The panel kept a 3D transform even at rest (cursor centered/away),
+    leaving the whole app composited off a rasterized layer that renders
+    text slightly soft. Once the motion settles at center, every parallax
+    transform is now removed entirely, returning the app to normal
+    pixel-perfect rendering.
+
+**Files changed:** `renderer/parallax.js`, `main.html`, `renderer/core.js`,
+`main.js`, `package.json`, `CHANGELOG.md`
+
+---
+
+## [3.26.0] — 2026-07-15
+
+### Added
+
+- **Parallax now tilts the whole panel in 3D.** With the Parallax effect
+  enabled (Settings → Appearance), the entire window leans toward your
+  cursor — the corner under the mouse lifts slightly toward you (max ~1.8°,
+  with perspective) — on top of the existing background/foreground layer
+  drift. Same spring smoothing, same settle-and-stop animation loop, still
+  off by default.
+  - The startup fade-in animation used to pin the panel's transform
+    permanently (`fill: forwards`); it's now released on the first tilt so
+    the effect actually applies (no visual change — its final frame equals
+    the natural state).
+
+**Files changed:** `renderer/parallax.js`, `main.html`, `renderer/core.js`,
+`main.js`, `package.json`, `CHANGELOG.md`
+
+---
+
+## [3.25.0] — 2026-07-15
+
+### Added
+
+- **Parallax effect (Settings → Appearance, off by default).** When enabled,
+  the window gains a subtle sense of depth as you move the mouse: the
+  background scene and grid drift slightly *away* from the cursor while the
+  Quick Launch icons and widget cards lean gently *toward* it. Cursor leaving
+  the window floats everything back to center.
+  - Motion is spring-smoothed and the animation loop only runs while layers
+    are actually moving — an idle window costs nothing, and the effect uses
+    GPU-composited transforms only.
+  - Modals, the header, and the footer stay perfectly still — UI you're
+    interacting with never shifts under the cursor.
+  - The preference is included in Settings export/import backups.
+
+**Files changed:** `renderer/parallax.js` (new), `main.html`,
+`renderer/widgets-settings.js`, `renderer/core.js`, `main.js`,
+`package.json`, `CHANGELOG.md`
+
+---
+
+## [3.24.0] — 2026-07-15
+
+### Added
+
+- **Motion & polish pass — smoother animations everywhere, cleaner look.**
+  - **Startup reveal cascade:** the header, Quick Launch label, app icons,
+    widget cards, and footer now rise into place one after another when the
+    app opens (icons stagger left-to-right; plays on first render only, so
+    reordering apps in Settings doesn't replay it).
+  - **Modals now animate closed, not just open.** Settings, FPS Optimizer,
+    and Lyrics previously snapped shut instantly; all three now fade out
+    with a gentle sink. FPS Optimizer and Lyrics also gained a proper
+    entrance (rise + fade — they had none). Settings sections cascade in
+    one after another when the panel opens, and sections re-appearing while
+    searching play the same little rise.
+  - **Toasts slide up** from the bottom edge and drop away on dismiss
+    instead of blinking in and out.
+  - **Ambient background life:** two very faint light pools slowly drift
+    behind the grid (pure GPU transform animation — no measurable cost).
+  - **Micro-interactions:** every button dips slightly while pressed; app
+    icons get a one-shot light sheen sweeping across the tile on hover;
+    widget cards float up 3px on hover.
+  - **Cleaner details:** section labels are now uppercase for a more
+    deliberate look; text inputs and selects ease their border color
+    instead of snapping.
+  - All decorative motion (background drift, reveal cascade, sheen) is
+    disabled automatically when Windows' "reduce motion" accessibility
+    setting is on. Functional feedback (toasts, stat bumps) stays.
+
+**Files changed:** `styles/main.css`, `main.html`, `renderer/ui-utils.js`,
+`renderer/settings.js`, `renderer/fps-optimizer.js`, `renderer/lyrics.js`,
+`renderer/widgets-settings.js`, `renderer/core.js`, `main.js`,
+`package.json`, `CHANGELOG.md`
+
+---
+
 ## [3.23.0] — 2026-07-15
 
 ### Added

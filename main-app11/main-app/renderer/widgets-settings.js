@@ -319,6 +319,7 @@
             loadSpotifyExtrasCollapsed();
             refreshSleepTimerUI();
             loadFpsDisplayMode();
+            loadParallaxPref();
             loadClockFormat();
             loadWeatherUnit();
             updateHotkeyDisplays();
@@ -329,6 +330,11 @@
             markSettingsSaved();
             document.getElementById('settings-search').value = '';
             filterSettings('');
+            // Stagger the section entrance cascade (animation itself is in main.css).
+            document.querySelectorAll('#settings-modal .settings-panel > .mb-10').forEach((sec, i) => {
+                sec.style.animationDelay = `${Math.min(0.06 + i * 0.035, 0.34)}s`;
+            });
+            cancelModalClose(document.getElementById('settings-modal'));
             document.getElementById('settings-modal').classList.remove('hidden');
         }
 
@@ -488,6 +494,7 @@
                 widgetPrefs: safeParseJSON(localStorage.getItem('widgetPrefs'), {}),
                 miniWidgetPrefs: safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {}),
                 glowIntensity: localStorage.getItem('glowIntensity') || 'medium',
+                parallaxEnabled: localStorage.getItem('parallaxEnabled') === 'true',
                 spotifyAutoPlay: localStorage.getItem('spotifyAutoPlay') === 'true',
                 spotifyAutoPlayDelay: localStorage.getItem('spotifyAutoPlayDelay') || '2800',
                 lyricsAnticipateMs: localStorage.getItem('lyricsAnticipateMs') || String(DEFAULT_LYRICS_ANTICIPATE_MS),
@@ -530,6 +537,10 @@
                             await applyMiniWidgetPrefs();
                         }
                         if (data.glowIntensity) localStorage.setItem('glowIntensity', data.glowIntensity);
+                        if (typeof data.parallaxEnabled === 'boolean') {
+                            localStorage.setItem('parallaxEnabled', data.parallaxEnabled ? 'true' : 'false');
+                            loadParallaxPref();
+                        }
                         if (data.hotkeys) {
                             hotkeys = data.hotkeys;
                             localStorage.setItem('hotkeys', JSON.stringify(hotkeys));
@@ -572,6 +583,7 @@
                         if (typeof applySpotifyEwDraggable === 'function') applySpotifyEwDraggable();
                         applyWidgetPrefs();
                         applyAppearance();
+                        applyParallaxPref();
                         renderApps();
                         markSettingsSaved();
                         showToast('Settings imported');

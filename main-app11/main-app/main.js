@@ -20,7 +20,7 @@ const videoEditor = require('./main/videoEditor');
 const crosshair = require('./main/crosshair');
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v3.23.0';
+const APP_VERSION = 'v3.26.1';
 
 // Point every per-user path (userData, and therefore crashDumps) at our own
 // folder BEFORE anything reads them. This has to happen before crashReporter.start()

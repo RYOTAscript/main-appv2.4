@@ -437,6 +437,7 @@
         function openLyricsModal() {
             const modal = document.getElementById('lyrics-modal');
             if (!modal) return;
+            cancelModalClose(modal);
             modal.classList.add('shown');
 
             const fullList = document.getElementById('lyrics-full-list');
@@ -470,7 +471,7 @@
 
         function closeLyricsModal() {
             const modal = document.getElementById('lyrics-modal');
-            if (modal) modal.classList.remove('shown');
+            if (modal) animateModalClose(modal, () => modal.classList.remove('shown'));
         }
 
         // Hook into updateSpotifyWidget to load lyrics when track changes

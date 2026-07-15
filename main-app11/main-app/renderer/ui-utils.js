@@ -34,14 +34,48 @@
             const toast = document.getElementById('toast');
             toast.textContent = message;
             toast.className = `absolute bottom-8 left-1/2 -translate-x-1/2 glass border px-6 py-3 rounded-2xl text-sm z-[70] glow pointer-events-none ${isError ? 'border-red-900/50 text-red-300' : 'border-white/10'}`;
-            toast.classList.remove('hidden');
+            // Forced reflow so re-adding .toast-in restarts the slide-up even
+            // when a toast is already on screen (rapid successive toasts).
+            void toast.offsetWidth;
+            toast.classList.add('toast-in');
             // Cancel the previous toast's hide timer so a rapid second toast
             // gets its full display time instead of being cut short.
             if (toastHideTimer) clearTimeout(toastHideTimer);
             toastHideTimer = setTimeout(() => {
-                toast.classList.add('hidden');
-                toastHideTimer = null;
+                toast.classList.remove('toast-in');
+                toast.classList.add('toast-out');
+                // Matches the toastOut animation duration in main.css.
+                toastHideTimer = setTimeout(() => {
+                    toast.classList.add('hidden');
+                    toast.classList.remove('toast-out');
+                    toastHideTimer = null;
+                }, 240);
             }, 2200);
+        }
+
+        // Plays the modal exit animation (.modal-closing in main.css), then hides
+        // the modal. `done` overrides the default hide for modals that toggle
+        // visibility with something other than the `hidden` class.
+        const MODAL_CLOSE_MS = 200;
+
+        function animateModalClose(modal, done) {
+            if (!modal || modal.classList.contains('modal-closing')) return;
+            modal.classList.add('modal-closing');
+            modal._closeTimer = setTimeout(() => {
+                modal._closeTimer = null;
+                modal.classList.remove('modal-closing');
+                if (done) done();
+                else modal.classList.add('hidden');
+            }, MODAL_CLOSE_MS);
+        }
+
+        // Open paths must call this first: re-opening a modal during its 200ms
+        // exit animation would otherwise get hidden again when the timer fires.
+        function cancelModalClose(modal) {
+            if (!modal || !modal._closeTimer) return;
+            clearTimeout(modal._closeTimer);
+            modal._closeTimer = null;
+            modal.classList.remove('modal-closing');
         }
 
         function minimizeWindow() {
@@ -52,10 +86,16 @@
             if (window.electronAPI) window.electronAPI.closeWindow();
         }
 
+        // Icons cascade in on the very first render only. Re-renders (reordering
+        // or editing apps in Settings) must not replay the entrance animation.
+        let appsRevealPlayed = false;
+
         function renderApps() {
             const grid = document.getElementById('apps-grid');
+            const reveal = !appsRevealPlayed;
+            appsRevealPlayed = true;
             grid.innerHTML = pinnedApps.map((app, i) => `
-                <div class="app-icon flex flex-col items-center cursor-pointer py-3 px-2 rounded-3xl border border-transparent hover:border-white/10" data-index="${i}">
+                <div class="app-icon flex flex-col items-center cursor-pointer py-3 px-2 rounded-3xl border border-transparent hover:border-white/10${reveal ? ' app-reveal' : ''}"${reveal ? ` style="animation-delay:${0.12 + i * 0.05}s"` : ''} data-index="${i}">
                     <div class="icon-tile w-16 h-16 bg-neutral-950 border border-white/10 rounded-3xl flex items-center justify-center overflow-hidden mb-2.5 transition-all">
                         <img src="${esc(getIconPath(app.icon))}" alt="" style="width:70%;height:70%;object-fit:contain;"
                              onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\\'fas fa-bolt text-3xl text-neutral-400\\'></i>';">

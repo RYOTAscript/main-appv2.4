@@ -17,6 +17,7 @@
             const content = document.getElementById('fps-content');
             const sidePanel = document.getElementById('fps-side-panel');
 
+            cancelModalClose(modal);
             modal.classList.remove('hidden');
             document.getElementById('fps-progress-text').textContent = 'Ready';
             document.getElementById('fps-progress-bar').style.width = '0%';
@@ -27,7 +28,7 @@
         }
 
         function closeFpsOptimizer() {
-            document.getElementById('fps-modal').classList.add('hidden');
+            animateModalClose(document.getElementById('fps-modal'));
             fpsActionInProgress = false;
             if (window.electronAPI?.removeFpsProgressListener) {
                 window.electronAPI.removeFpsProgressListener();
