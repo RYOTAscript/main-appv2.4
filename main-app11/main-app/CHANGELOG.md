@@ -5,6 +5,946 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.42.1] — 2026-07-26
+
+### Changed
+
+- **Controller Macros — Templates picker now has a section per game.** The picker
+  shows game tabs (**Skate**, **NBA 2K26**, **General**); clicking one shows only
+  that game's categories, with a one-line hint about its control scheme. Keeps
+  the growing library readable now that two games share the picker.
+
+### Files modified
+
+- `renderer/controller-macros.js` — game-tab sectioning in the template picker
+  (`cmTemplateGameOf` / `cmTemplateCategoryOf` / `setCmTemplateGame`).
+- `package.json` / `CHANGELOG.md` — version bump to 3.42.1 and this entry.
+
+---
+
+## [3.42.0] — 2026-07-26
+
+### Added
+
+- **Controller Macros — NBA 2K26 Pro Stick template library.** The Templates
+  picker now includes NBA 2K26 moves alongside the Skate tricks, verified against
+  2K26's controls guide and grouped into their own categories:
+  - **Dribble:** Signature Size-up, Hesitation, Hesitation Escape, In & Out,
+    Crossover, Crossover Escape, Between the Legs, Behind the Back, Stepback,
+    Spin Move.
+  - **Turbo moves** (hold RT): Momentum Behind the Back, Momentum Stepback.
+  - **Shooting:** Jump Shot (flagged — it can't time the green window for you).
+  - **Finishing** (RT + Pro Stick): 2-Hand Dunk, Flashy Dunk, Off-Hand Dunk,
+    Layup, Floater / Runner.
+
+  Directions follow a right-hand ball handler; the picker notes that left/right
+  inputs mirror with your ball hand, and that live animations still depend on
+  your left-stick movement. Turbo moves and dunks correctly hold **RT (R2)**
+  while pushing the Pro Stick.
+
+### Changed
+
+- Skate template groups are now prefixed **"Skate ·"** so the two games read
+  clearly in one picker. The picker header explains both control schemes.
+- Widget entry bumped to v1.2.0 with NBA keywords (nba, 2k26, dribble, pro
+  stick, dunk…) and an NBA feature line.
+
+### Files modified
+
+- `renderer/controller-macros.js` — NBA 2K26 helpers (`cm2kFlick`, `cm2kHold`,
+  `cm2kTurbo`), 18 NBA templates, Skate group prefixes, picker header.
+- `renderer/core.js` — widget description, keywords, features, version.
+- `package.json` / `CHANGELOG.md` — version bump to 3.42.0 and this entry.
+
+---
+
+## [3.41.2] — 2026-07-25
+
+### Fixed
+
+- **Controller Macros — Skate templates corrected for Classic (Flick-It)
+  controls.** Verified every trick's stick motion against EA's own Flick-It
+  guide for the **Classic** control preset and fixed several that were wrong:
+  - **Kickflip / Heelflip direction reversed.** Kickflip is down → **up-right**,
+    Heelflip is down → **up-left** (nollie variants mirrored to match).
+  - **Grabs now actually grab.** A grab requires a **trigger held** while the
+    right stick points the grab — the old templates only moved the stick, so the
+    game would have read them as flip tricks. Grabs now hold **L1** + stick.
+  - **Manuals use the right stick.** Manual / Nose Manual now hold the **right
+    stick ~halfway** (down / up), not the left stick.
+  - Reworked Varial flips, 360 Flip (Tre), Laser Flip, Hardflip, Inward Heelflip
+    (+ 360 versions), and Pop / 360 Shove-it (FS/BS) to the guide's motions, and
+    added Nollie Varial Kickflip/Heelflip and 360 Hardflip / 360 Inward Heelflip.
+  - Removed unverified entries (double flips, bigspin, boneless, no-comply
+    kickflip/heelflip, quick-180). **No Comply (FS/BS)** are kept but flagged ⚠
+    under a "verify in-game" group — their Classic input isn't confirmed yet.
+
+  A note in the picker explains the **stance** caveat: if your skater's stance
+  mirrors the game's prompts, kickflip/heelflip and FS/BS swap — fixable by
+  swapping the two macros or dragging a corner on the visual pad.
+
+### Files modified
+
+- `renderer/controller-macros.js` — corrected `CM_TEMPLATES`, new `cmSkateGrab`
+  (trigger-held) and right-stick `cmSkateManual` helpers, updated picker note.
+- `package.json` / `CHANGELOG.md` — version bump to 3.41.2 and this entry.
+
+---
+
+## [3.41.1] — 2026-07-20
+
+### Added
+
+- **Controller Macros — full Skate trick library.** The Templates picker now
+  covers the whole Skate *Flick-It* vocabulary instead of four starters, grouped
+  into labelled categories you scroll through:
+  - **Flip tricks:** Ollie, Nollie, Kickflip, Heelflip, Nollie Kickflip/Heelflip,
+    Double Kickflip/Heelflip, Varial Kickflip/Heelflip, Hardflip, Inward
+    Heelflip, 360 Flip (Tre), Laser Flip.
+  - **Shove-its & spins:** Pop Shove-it (FS/BS), 360 Shove-it (FS/BS), Bigspin
+    (FS/BS), Nollie Shove-it (FS/BS).
+  - **No comply:** No Comply (FS/BS), No Comply 180, No Comply Kickflip/Heelflip,
+    Boneless.
+  - **Grabs** (hold the right stick in the air): Nosegrab, Tailgrab, Indy,
+    Stalefish, Melon, Mute, Method, Crail.
+  - **Manuals:** Manual, Nose Manual (left stick).
+  - **Basics (any game):** hold-forward and a quick 180° flick.
+
+  Each is a right-stick Flick-It motion (grabs hold a direction; manuals use the
+  left stick), built as an editable starting point — exact flick corners vary by
+  Skate title, so tweak them per game with the new visual joystick pad.
+
+### Files modified
+
+- `renderer/controller-macros.js` — Skate trick helpers (`cmSkateTrick`,
+  `cmSkateSweep`, `cmSkateHold`, `cmSkateManual`), expanded `CM_TEMPLATES`, and a
+  grouped/scrollable template picker.
+- `renderer/core.js` — widget feature list updated for the full library.
+- `styles/vendor/tailwind.css` — regenerated via `npm run build:css`.
+- `package.json` / `CHANGELOG.md` — version bump to 3.41.1 and this entry.
+
+---
+
+## [3.41.0] — 2026-07-20
+
+### Added
+
+- **Controller Macros — visual joystick pad for stick steps.** Setting a stick
+  move no longer means typing x/y percentages by hand. Every stick step now has
+  a ◎ button that opens a round drag pad: drag the knob to pick any angle and
+  strength (clamped to a real thumbstick's circular travel), or tap one of the
+  nine direction presets on the 3×3 keypad (8 full-deflection directions plus a
+  centre that recentres the stick). Diagonals hold ~full deflection on both
+  axes, matching how a physical stick sits in a corner. The x/y number inputs
+  stay for fine tuning and update live as you drag. Adding a new stick step
+  drops you straight onto the pad. This makes flick- and aim-heavy games (Skate,
+  Siege, Fortnite) far quicker to build combos for.
+
+- **Controller Macros — one-click combo templates.** A new **Templates** button
+  next to *Add macro* creates a ready-made macro you can tweak, so you start
+  from a working combo instead of a blank list. Included starters: **Skate**
+  flick tricks (Ollie, Kickflip, Heelflip, Pop Shuv-it) built on the right
+  stick, plus **Hold left stick forward** and a **right-stick quick 180° flick**
+  for any game. Each template opens in the editor so its steps are ready to
+  adjust.
+
+### Changed
+
+- The Controller Macros widget entry (Widget Library) is now v1.1.0, with the
+  joystick pad and templates in its feature list and new search keywords
+  (stick, joystick, aim, flick, skate, siege, fortnite, template).
+
+### Files modified
+
+- `renderer/controller-macros.js` — joystick pad renderer, drag wiring, 8-way
+  direction presets, template picker + insert, and stick-step id-tagged inputs.
+- `styles/main.css` — joystick pad, knob, crosshair, and preset keypad styles.
+- `renderer/core.js` — Controller Macros registry entry (version, description,
+  features, keywords).
+- `styles/vendor/tailwind.css` — regenerated via `npm run build:css`.
+- `package.json` / `CHANGELOG.md` — version bump to 3.41.0 and this entry.
+
+---
+
+## [3.40.0] — 2026-07-20
+
+### Added
+
+- **Game Mode.** A new Widget Library entry (off by default) that watches the
+  foreground window and notices when a game takes over — either a game you name
+  by its process, or *any* app that goes borderless/exclusive fullscreen. Build
+  a **profile** per game that automatically runs the actions you choose when it
+  launches: mute your microphone, show the crosshair overlay, run the FPS
+  optimizer, pop a notification, and switch on any other mini widgets you pick.
+  When the game closes, Game Mode can undo everything it changed. Detection runs
+  quietly in the background (a lightweight Win32 foreground-window watcher) while
+  Game Mode is enabled; each profile is independent and editable.
+
+- **Volume Mixer mini widget.** A per-application volume mixer, like the Windows
+  tray mixer (off by default). Lists every app currently playing sound and lets
+  you set each one's volume or mute it independently, plus master output volume
+  and mute. Optional global hotkeys nudge the master volume up/down or toggle
+  mute from anywhere. Powered by a small Core Audio helper process — nothing
+  runs until the widget is switched on.
+
+- **Discord Rich Presence mini widget.** Sets a fully customizable Rich Presence
+  card on your Discord profile — the "Playing…" panel other people see (off by
+  default). Customize the details and state lines, large/small images (from your
+  Discord app's art assets), up to two link buttons and an elapsed-time clock,
+  with a **live preview** card that shows exactly how it will look. Connects
+  directly to your running Discord desktop app over its local IPC pipe; you
+  supply your Discord Application ID. No third-party dependencies.
+
+### Files changed
+
+- `main/gameMode.js`, `renderer/game-mode.js` — **new** Game Mode (watcher +
+  per-game action profiles)
+- `main/volumeMixer.js`, `renderer/volume-mixer.js` — **new** Volume Mixer
+  (Core Audio helper + per-app/master sliders + hotkeys)
+- `main/discordRpc.js`, `renderer/discord-rpc.js` — **new** Discord Rich
+  Presence (IPC pipe client + live-preview panel)
+- `renderer/core.js` — three new `MINI_WIDGETS` registry entries + `Social`
+  category
+- `main.js` — wire the three modules (init, hotkey re-apply, quit teardown)
+- `preload.js` — expose the three widgets' IPC surfaces
+- `main.html` — load the three new renderer scripts + version label
+- `renderer/widgets-settings.js` — enable/disable hooks in `applyMiniWidgetPrefs`
+- `renderer/spotify-widget.js` — call `initGameMode()` on load
+- `styles/main.css` — Volume Mixer, Game Mode and Discord preview styles
+- `package.json`, `CHANGELOG.md` — version bump to 3.40.0
+
+---
+
+## [3.39.0] — 2026-07-20
+
+### Added
+
+- **Weather Enhanced mini widget.** An optional Widget Library entry (off by
+  default) that expands on the header weather readout. Its detail panel shows
+  current conditions with **feels-like** temperature, **humidity** and
+  **wind**, plus a **3-day forecast**. Reads your location automatically or
+  lets you pin any **city by name**, with a **refresh** button and a loading
+  state. Units follow the existing °C/°F setting, so it stays consistent with
+  the header. Built entirely on the existing weather service — no new
+  permissions or accounts.
+
+- **Countdown Timer mini widget.** An optional Widget Library entry (off by
+  default). Start a countdown from quick presets (1–60 min) or a custom
+  minutes/seconds duration, then **Start / Pause / Resume / Reset** it. While
+  it runs, a live readout is pinned in the app header ("synced into the main
+  UI") so you can watch it from anywhere and click it to jump back to the
+  widget. It survives closing the Library panel and is resumed on app start;
+  when it hits zero it alerts with a short beep and a toast.
+
+- **Quick Notes Enhanced mini widget.** An optional Widget Library entry (off
+  by default) that turns the Quick Notes card into a full mini editor:
+  **multiple notes in tabs**, a **checklist mode** with tickable items, live
+  **Markdown preview** (headings, bold/italic, lists, code, links), and
+  **per-note version history** you can roll back to. Your existing scratch note
+  is carried over the first time it's enabled, and left untouched when it's
+  off — the basic single-note textarea is simply swapped back in.
+
+- **Quick Launch Enhanced mini widget.** An optional Widget Library entry (off
+  by default) that supercharges Quick Launch: organise apps into **folders**
+  (Games, Work, or custom), **auto-detect installed Steam & Epic games** and
+  file them into Games automatically, build **launch profiles** that open
+  several apps at once, and see **running-app indicator dots**. The pinned-app
+  cap is lifted while it's on; your existing apps are kept as-is when it's off.
+
+### Changed
+
+- Weather service (`main/weather.js`) now accepts an optional city override,
+  returns feels-like temperature and a 3-day forecast alongside the existing
+  fields, and caches the last reading (5 min) — serving it as a fallback when
+  a refresh fails so the header never blanks. Existing callers are unchanged.
+
+### Files changed
+
+- `renderer/weather-enhanced.js` — **new** Weather Enhanced panel renderer
+- `renderer/timer.js` — **new** Countdown Timer engine + panel + header readout
+- `renderer/notes-enhanced.js` — **new** Quick Notes Enhanced (tabs, checklist,
+  Markdown, history) + config panel
+- `renderer/quick-launch.js` — **new** Quick Launch Enhanced (folders, game
+  auto-detect, launch profiles, running indicators) + config panel
+- `main/quickLaunch.js` — **new** backend: Steam/Epic game detection, running
+  process query, batch launch, store-URI launch
+- `main/weather.js` — city override, feels-like, forecast, caching
+- `preload.js` — `getWeather` forwards options; Quick Launch Enhanced IPC bridges
+- `renderer/core.js` — four new `MINI_WIDGETS` registry entries
+- `renderer/widgets-settings.js` — wire new panels into `applyMiniWidgetPrefs`;
+  per-app folder selector, lifted app cap, backup export/import of new keys
+- `renderer/ui-utils.js` — folder-filtered app grid, running dots, store-URI
+  launch routing
+- `renderer/spotify-widget.js` — resume timer on startup (`initTimerWidget`)
+- `main.js` — register `quickLaunch` module
+- `main.html` — new script tags, Quick Launch folder/controls bar, Quick Notes
+  enhanced container, header timer indicator, version labels
+- `styles/main.css` + `styles/vendor/tailwind.css` — Quick Notes / Quick Launch
+  Enhanced styles, timer indicator/button styles; regenerated Tailwind build
+- `package.json` — version bump
+
+---
+
+## [3.38.1] — 2026-07-20
+
+### Fixed
+
+- Header version label was stuck at v3.36.0 (footer and Settings already
+  showed the real version) — both now read from the same release number.
+
+### Added
+
+- `debug.md` — full closed-loop test report for the Controller Macros widget:
+  every button, partial trigger pulls, left/right stick moves (±100%, ±50%,
+  diagonals, recentre), D-pad diagonals and stuck-input safety verified on
+  BOTH virtual pad types via two independent probes (Gamepad API for the
+  DualShock 4 pad, raw XInput for the Xbox 360 pad). Includes known
+  behaviours (recording needs app focus; trailing delays are trimmed) and a
+  re-runnable XInput probe recipe. No app code changed for this — all tests
+  passed as shipped.
+
+### Files changed
+
+- `debug.md` — **new** test report
+- `main.html` — header + footer version labels
+- `renderer/core.js`, `main.js`, `package.json`, `CHANGELOG.md` — version bump
+
+---
+
+## [3.38.0] — 2026-07-20
+
+### Changed
+
+- **Macros widget: mouse-button steps now use press-to-bind, like key steps.**
+  The step editor used to make you pick "Left click" / "Right click" /
+  "Middle click" from a dropdown. Now there's one "Mouse click" option (plus
+  new "Hold mouse button" / "Release mouse button" options) — pick it, then
+  physically press the mouse button you want, same flow as "Key press".
+  - Side buttons (Mouse 4 / Mouse 5, the thumb buttons) can now be bound and
+    actually play back correctly — previously they weren't recognized as a
+    step target at all, and even the record/playback engine had no code path
+    for them (`SendInput` only synthesized Left/Right/Middle).
+  - Recording a macro now also captures side-button clicks instead of
+    silently skipping them.
+
+## [3.37.0] — 2026-07-20
+
+### Added
+
+- **New mini widget: Controller Macros.** Builds and replays PlayStation/Xbox
+  controller button combos that games genuinely receive — a virtual
+  DualShock 4 or Xbox 360 pad is plugged into Windows through the free
+  ViGEmBus kernel driver (the same one DS4Windows uses), and macros press
+  ✕ / □ / L2 / R1 (and more) on it.
+  - Step editor: button taps, holds/releases, partial trigger pulls (L2/R2 %),
+    stick moves, and delays — PlayStation-labelled buttons with Xbox
+    equivalents shown alongside.
+  - Record combos straight from a real controller (Gamepad API) when one is
+    connected.
+  - Per-macro hotkeys with the same Pressed / Hold / Toggle / Released trigger
+    modes, repeat counts (incl. "until stopped") and playback speed as the
+    Macros widget; keyboard *and* mouse-button triggers pass through to the
+    focused game.
+  - Enable/disable all triggers with a bindable toggle key (default F10).
+  - Switch what games see — PlayStation (DualShock 4) or Xbox 360 (best
+    compatibility) — live from the panel; the pad re-plugs instantly.
+  - Guided driver setup: the panel detects whether ViGEmBus is installed and
+    offers a download link and a re-check button; everything fails gracefully
+    (with Logger entries) when the driver is missing.
+  - Playback engine follows the established helper-process pattern
+    (PowerShell-compiled C# talking over stdin/stdout) and never leaves
+    buttons stuck: sequences release everything they pressed on stop, crash
+    recovery re-plugs the pad automatically once.
+  - Honest note in the panel: some anti-cheat titles may ignore or dislike
+    virtual controllers.
+- Vendored `Nefarius.ViGEm.Client.dll` 1.17.183 (BSD-3-Clause) under
+  `main/vendor/` — see `main/vendor/VENDOR.md`.
+
+### Changed
+
+- The Macros widget's background key watcher now also serves Controller
+  Macros trigger hotkeys (one shared helper process instead of two); its own
+  behaviour is unchanged. Hotkeys can no longer be bound to both a keyboard
+  macro and a controller macro at once.
+
+### Files changed
+
+- `main/controllerMacros.js` — **new**: virtual pad engine, storage, IPC, triggers
+- `main/vendor/Nefarius.ViGEm.Client.dll`, `main/vendor/VENDOR.md` — **new**
+- `main/macros.js` — external key-watch subscription API (shared watcher)
+- `main.js` — module wiring + hotkey re-apply
+- `preload.js` — `controllerMacros*` IPC bridge
+- `renderer/controller-macros.js` — **new**: panel UI, step editor, pad recording
+- `renderer/core.js` — registry entry, version bump
+- `renderer/widgets-settings.js` — enable/disable hook
+- `renderer/spotify-widget.js` — type-to-search yields while binding
+- `main.html` — script tag, version bump
+- `styles/vendor/tailwind.css` — rebuilt (driver-banner classes)
+- `package.json`, `CHANGELOG.md` — version + changelog
+
+---
+
+## [3.36.0] — 2026-07-19
+
+### Changed
+
+- **The dashboard Mini Widgets strip now shows favourites only.** Enabling a
+  widget no longer pins it to the main screen — starring it does. Enabled
+  widgets keep running exactly as before; they just live in the Widget
+  Library until you favourite them. With no favourites yet, the strip shows
+  a "Favourite widgets in the Library to pin them here" hint instead.
+- **Settings page reorganised into named groups.** The long scroll is now
+  clustered under five labelled headers with divider lines:
+  *Layout & Apps* (Pinned Apps, Widgets, Mini Widgets), *Look & Feel*
+  (Appearance, Background), *System* (Behavior, Hotkeys),
+  *Spotify* (Integration, Spotify Hotkeys, Spotify Extras), and
+  *Data & Maintenance* (FPS Optimizer, Backup & Logs). Related settings now
+  sit together — Mini Widgets moved up next to the other layout sections and
+  Spotify Hotkeys moved into the Spotify cluster. Group headers ride the
+  same entrance cascade as sections and step aside while you search.
+
+### Files changed
+
+- `main.html` — section reorder + group headers, version bump
+- `renderer/widget-library.js` — dashboard strip filters to favourites
+- `renderer/widgets-settings.js` — search hides group headers; stagger
+  cascade includes them
+- `styles/main.css` — group header styling + animations
+- `package.json`, `main.js`, `renderer/core.js` — version bump
+
+---
+
+## [3.35.1] — 2026-07-19
+
+### Fixed
+
+- **Widget Library search text is white.** The search box used the browser's
+  default dark placeholder colour, making "Search widgets…" hard to read on
+  the dark panel. Typed text and placeholder are now white, matching the
+  Settings search box.
+- **Category chips no longer get cut off.** With all categories present, the
+  last chip clipped at the panel's right edge behind an invisible horizontal
+  scroll. The chip bar now wraps onto a second line instead, with a hairline
+  divider under it separating the header from the widget grid.
+- **Card rows line up.** Cards with one-line descriptions were shorter than
+  their neighbours, so the enable toggles sat at different heights across a
+  row. Descriptions now reserve two lines and card footers align.
+- **Hover effects no longer clip.** The top row of widget cards and the
+  dashboard chips had their hover lift / selection ring / shadow cut off by
+  their scroll containers; both got breathing room.
+- **Widget detail panels get bottom padding** so embedded settings (macros,
+  video editor, …) don't end flush against the panel edge, and the empty
+  search state got a proper icon + hint instead of a bare sentence.
+
+### Files changed
+
+- `styles/main.css` — search input colours, chip-bar wrap + divider, card
+  description min-height, scroll-container padding, strip clip fix
+- `renderer/widget-library.js` — card footer alignment, detail bottom
+  padding, version-label contrast
+- `main.html` — category bar wraps, richer empty state, version bump
+- `styles/vendor/tailwind.css` — rebuilt
+- `package.json`, `main.js`, `renderer/core.js` — version bump
+
+---
+
+## [3.35.0] — 2026-07-19
+
+### Added
+
+- **Widget Library.** Mini Widgets moved out of the Settings scroll into a
+  dedicated, searchable library (open it from the new "Browse Widgets"
+  button on the dashboard, or from Settings → Mini Widgets). The library
+  shows every widget as a card — icon, name, description, category,
+  version, enable toggle and favourite star — and clicking a card opens a
+  detail panel with the full description, feature list, status, hotkey
+  binding, and that widget's entire settings panel (macros, clipboard,
+  Bluetooth, video editor, etc. all configure from here now).
+- **Instant fuzzy search.** The library search matches names, descriptions,
+  categories and per-widget keywords while you type — case-insensitive,
+  extra-space-tolerant, and forgiving of small typos ("spotfy" still finds
+  Spotify Enhanced). `music` finds Spotify Enhanced; `aim` finds Crosshair.
+- **Categories.** Widgets are organised into categories (Gaming, Audio,
+  Media, Productivity, System, Displays, Clipboard, Spotify, …) with a
+  filter chip bar. The selected category is remembered across restarts.
+- **Favourites.** Every card and detail panel has a ★ that pops when
+  toggled. Favourites always sort before other widgets in the library, on
+  the dashboard strip, and in the Settings summary. Saved across restarts
+  and included in settings export/import.
+- **Recently used.** The last six widgets you opened or enabled get a small
+  clock badge in the library. Persisted across restarts.
+- **Dashboard Mini Widgets strip.** The dashboard now shows a compact row
+  of chips for your favourite + enabled widgets only — clicking a chip
+  jumps straight to that widget's detail panel. Everything else stays in
+  the library, so the dashboard never grows as widgets are added.
+- **Keyboard navigation.** Inside the library: arrow keys move between
+  cards, Enter opens the selected widget, Space toggles its favourite,
+  Ctrl+F (or just typing) focuses search, Esc closes the detail panel then
+  the library.
+
+### Changed
+
+- **The widget registry (`MINI_WIDGETS` in `renderer/core.js`) is now the
+  single source of truth.** Each entry carries id, name, descriptions,
+  category, keywords, version, author, features, optional hotkey and
+  optional config panel. The library, search index, dashboard strip and
+  Settings summary are all generated from it — a future widget appears
+  everywhere by adding one registry entry (see the comment block above
+  `MINI_WIDGETS` for the field reference).
+- **Settings → Mini Widgets** is now a one-card summary (enabled/favourite
+  counts + chips + "Open Widget Library" button) instead of eight stacked
+  config panels — the Settings scroll got dramatically shorter. All
+  existing enable states, hotkeys and per-widget settings carry over
+  unchanged (same storage keys, no migration needed).
+
+### Files changed
+
+- `renderer/widget-library.js` — new: library modal, search, categories,
+  favourites, recents, detail panel, keyboard navigation, dashboard strip
+- `renderer/core.js` — registry metadata (categories, keywords, versions,
+  features, panel renderers) + `MINI_WIDGET_CATEGORIES`, version bump
+- `renderer/widgets-settings.js` — Settings section becomes a summary;
+  export/import now carries favourites/recents/last category; strip refresh
+  wired into `applyMiniWidgetPrefs()`
+- `main.html` — Widget Library modal, dashboard Mini Widgets strip, script
+  tag, Settings heading, version bump
+- `styles/main.css` — library/card/chip/detail/strip styles + animations
+- `styles/vendor/tailwind.css` — rebuilt (`npm run build:css`)
+- `package.json`, `main.js` — version bump
+
+---
+
+## [3.34.1] — 2026-07-18
+
+### Fixed
+
+- **The Spotify Enhanced strip no longer gets stuck on screen.** A side
+  effect of the 3.34.0 offline change: the bundled Tailwind stylesheet
+  loaded *before* `styles/main.css`, while the old CDN injected it *after*
+  — so the `hidden` utility class lost every tie against component styles
+  like the Enhanced strip's `display: flex`, leaving the panel visible
+  even when it should hide. The Tailwind stylesheet now loads last, which
+  restores the exact cascade the app always had.
+- **Parallax no longer blurs the app.** The whole-panel 3D tilt forced
+  Chromium to rasterize and resample the entire window while the mouse
+  moved, softening all text. The tilt is removed; the actual parallax —
+  background drifting away from the cursor, icons and widgets leaning
+  toward it — is unchanged and uses pixel-snapped offsets, so everything
+  stays sharp with the effect on.
+
+### Files changed
+
+- `main.html` — stylesheet order (Tailwind last), parallax description,
+  version bump
+- `renderer/parallax.js` — 3D panel tilt removed
+- `renderer/background.js` — comment update
+- `package.json`, `main.js`, `renderer/core.js` — version bump
+
+---
+
+## [3.34.0] — 2026-07-18
+
+### Changed
+
+- **The app now works fully offline and starts faster.** Tailwind CSS and
+  Font Awesome used to load from the internet on every launch — with no
+  network (or a slow/blocked one) the whole UI rendered as unstyled text
+  with empty boxes where every icon should be. Both are now bundled with
+  the app: a pre-built static Tailwind stylesheet
+  (`styles/vendor/tailwind.css`) and Font Awesome Free 6.5.1
+  (`styles/vendor/fontawesome/`). Zero CDN requests at startup, and the
+  Tailwind runtime JIT compiler (which regenerated all CSS in the renderer
+  on every launch) is gone entirely — styles are plain CSS applied before
+  first paint.
+- **The UI fonts (Inter, JetBrains Mono) are bundled too.** They were
+  loaded from Google Fonts via `styles/main.css`, so offline the whole app
+  silently fell back to system fonts. They now ship in
+  `styles/vendor/fonts/`.
+- Dev note: adding a new Tailwind class in HTML or renderer JS now requires
+  `npm run build:css` to regenerate the vendored stylesheet (see
+  `tailwind.config.js` / `styles/vendor/README.md`).
+
+### Files changed
+
+- `main.html` — CDN `<script>`/`<link>` replaced with local stylesheets
+- `styles/vendor/tailwind.css` — new, generated static Tailwind build
+- `styles/vendor/fontawesome/**` — new, vendored Font Awesome Free 6.5.1
+- `styles/vendor/fonts/**` — new, vendored Inter + JetBrains Mono woff2
+- `styles/main.css` — Google Fonts `@import` now points at the local files
+- `styles/vendor/README.md` — new, provenance + licensing + regen notes
+- `tailwind.config.js`, `tailwind.input.css` — new, dev-only build inputs
+- `package.json` — `build:css` script, dev-only `tailwindcss` +
+  `@fortawesome/fontawesome-free`, version bump
+- `main.js`, `renderer/core.js` — version bump
+
+---
+
+## [3.33.6] — 2026-07-18
+
+### Fixed
+
+- **Transparent blur no longer breaks after the screen resolution changes.**
+  The live view's screen alignment was computed once, when the blur
+  started. Any later display change — a game switching the ultrawide to
+  1920×1080 fullscreen, a monitor scale change, plugging a display in or
+  out — left the video sized and placed for the OLD screen: wrongly scaled
+  blur on part of the window and the sharp desktop showing through the
+  rest. The app now watches Windows display events and re-syncs the
+  backdrop (and wallpaper frost) automatically within a moment of any
+  resolution or monitor change.
+
+### Files changed
+
+- `main/backgrounds.js` — display-change events forwarded to the renderer
+- `preload.js` — `onDisplayChanged` bridge
+- `renderer/background.js` — re-sync backdrop geometry on display changes
+- `main.html`, `renderer/core.js`, `main.js`, `package.json` — version bump
+
+---
+
+## [3.33.5] — 2026-07-17
+
+### Fixed
+
+- **Transparent blur no longer breaks when Parallax is enabled.** With
+  Parallax on, moving the mouse tilts the whole panel in 3D — and a heavily
+  blurred live-video layer inside a perspective-rotated panel makes the
+  compositor drop or blacken parts of it, which showed as half the window
+  blurred wrong / half showing the sharp desktop (reproduced at just 0.6°
+  of tilt). The screen-aligned backdrop also must stay glued to the real
+  desktop, so tilting/drifting it was wrong regardless. Now, while the
+  Transparent backdrop (live view or wallpaper frost) is active, Parallax
+  pauses the panel tilt and background drift but keeps the icon and widget
+  motion — and resumes fully on any other background.
+
+### Files changed
+
+- `renderer/parallax.js` — skip tilt + background drift while a backdrop layer is active
+- `renderer/background.js` — refresh parallax when a backdrop activates
+- `main.html`, `renderer/core.js`, `main.js`, `package.json` — version bump
+
+---
+
+## [3.33.4] — 2026-07-17
+
+### Fixed
+
+- **High Blur values no longer wash out parts of the Transparent background.**
+  At high blur (especially the 40px max), large areas of the card faded to
+  near-transparency — the raw desktop showed through the frost, looking
+  broken on half the screen. Two causes, both fixed:
+  - the screen-sized live video overflowed the blurred layer by hundreds of
+    pixels, so the blur ran out of rendered image data to sample — it's now
+    clipped to the layer first (`#bg-backdrop`);
+  - the background's edge bleed (48px) was smaller than the area a 40px blur
+    samples (~60px), so edges faded — the bleed is now 96px, comfortably
+    above the maximum. This also cleans up edge softness on custom
+    image/video backgrounds at high blur.
+
+### Files changed
+
+- `main.html` — backdrop clip wrapper, version
+- `styles/backgrounds.css` — 96px bleed, `#bg-backdrop` rule
+- `renderer/background.js` — alignment offset updated to the new bleed
+- `renderer/core.js`, `main.js`, `package.json` — version bump
+
+---
+
+## [3.33.3] — 2026-07-17
+
+Debugging pass (log-driven): fixed the three most frequent recurring issues.
+
+### Fixed
+
+- **Spotify going offline no longer floods the log.** Network failures
+  (offline, DNS down, firewall while gaming) were logged as a full error
+  with stack trace on every poll — dozens of identical entries per session.
+  Now one warning when connectivity drops, one line when it returns; real
+  (non-network) failures still log as errors.
+- **Stale monitor preference now heals itself.** Windows can permanently
+  change display ids (GPU/driver updates), so the saved monitor was warned
+  about on every single launch, forever. The preference now resets to the
+  primary display once (with a clear log line); picking a monitor again is
+  one click in Settings.
+- **A failed live-capture start can no longer leave the app invisible to
+  screenshots.** If the screen stream failed right after the capture
+  exclusion was switched on, the exclusion stayed on with no blur running.
+  It's now always lifted when the stream stops or fails.
+
+### Improved
+
+- The background color sampler reuses one canvas instead of allocating a
+  new one every few seconds (less garbage-collection churn).
+
+### Files changed
+
+- `main/spotify.js` — network-failure latch (warn once, note recovery)
+- `main/displaySettings.js` — self-healing display preference
+- `renderer/background.js` — capture-exclusion cleanup on failed start; reused sampler canvas
+- `main.html`, `renderer/core.js`, `main.js`, `package.json` — version bump
+
+---
+
+## [3.33.2] — 2026-07-16
+
+### Fixed
+
+- **Removed the false "Crash handler binaries missing" error on every
+  startup.** Electron 42 no longer ships `chrome_crashpad_handler.exe` /
+  `chrome_wer.dll` on Windows (verified against a fresh official download —
+  crash handling now runs from `electron.exe` itself), so the old file check
+  flagged a perfectly healthy install. The check now understands both
+  layouts: it still catches a genuinely broken/quarantined old-style
+  install, verifies the crash reporter actually started, and otherwise logs
+  "Crash handler verified".
+
+### Files changed
+
+- `main.js` — version-aware crash-handler verification
+- `main.html`, `renderer/core.js`, `package.json` — version bump
+
+---
+
+## [3.33.1] — 2026-07-16
+
+### Fixed
+
+- **Auto theme color detection now works while the live blur is running.**
+  The screen-thumbnail sampler came back empty whenever the live capture
+  stream was active (the two capture paths conflict), so the Auto accent
+  stayed white. While the live view is on, colors are now sampled straight
+  from that stream — cropped to the window's own area, so the tint tracks
+  exactly what's behind the app — with the thumbnail sampler still used
+  when no stream is running.
+
+### Files changed
+
+- `renderer/background.js` — sample the live stream directly; optional source rect in the color sampler
+- `main.html`, `renderer/core.js`, `main.js`, `package.json` — version bump
+
+---
+
+## [3.33.0] — 2026-07-16
+
+### Fixed
+
+- **Transparent blur really has rounded corners now.** The Windows
+  compositor blur used in v3.31–3.32 always paints a square patch — window
+  regions can't clip it on Electron's transparent windows, which is why the
+  corners stayed sharp. Replaced it entirely: the app now shows a **live
+  video stream of the screen behind the window** (the window excludes
+  itself from the capture), blurred inside the card — so the blur is
+  clipped by the card's own 32px rounded corners, pixel-perfect.
+
+### Changed
+
+- **The Blur slider now controls real blur strength on Transparent** (the
+  old compositor blur had a fixed OS strength). Brightness and Saturation
+  also apply to the same live view, and everything stays live as windows
+  move behind the app.
+- **Heads-up:** while Transparent effects are active, the app hides itself
+  from screenshots and screen recordings — that exclusion is what lets it
+  see (and blur) what's behind it. Turn the effects off and it captures
+  normally again.
+- The Auto theme's behind-window color detection also no longer sees the
+  app itself while the live view is running, so its colors track the real
+  background even more accurately.
+- If the live capture isn't possible, everything falls back to the frosted
+  wallpaper look from v3.30.0 automatically. The old blur helper script is
+  cleaned out of the data folder.
+
+### Files changed
+
+- `main/backgrounds.js` — live-capture IPC (screen source + capture exclusion), compositor-blur machinery removed
+- `preload.js` — `backgroundLiveCapture` bridge (replaces `backgroundSetBlurBehind`)
+- `renderer/background.js` — live screen stream management, alignment, fallback
+- `main.html` — `#bg-live` video layer, hint text, version
+- `styles/backgrounds.css` — backdrop layer comment
+- `renderer/core.js`, `main.js`, `package.json` — version bump
+
+---
+
+## [3.32.0] — 2026-07-16
+
+### Added
+
+- **Auto theme now watches the screen behind the window on Transparent.**
+  With the Transparent background and the Auto accent (or Auto text color)
+  selected, the app samples what's actually visible behind and around the
+  window every few seconds — and again right after you drag the window —
+  and live-tints the accent glow and text to match. Move a colorful game,
+  video, or wallpaper behind the app and the theme follows it.
+  - Sampling is weighted toward colorful, bright pixels (a red neon sign
+    outweighs a grey wall) and dark picks are brightened into readable
+    accents, same as for custom media.
+  - Tiny color drifts are ignored so the theme doesn't flicker; if sampling
+    is unavailable the Auto theme simply keeps its normal color.
+
+### Fixed
+
+- **Live blur no longer has sharp square corners.** While the Transparent
+  blur is on, the window is clipped to the same 32px rounded shape as the
+  app card, so the blur haze follows the round corners instead of sticking
+  out past them as a hazy rectangle. The clip is removed together with the
+  blur and adapts to the display's DPI scale (re-checked when the window
+  moves between monitors).
+
+### Files changed
+
+- `main/backgrounds.js` — screen sampling IPC handler; rounded clip region in the blur script
+- `preload.js` — `backgroundSampleBehind` bridge
+- `renderer/background.js` — behind-window sampling loop wired into the Auto accent/text theme
+- `main.html` — hint text + version
+- `renderer/core.js`, `main.js`, `package.json` — version bump
+
+---
+
+## [3.31.0] — 2026-07-15
+
+### Added
+
+- **Real live blur on the Transparent background.** Turning up **Blur** now
+  asks the Windows compositor itself to blur whatever is actually behind the
+  window — your desktop, games, browsers, everything — for a true frosted
+  acrylic look that stays live as things move behind the app.
+  - Uses the same Windows API technique as TranslucentTB
+    (`SetWindowCompositionAttribute` / blur-behind); no extra installs needed.
+  - Windows controls the blur strength, so the Blur slider acts as the on/off
+    switch for it on this background.
+  - **Brightness** still dims the (now blurred) live view, and if the API is
+    ever unavailable the app automatically falls back to the v3.30.0 frosted
+    wallpaper — nothing breaks.
+  - All other backgrounds are untouched; the blur is switched off the moment
+    you leave Transparent.
+
+### Files changed
+
+- `main/backgrounds.js` — blur-behind PowerShell script + `background-set-blur-behind` IPC handler
+- `preload.js` — `backgroundSetBlurBehind` bridge
+- `renderer/background.js` — live-blur toggle with wallpaper-frost fallback
+- `main.html` — hint text + version
+- `renderer/core.js`, `main.js`, `package.json` — version bump
+
+---
+
+## [3.30.0] — 2026-07-15
+
+### Added
+
+- **Background effects now work on the Transparent background.**
+  - Turning up **Blur** (or Saturation, or Brightness above 100%) shows a
+    frosted view of your desktop wallpaper behind the window — positioned to
+    line up exactly with the real desktop, tracked live while you drag the
+    window — so the app looks like true acrylic glass. (Windows 10 offers no
+    API to blur the live desktop itself; this is the standard technique.)
+  - **Brightness below 100% on its own dims the real see-through view** with a
+    translucent veil, keeping actual live transparency.
+  - With no effects active, Transparent stays genuinely see-through, exactly
+    as before.
+- **Text color themes (Settings → Background → Text color).** A second swatch
+  row recolors the app's text — headings, labels, values, and lyrics keep
+  their bright-to-dim hierarchy in the chosen tint:
+  - **Auto** follows the accent theme; 6 soft presets (Cream, Mint, Sky,
+    Lilac, Rose, Gold); a **custom color picker** for anything else. Dark
+    picks are automatically brightened into readable pastels.
+  - Default is the original white palette, pixel-for-pixel; colored
+    functional text (Spotify green, error red) is never touched.
+
+**Files changed:** `renderer/background.js`, `main/backgrounds.js`,
+`preload.js`, `styles/backgrounds.css`, `main.html`, `renderer/core.js`,
+`main.js`, `package.json`, `CHANGELOG.md`
+
+---
+
+## [3.29.0] — 2026-07-15
+
+### Added
+
+- **Transparent background (Settings → Background).** A new "Transparent"
+  card (checkerboard preview) removes the background entirely — the launcher
+  becomes a true glass sheet floating over your desktop, showing whatever is
+  behind it. The Electron window was always created transparent, so this
+  simply stops painting anything over it. Grid, scanlines, grain, and
+  vignette can still be layered on top, and the Panel glass slider controls
+  how see-through the widgets themselves are.
+- **Themes now tint the Quick Launch tiles.** With any non-white accent
+  (picked or Auto), the tile face behind each pinned app icon takes a deep
+  shade of the accent color and its border picks up an accent tint — so the
+  whole Quick Launch row visibly matches the theme. The default white theme
+  keeps the original neutral tiles pixel-for-pixel.
+
+**Files changed:** `renderer/background.js`, `styles/main.css`,
+`styles/backgrounds.css`, `main.html`, `renderer/core.js`, `main.js`,
+`package.json`, `CHANGELOG.md`
+
+---
+
+## [3.28.0] — 2026-07-15
+
+### Added
+
+- **Accent themes (Settings → Background → Accent theme).** One tap recolors
+  every "glow" surface in the app — the window halo, widget hover glow,
+  CPU/RAM bars, Spotify progress bar and beat-pulse, current-lyric glow,
+  sliders, toggles, live dots, and app-icon hover — while text stays white
+  for readability:
+  - **Auto (default)** follows the active background: each built-in scene has
+    a matching accent (Aurora → teal, Sunset → orange, …), My Scene uses your
+    first color, and for your own images/videos it **samples the media's
+    dominant color** automatically.
+  - 7 fixed themes (Frost, Emerald, Ice, Violet, Rose, Amber, Crimson) plus a
+    **custom color picker** swatch for any color. Dark picks are auto-brightened
+    so glows stay visible. Default is white — nothing changes until you theme.
+- **My Scene — build your own animated background.** A new gallery card with
+  three color pickers and a "drifting color blobs" toggle: your colors become
+  a live animated scene (light pools + optional wandering blobs), previewed
+  in the gallery card and applied in real time as you drag the pickers.
+- **Media fit control** for your own backgrounds — Fill (crop), Fit
+  (letterbox), or Stretch.
+
+**Files changed:** `main.html`, `styles/main.css`, `styles/backgrounds.css`,
+`renderer/background.js`, `renderer/settings.js`, `renderer/spotify-widget.js`,
+`renderer/beat-glow.js`, `renderer/core.js`, `main.js`, `package.json`,
+`CHANGELOG.md`
+
+---
+
+## [3.27.0] — 2026-07-15
+
+### Added
+
+- **Background Studio (Settings → Background).** The app's background is now
+  fully customisable:
+  - **7 built-in animated scenes** — Monochrome (the original look), Aurora,
+    Prism (colorful drifting mesh-gradient blobs), Nebula (deep space with a
+    live twinkling starfield), Sunset, Ocean, and Bokeh (floating warm light
+    orbs). All GPU-friendly: gradient/transform CSS animation plus a lightweight
+    canvas for the particle scenes, paused automatically while the window is
+    hidden.
+  - **Your own backgrounds** — add any image, GIF, or looping video (mp4/webm/
+    mov/m4v). Files are copied into `%APPDATA%/main-launcher/backgrounds` so
+    they survive moves and app updates; the gallery shows live thumbnails and
+    lets you switch or remove them anytime. A missing/corrupt file safely
+    falls back to the default scene.
+  - **Background effects** — blur (0–40px), brightness, saturation, animation
+    speed, live film grain, and a vignette, all applied instantly.
+  - **Panel glass slider** — real glassmorphism: lowers the widget panels'
+    opacity so the background glows through the frosted backdrop blur,
+    Apple-style.
+  - The existing **grid overlay and scanlines are now toggleable** (both still
+    on by default — the default look is unchanged).
+  - One-click **Reset background to default**, and everything is included in
+    Settings **export/import**.
+- Parallax now moves the entire background stack (including custom media and
+  particle scenes) as the far layer.
+
+**Files changed:** `main.html`, `styles/main.css`, `styles/backgrounds.css` (new),
+`renderer/background.js` (new), `renderer/parallax.js`,
+`renderer/widgets-settings.js`, `main/backgrounds.js` (new), `preload.js`,
+`main.js`, `renderer/core.js`, `package.json`, `CHANGELOG.md`
+
+---
+
 ## [3.26.1] — 2026-07-15
 
 ### Fixed

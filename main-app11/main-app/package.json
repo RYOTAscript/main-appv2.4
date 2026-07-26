@@ -1,11 +1,12 @@
 {
   "name": "main-app",
-  "version": "3.26.1",
+  "version": "3.42.1",
   "description": "Personal gaming & productivity launcher",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win --publish never",
+    "build:css": "tailwindcss -c tailwind.config.js -i tailwind.input.css -o styles/vendor/tailwind.css --minify",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -13,8 +14,10 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@fortawesome/fontawesome-free": "6.5.1",
     "electron": "^42.0.0",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "tailwindcss": "3.4.17"
   },
   "build": {
     "appId": "com.launcher.app",
