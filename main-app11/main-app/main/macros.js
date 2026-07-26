@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { ensureVersionedScript } = require('./scriptCache');
 
-const MACRO_ENGINE_SCRIPT_VERSION = 3;
+const MACRO_ENGINE_SCRIPT_VERSION = 4;
 const DEFAULT_TOGGLE_HOTKEY = 'F9';
 const CAPTURE_ACCELERATOR = 'Alt+X';
 const TRIGGERS = ['pressed', 'hold', 'toggle', 'released'];
@@ -174,16 +174,15 @@ public static class MacroEngine {
                 for (int vk = 1; vk < 255; vk++) {
                     // Skip the generic modifier VKs (0x10-0x12) -- the L/R variants
                     // (0xA0-0xA5) report the same presses and recording both would
-                    // double every modifier event. 0x05/0x06 (XButtons) are skipped
-                    // because playback doesn't synthesize them.
-                    if (vk == 0x05 || vk == 0x06 || vk == 0x10 || vk == 0x11 || vk == 0x12) continue;
+                    // double every modifier event.
+                    if (vk == 0x10 || vk == 0x11 || vk == 0x12) continue;
                     bool isDown = (GetAsyncKeyState(vk) & 0x8000) != 0;
                     if (isDown == down[vk]) continue;
                     down[vk] = isDown;
                     int kind; int a;
-                    if (vk == 0x01 || vk == 0x02 || vk == 0x04) {
+                    if (vk == 0x01 || vk == 0x02 || vk == 0x04 || vk == 0x05 || vk == 0x06) {
                         kind = isDown ? 3 : 4;
-                        a = vk == 0x01 ? 0 : (vk == 0x02 ? 1 : 2);
+                        a = vk == 0x01 ? 0 : (vk == 0x02 ? 1 : (vk == 0x04 ? 2 : (vk == 0x05 ? 3 : 4)));
                     } else {
                         kind = isDown ? 1 : 2;
                         a = vk;
@@ -238,7 +237,16 @@ public static class MacroEngine {
     static void SendBtn(int btn, bool isDown) {
         var inp = new INPUT[1];
         inp[0].type = 0;
-        uint flags = btn == 0 ? (isDown ? 0x02u : 0x04u) : (btn == 1 ? (isDown ? 0x08u : 0x10u) : (isDown ? 0x20u : 0x40u));
+        uint flags;
+        if (btn == 0) flags = isDown ? 0x0002u : 0x0004u;
+        else if (btn == 1) flags = isDown ? 0x0008u : 0x0010u;
+        else if (btn == 2) flags = isDown ? 0x0020u : 0x0040u;
+        else {
+            // Side buttons (X1/X2) go through MOUSEEVENTF_XDOWN/XUP with
+            // mouseData naming which XBUTTON (1 = X1/Mouse4, 2 = X2/Mouse5).
+            flags = isDown ? 0x0100u : 0x0200u;
+            inp[0].U.mi.mouseData = btn == 3 ? 1 : 2;
+        }
         inp[0].U.mi.dwFlags = flags;
         SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
     }
@@ -272,7 +280,7 @@ public static class MacroEngine {
             int vx = GetSystemMetrics(76), vy = GetSystemMetrics(77);
             int vw = GetSystemMetrics(78), vh = GetSystemMetrics(79);
             bool[] heldKeys = new bool[256];
-            bool[] heldBtns = new bool[3];
+            bool[] heldBtns = new bool[5];
             bool stopped = false;
             long done = 0;
             do {
@@ -287,8 +295,8 @@ public static class MacroEngine {
                         case 0: SendMove(ev[2], ev[3], vx, vy, vw, vh); break;
                         case 1: SendKey(ev[2], true); if (ev[2] < 256) heldKeys[ev[2]] = true; break;
                         case 2: SendKey(ev[2], false); if (ev[2] < 256) heldKeys[ev[2]] = false; break;
-                        case 3: SendBtn(ev[2], true); if (ev[2] < 3) heldBtns[ev[2]] = true; break;
-                        case 4: SendBtn(ev[2], false); if (ev[2] < 3) heldBtns[ev[2]] = false; break;
+                        case 3: SendBtn(ev[2], true); if (ev[2] < 5) heldBtns[ev[2]] = true; break;
+                        case 4: SendBtn(ev[2], false); if (ev[2] < 5) heldBtns[ev[2]] = false; break;
                         case 5: SendWheel(ev[2]); break;
                         case 6: SendUnicode(ev[2]); break;
                     }
@@ -297,7 +305,7 @@ public static class MacroEngine {
             } while (!stopped && (count == 0 || done < count));
             // Never leave keys or buttons stuck down if stopped mid-macro.
             for (int vk = 0; vk < 256; vk++) if (heldKeys[vk]) SendKey(vk, false);
-            for (int b = 0; b < 3; b++) if (heldBtns[b]) SendBtn(b, false);
+            for (int b = 0; b < 5; b++) if (heldBtns[b]) SendBtn(b, false);
             Emit((stopped ? "PLAY-STOPPED " : "PLAY-DONE ") + done);
         } catch (Exception e) {
             Emit("ERR play " + e.Message.Replace('\\n', ' ').Replace('\\r', ' '));
@@ -395,14 +403,14 @@ function sanitizeSteps(steps) {
       if (typeof s.k === 'string' && s.k) out.push({ t: s.t, k: s.k });
     } else if (s.t === 'click' || s.t === 'move') {
       const st = { t: s.t };
-      if (s.t === 'click') st.b = [0, 1, 2].includes(Number(s.b)) ? Number(s.b) : 0;
+      if (s.t === 'click') st.b = [0, 1, 2, 3, 4].includes(Number(s.b)) ? Number(s.b) : 0;
       if (Number.isFinite(s.x) && Number.isFinite(s.y)) {
         st.x = Math.round(s.x);
         st.y = Math.round(s.y);
       }
       out.push(st);
     } else if (s.t === 'md' || s.t === 'mu') {
-      out.push({ t: s.t, b: [0, 1, 2].includes(Number(s.b)) ? Number(s.b) : 0 });
+      out.push({ t: s.t, b: [0, 1, 2, 3, 4].includes(Number(s.b)) ? Number(s.b) : 0 });
     } else if (s.t === 'scroll') {
       const d = clampInt(s.d, -100, 100, 1);
       out.push({ t: 'scroll', d: d === 0 ? 1 : d });
@@ -438,8 +446,9 @@ function sanitizeMacro(macro) {
 //   {t:'delay', ms}                       wait
 //   {t:'key',  k:'E'}                     press+release
 //   {t:'kd',   k:'E'} / {t:'ku', k:'E'}   hold / release
-//   {t:'click',b:0|1|2, x?, y?}           click (fixed position optional)
+//   {t:'click',b:0-4, x?, y?}              click (fixed position optional)
 //   {t:'md',   b} / {t:'mu', b}           button hold / release
+//   b: 0 Left, 1 Right, 2 Middle, 3 Mouse4 (X1/back), 4 Mouse5 (X2/forward)
 //   {t:'move', x?, y?}                    move cursor to a fixed position
 //   {t:'scroll', d}                       mouse wheel, d notches (+up / -down)
 //   {t:'text', s}                         type a string (unicode, layout-proof)
@@ -612,6 +621,11 @@ function init(ctx) {
   // Hold / Released trigger bookkeeping (fed by the engine's key watcher)
   let watchMap = new Map();      // vk -> [{ id, mods, trigger }]
   let releasedArmed = new Set(); // 'released' macros whose key is currently down
+  // Second key-watch consumer (Controller Macros). It shares this module's
+  // engine process instead of spawning its own GetAsyncKeyState poller: the
+  // WATCH list sent to the engine is the union of both, and watched events are
+  // dispatched to the external callback as well as to this module's own map.
+  let externalWatch = { vks: new Set(), cb: null };
   // Alt+X position capture
   let capturePending = null;     // { resolve, timeout }
 
@@ -847,12 +861,37 @@ function init(ctx) {
   }
 
   function sendWatchList() {
-    const vks = [...watchMap.keys()];
+    const vks = [...new Set([...watchMap.keys(), ...externalWatch.vks])];
     engineSend(vks.length ? `WATCH ${vks.join(',')}` : 'WATCH');
+  }
+
+  // Registers (or clears, with an empty list) the external consumer's watched
+  // virtual keys. Starts the engine if it isn't running — the external consumer
+  // may need key watching while the Macros widget itself is disabled.
+  function setExternalWatch(vks, cb) {
+    externalWatch.vks = new Set((Array.isArray(vks) ? vks : []).filter((v) => Number.isInteger(v) && v > 0 && v < 256));
+    externalWatch.cb = typeof cb === 'function' ? cb : null;
+    if (externalWatch.vks.size) {
+      ensureEngine()
+        .then(() => sendWatchList())
+        .catch((e) => logger.error('Macro engine unavailable for external key watch', e));
+    } else if (engineProc && engineReady) {
+      sendWatchList();
+      // Neither widget needs the engine any more — let it exit instead of
+      // idling as a background process.
+      if (!config.enabled && state === 'idle') killEngine();
+    }
   }
 
   function onWatchedKey(vk, mods, isDown) {
     if (state === 'recording') return; // don't trigger macros mid-recording
+    if (externalWatch.cb && externalWatch.vks.has(vk)) {
+      try {
+        externalWatch.cb(vk, mods, isDown);
+      } catch (e) {
+        logger.error('External key-watch callback failed', e, { vk });
+      }
+    }
     const entries = watchMap.get(vk);
     if (!entries) return;
     for (const ent of entries) {
@@ -1017,7 +1056,10 @@ function init(ctx) {
     registerAllHotkeys();
     if (!config.enabled) {
       if (state !== 'idle') stopEverything();
-      killEngine();
+      // The engine also serves the external key-watch consumer (Controller
+      // Macros) — only shut it down when nobody is watching keys through it.
+      if (externalWatch.vks.size) sendWatchList();
+      else killEngine();
     } else {
       // Warm the engine so the first record/play doesn't sit through the C#
       // compile, and so hold/release triggers are live immediately.
@@ -1194,8 +1236,12 @@ function init(ctx) {
   }
 
   return {
-    reapplyHotkeys: () => registerAllHotkeys()
+    reapplyHotkeys: () => registerAllHotkeys(),
+    setExternalWatch,
+    // Hotkeys this widget currently owns, so other widgets (Controller Macros)
+    // can refuse bindings that would fire a keyboard macro at the same time.
+    getOwnedHotkeys: () => [config.toggleHotkey, ...config.macros.map((m) => m.hotkey)].filter(Boolean)
   };
 }
 
-module.exports = { init };
+module.exports = { init, parseAccelerator, isMouseHotkey };

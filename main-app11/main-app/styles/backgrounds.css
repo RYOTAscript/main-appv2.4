@@ -1,0 +1,643 @@
+/* ══════════════════════════════════════════════════════════════════
+   Background Studio (v3.27.0)
+   Layer stack (inside #main-window, back → front):
+     #bg-root                 — moved by parallax, carries the effect filters
+       ├─ .bg-scene           — per-preset base gradient + drifting light pools
+       ├─ .bg-blob ×3         — big soft color blobs (mesh/aurora-style presets)
+       ├─ #bg-image / #bg-video — user's own media (cover-fit)
+       └─ #bg-canvas          — particle scenes (starfield, bokeh)
+     .grid-overlay            — existing grid (now toggleable)
+     #bg-vignette             — optional edge darkening
+     #bg-noise                — optional live film grain
+     .scanline                — existing scanlines (now toggleable)
+
+   #bg-root bleeds 96px past every edge so the blur effect and the parallax
+   drift never reveal a bare strip of window behind the background. CSS
+   blur(40px) (the slider max) samples ~60px around each pixel, so the bleed
+   must stay comfortably above that or the card edges wash out to
+   transparency at high blur. Must match the +96 in bgPositionWallpaper().
+   ══════════════════════════════════════════════════════════════════ */
+
+#bg-root {
+    position: absolute;
+    inset: -96px;
+    pointer-events: none;
+    /* JS sets: filter (blur/brightness/saturate), --bg-speed */
+}
+
+/* Clips the screen-aligned backdrop layers (#bg-live / #bg-wallpaper) to the
+   bled root. Without this the screen-sized video overflows the filtered layer
+   by hundreds of px, and Chromium's blur runs out of rasterized input —
+   large parts of the card faded to transparency at high blur values. */
+#bg-backdrop {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+/* Everything inside fills the bled root. */
+#bg-root .bg-scene,
+#bg-root .bg-blob,
+#bg-root .bg-media,
+#bg-root #bg-canvas {
+    position: absolute;
+    inset: 0;
+}
+
+/* Pool colors are variables so each preset only swaps colors — the drift
+   animations (auroraDriftA/B in main.css) are shared by every preset.
+   Animation speed divides by --bg-speed (Settings → Background → speed). */
+.bg-scene {
+    background: var(--bg-scene-bg, none);
+}
+
+.bg-scene::before {
+    background: radial-gradient(circle at 50% 50%, var(--bg-pool-a, rgba(255, 255, 255, 0.045)), transparent 65%) !important;
+    animation-duration: calc(46s / var(--bg-speed, 1)) !important;
+}
+
+.bg-scene::after {
+    background: radial-gradient(circle at 50% 50%, var(--bg-pool-b, rgba(255, 255, 255, 0.035)), transparent 65%) !important;
+    animation-duration: calc(58s / var(--bg-speed, 1)) !important;
+}
+
+.grid-overlay {
+    animation-duration: calc(24s / var(--bg-speed, 1)) !important;
+}
+
+/* ── Color blobs ──
+   Three huge soft orbs that wander independently — the "expensive" animated
+   mesh-gradient look. Pure transform animation on soft radial gradients:
+   GPU-composited, no filter, effectively free. Hidden unless the active
+   preset gives them a color. */
+.bg-blob {
+    display: none;
+    border-radius: 50%;
+    will-change: transform;
+}
+
+#bg-root[data-blobs="1"] .bg-blob {
+    display: block;
+}
+
+.bg-blob-a {
+    width: 70%;
+    height: 68%;
+    top: -14%;
+    left: -12%;
+    background: radial-gradient(circle at 50% 50%, var(--blob-a, transparent), transparent 68%);
+    animation: bgBlobA calc(38s / var(--bg-speed, 1)) ease-in-out infinite alternate;
+}
+
+.bg-blob-b {
+    width: 62%;
+    height: 64%;
+    bottom: -18%;
+    right: -10%;
+    background: radial-gradient(circle at 50% 50%, var(--blob-b, transparent), transparent 68%);
+    animation: bgBlobB calc(47s / var(--bg-speed, 1)) ease-in-out infinite alternate;
+}
+
+.bg-blob-c {
+    width: 55%;
+    height: 58%;
+    top: 28%;
+    left: 28%;
+    background: radial-gradient(circle at 50% 50%, var(--blob-c, transparent), transparent 68%);
+    animation: bgBlobC calc(56s / var(--bg-speed, 1)) ease-in-out infinite alternate;
+}
+
+@keyframes bgBlobA {
+    from { transform: translate(0, 0) scale(1); }
+    50%  { transform: translate(28%, 20%) scale(1.22); }
+    to   { transform: translate(10%, 38%) scale(0.95); }
+}
+
+@keyframes bgBlobB {
+    from { transform: translate(0, 0) scale(1.1); }
+    50%  { transform: translate(-24%, -16%) scale(0.9); }
+    to   { transform: translate(-8%, -34%) scale(1.18); }
+}
+
+@keyframes bgBlobC {
+    from { transform: translate(0, 0) scale(0.92); }
+    50%  { transform: translate(-20%, 14%) scale(1.15); }
+    to   { transform: translate(16%, -18%) scale(1); }
+}
+
+/* ── Frosted-transparent backdrop layers ──
+   Shown only on the Transparent preset while an effect (blur / saturation /
+   brightness-up) is active: either the LIVE screen capture video (#bg-live,
+   the window itself is excluded from the capture so it shows what's behind)
+   or the user's desktop wallpaper as fallback (#bg-wallpaper). Both are
+   positioned by JS to line up exactly with the real desktop behind the
+   window, so the filters on #bg-root appear to frost the desktop itself —
+   and the card's rounded corners clip them cleanly. Sized/offset inline by
+   bgPositionWallpaper(). */
+.bg-wallpaper {
+    display: none;
+    position: absolute;
+    object-fit: cover;
+}
+
+.bg-wallpaper.bg-active {
+    display: block;
+}
+
+/* ── User media + particle canvas ── */
+.bg-media {
+    display: none;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.bg-media.bg-active {
+    display: block;
+}
+
+#bg-canvas {
+    display: none;
+    width: 100%;
+    height: 100%;
+}
+
+#bg-canvas.bg-active {
+    display: block;
+}
+
+/* ── Built-in preset scenes ──
+   `mono` is the app's original look — the defaults in main.css already
+   render it, so it needs no rules here. A custom image/video uses the
+   plain `custom` scene (flat dark, pools off) so nothing animates
+   pointlessly underneath opaque media. */
+#bg-root[data-preset="mono"] {
+    --bg-scene-bg:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 60%),
+        radial-gradient(ellipse 50% 40% at 80% 100%, rgba(255, 255, 255, 0.03), transparent 50%),
+        #080808;
+}
+
+#bg-root[data-preset="custom"] {
+    --bg-scene-bg: #060606;
+    --bg-pool-a: transparent;
+    --bg-pool-b: transparent;
+}
+
+/* Transparent — no scene at all; the window is a true glass sheet and the
+   desktop shows through (the Electron window is created transparent, so the
+   only thing that ever made it opaque was this background). Overlays like
+   grid/grain/vignette still render on top if enabled. */
+#bg-root[data-preset="clear"] {
+    --bg-scene-bg: transparent;
+    --bg-pool-a: transparent;
+    --bg-pool-b: transparent;
+}
+
+#bg-root[data-preset="aurora"] {
+    --bg-scene-bg:
+        radial-gradient(ellipse 85% 65% at 50% 0%, rgba(45, 212, 191, 0.10), transparent 62%),
+        radial-gradient(ellipse 55% 45% at 82% 100%, rgba(129, 140, 248, 0.10), transparent 55%),
+        #04070b;
+    --bg-pool-a: rgba(45, 212, 191, 0.13);
+    --bg-pool-b: rgba(129, 140, 248, 0.12);
+    --blob-a: rgba(16, 185, 129, 0.10);
+    --blob-b: rgba(99, 102, 241, 0.10);
+    --blob-c: rgba(34, 211, 238, 0.07);
+}
+
+#bg-root[data-preset="prism"] {
+    --bg-scene-bg:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(167, 139, 250, 0.10), transparent 60%),
+        radial-gradient(ellipse 55% 45% at 80% 100%, rgba(34, 211, 238, 0.09), transparent 55%),
+        #070609;
+    --bg-pool-a: rgba(217, 70, 239, 0.10);
+    --bg-pool-b: rgba(56, 189, 248, 0.10);
+    --blob-a: rgba(129, 140, 248, 0.16);
+    --blob-b: rgba(244, 114, 182, 0.13);
+    --blob-c: rgba(45, 212, 191, 0.12);
+}
+
+#bg-root[data-preset="nebula"] {
+    --bg-scene-bg:
+        radial-gradient(ellipse 90% 70% at 30% 0%, rgba(139, 92, 246, 0.13), transparent 62%),
+        radial-gradient(ellipse 60% 50% at 85% 95%, rgba(217, 70, 239, 0.09), transparent 55%),
+        #050310;
+    --bg-pool-a: rgba(139, 92, 246, 0.14);
+    --bg-pool-b: rgba(236, 72, 153, 0.09);
+    --blob-a: rgba(88, 28, 135, 0.22);
+    --blob-b: rgba(30, 27, 75, 0.30);
+    --blob-c: rgba(190, 24, 93, 0.10);
+}
+
+#bg-root[data-preset="sunset"] {
+    --bg-scene-bg:
+        radial-gradient(ellipse 90% 65% at 50% 100%, rgba(251, 146, 60, 0.13), transparent 62%),
+        radial-gradient(ellipse 60% 50% at 20% 0%, rgba(244, 114, 182, 0.09), transparent 55%),
+        #0a0507;
+    --bg-pool-a: rgba(251, 113, 133, 0.11);
+    --bg-pool-b: rgba(251, 191, 36, 0.09);
+    --blob-a: rgba(225, 29, 72, 0.10);
+    --blob-b: rgba(234, 88, 12, 0.10);
+    --blob-c: rgba(168, 85, 247, 0.07);
+}
+
+#bg-root[data-preset="ocean"] {
+    --bg-scene-bg:
+        radial-gradient(ellipse 85% 65% at 50% 0%, rgba(56, 189, 248, 0.10), transparent 62%),
+        radial-gradient(ellipse 60% 50% at 80% 100%, rgba(37, 99, 235, 0.11), transparent 55%),
+        #030711;
+    --bg-pool-a: rgba(34, 211, 238, 0.11);
+    --bg-pool-b: rgba(59, 130, 246, 0.12);
+    --blob-a: rgba(8, 145, 178, 0.13);
+    --blob-b: rgba(29, 78, 216, 0.14);
+    --blob-c: rgba(94, 234, 212, 0.06);
+}
+
+#bg-root[data-preset="bokeh"] {
+    --bg-scene-bg:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 226, 183, 0.05), transparent 60%),
+        radial-gradient(ellipse 50% 40% at 80% 100%, rgba(255, 255, 255, 0.03), transparent 50%),
+        #0a0806;
+    --bg-pool-a: rgba(255, 214, 165, 0.06);
+    --bg-pool-b: rgba(255, 255, 255, 0.04);
+}
+
+/* ── Effect overlays ── */
+#bg-vignette {
+    display: none;
+    background: radial-gradient(ellipse 115% 100% at 50% 42%, transparent 52%, rgba(0, 0, 0, 0.62) 100%);
+}
+
+#bg-vignette.bg-active {
+    display: block;
+}
+
+/* Live film grain: an SVG turbulence tile whose position jumps a few times a
+   second (steps() so it snaps, like real grain, instead of sliding). */
+#bg-noise {
+    display: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    background-size: 160px 160px;
+    opacity: 0.055;
+    mix-blend-mode: overlay;
+    animation: bgGrainShift 0.7s steps(4) infinite;
+}
+
+#bg-noise.bg-active {
+    display: block;
+}
+
+@keyframes bgGrainShift {
+    0%   { background-position: 0 0; }
+    25%  { background-position: -46px 32px; }
+    50%  { background-position: 28px -58px; }
+    75%  { background-position: -62px -20px; }
+    100% { background-position: 0 0; }
+}
+
+.bg-layer-off {
+    display: none !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Settings → Background UI
+   ══════════════════════════════════════════════════════════════════ */
+
+.bg-gallery {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.bg-card {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    cursor: pointer;
+    background: #0a0a0a;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.bg-card:hover {
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.bg-card.selected {
+    border-color: rgba(var(--accent), 0.85);
+    box-shadow: 0 0 0 1px rgba(var(--accent), 0.85), 0 0 20px rgba(var(--accent), 0.14);
+}
+
+.bg-card-preview,
+.bg-card-media {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Static snapshots of each animated preset for the gallery cards. */
+.bg-card-preview[data-preview="mono"] {
+    background:
+        radial-gradient(ellipse 90% 70% at 50% 0%, rgba(255, 255, 255, 0.14), transparent 62%),
+        radial-gradient(ellipse 60% 50% at 80% 100%, rgba(255, 255, 255, 0.07), transparent 55%),
+        #0a0a0a;
+}
+
+/* Classic alpha checkerboard = "see-through". */
+.bg-card-preview[data-preview="clear"] {
+    background: conic-gradient(#2b2b2b 90deg, #161616 90deg 180deg, #2b2b2b 180deg 270deg, #161616 270deg);
+    background-size: 18px 18px;
+}
+
+.bg-card-preview[data-preview="aurora"] {
+    background:
+        radial-gradient(ellipse 75% 80% at 22% 10%, rgba(45, 212, 191, 0.35), transparent 62%),
+        radial-gradient(ellipse 70% 75% at 85% 80%, rgba(129, 140, 248, 0.34), transparent 60%),
+        #04070b;
+}
+
+.bg-card-preview[data-preview="prism"] {
+    background:
+        radial-gradient(ellipse 70% 80% at 15% 20%, rgba(129, 140, 248, 0.42), transparent 60%),
+        radial-gradient(ellipse 65% 70% at 85% 30%, rgba(244, 114, 182, 0.36), transparent 58%),
+        radial-gradient(ellipse 75% 65% at 50% 100%, rgba(45, 212, 191, 0.32), transparent 58%),
+        #070609;
+}
+
+.bg-card-preview[data-preview="nebula"] {
+    background:
+        radial-gradient(circle 2px at 22% 30%, rgba(255, 255, 255, 0.8) 50%, transparent 51%),
+        radial-gradient(circle 1px at 62% 18%, rgba(255, 255, 255, 0.7) 50%, transparent 51%),
+        radial-gradient(circle 1.5px at 82% 55%, rgba(255, 255, 255, 0.6) 50%, transparent 51%),
+        radial-gradient(circle 1px at 38% 72%, rgba(255, 255, 255, 0.6) 50%, transparent 51%),
+        radial-gradient(ellipse 80% 85% at 30% 10%, rgba(139, 92, 246, 0.38), transparent 62%),
+        radial-gradient(ellipse 65% 60% at 85% 90%, rgba(217, 70, 239, 0.28), transparent 58%),
+        #050310;
+}
+
+.bg-card-preview[data-preview="sunset"] {
+    background:
+        radial-gradient(ellipse 95% 70% at 50% 100%, rgba(251, 146, 60, 0.42), transparent 64%),
+        radial-gradient(ellipse 70% 60% at 20% 0%, rgba(244, 114, 182, 0.30), transparent 58%),
+        #0a0507;
+}
+
+.bg-card-preview[data-preview="ocean"] {
+    background:
+        radial-gradient(ellipse 85% 70% at 50% 0%, rgba(56, 189, 248, 0.32), transparent 62%),
+        radial-gradient(ellipse 70% 60% at 80% 100%, rgba(37, 99, 235, 0.38), transparent 58%),
+        #030711;
+}
+
+.bg-card-preview[data-preview="bokeh"] {
+    background:
+        radial-gradient(circle 9px at 26% 38%, rgba(255, 200, 130, 0.5), transparent 70%),
+        radial-gradient(circle 6px at 68% 24%, rgba(255, 240, 220, 0.42), transparent 70%),
+        radial-gradient(circle 11px at 80% 68%, rgba(190, 205, 255, 0.34), transparent 70%),
+        radial-gradient(circle 5px at 44% 74%, rgba(255, 214, 165, 0.4), transparent 70%),
+        #0a0806;
+}
+
+.bg-card-name {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 10px 8px 5px;
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    text-align: center;
+    color: #d4d4d4;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.72), transparent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+
+.bg-card-check {
+    position: absolute;
+    top: 5px;
+    left: 6px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    color: #000;
+    font-size: 8px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.bg-card.selected .bg-card-check {
+    display: flex;
+}
+
+.bg-card-delete {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 18px;
+    height: 18px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: #a3a3a3;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.bg-card:hover .bg-card-delete {
+    opacity: 1;
+}
+
+.bg-card-delete:hover {
+    color: #f87171;
+    background: rgba(80, 10, 10, 0.7);
+    border-color: rgba(248, 113, 113, 0.4);
+}
+
+.bg-card-add {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border-style: dashed;
+    border-color: rgba(255, 255, 255, 0.18);
+    color: #737373;
+    font-size: 10px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.bg-card-add i {
+    font-size: 15px;
+}
+
+.bg-card-add:hover {
+    color: #e5e5e5;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.bg-card-badge {
+    position: absolute;
+    top: 5px;
+    left: 6px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    font-size: 7.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #d4d4d4;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    pointer-events: none;
+}
+
+/* Selected custom card: check takes the top-left corner, badge slides right. */
+.bg-card.selected .bg-card-badge {
+    left: 26px;
+}
+
+/* ── Text color theme ──
+   The variables are set by bgApplyTheme (renderer/background.js) only while a
+   non-default text color is chosen; every fallback below reproduces the app's
+   original palette exactly, and the #main-window prefix out-ranks the Tailwind
+   text-* utility classes. Semantic/colored text (green Spotify buttons, red
+   errors) is deliberately untouched. */
+body {
+    color: var(--text-main, #fff);
+}
+
+#main-window .text-white { color: var(--text-main, #fff); }
+#main-window .text-neutral-300 { color: var(--text-soft, #d4d4d4); }
+#main-window .text-neutral-400 { color: var(--text-mid, #a3a3a3); }
+#main-window .text-neutral-500 { color: var(--text-dim, #737373); }
+#main-window .text-neutral-600 { color: var(--text-faint, #525252); }
+
+.section-label { color: var(--text-dim, #666); }
+.lyrics-slot { color: var(--text-main, #fff); }
+.hotkey-bind { color: var(--text-soft, #e5e5e5); }
+.window-btn { color: var(--text-mid, #aaa); }
+
+/* ── Accent theme swatches ── */
+.bg-theme-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.bg-swatch {
+    position: relative;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+}
+
+.bg-swatch:hover {
+    transform: scale(1.12);
+}
+
+.bg-swatch.selected {
+    /* Dark gap ring + white outer ring so the selection reads on ANY swatch color. */
+    box-shadow: 0 0 0 2px #0a0a0a, 0 0 0 3.5px rgba(255, 255, 255, 0.9), 0 0 14px rgba(255, 255, 255, 0.18);
+}
+
+/* Auto — follows the background; shown as a spectrum ring with a wand icon. */
+.bg-swatch-auto {
+    background: conic-gradient(from 210deg, #38bdf8, #a78bfa, #f472b6, #fbbf24, #34d399, #38bdf8);
+}
+
+.bg-swatch-auto i {
+    font-size: 10px;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* Custom — the swatch IS the color input's face; the input covers it invisibly
+   so a click opens the native picker. */
+.bg-swatch-custom input[type="color"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.bg-swatch-custom i {
+    font-size: 9px;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+}
+
+/* ── "My Scene" color inputs ── */
+.bg-color-input {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 46px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 10px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.bg-color-input::-webkit-color-swatch-wrapper {
+    padding: 3px;
+}
+
+.bg-color-input::-webkit-color-swatch {
+    border: none;
+    border-radius: 7px;
+}
+
+/* Effect rows in Settings */
+.bg-effect-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bg-effect-label {
+    width: 108px;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: #a3a3a3;
+}
+
+.bg-effect-val {
+    width: 44px;
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #a3a3a3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bg-blob,
+    #bg-noise {
+        animation: none;
+    }
+}

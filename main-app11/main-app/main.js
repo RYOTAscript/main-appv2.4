@@ -13,14 +13,20 @@ const lyrics = require('./main/lyrics');
 const weather = require('./main/weather');
 const displaySettings = require('./main/displaySettings');
 const macros = require('./main/macros');
+const controllerMacros = require('./main/controllerMacros');
 const clipboardHistory = require('./main/clipboard');
 const screenResolution = require('./main/screenResolution');
 const bluetooth = require('./main/bluetooth');
 const videoEditor = require('./main/videoEditor');
 const crosshair = require('./main/crosshair');
+const backgrounds = require('./main/backgrounds');
+const volumeMixer = require('./main/volumeMixer');
+const discordRpc = require('./main/discordRpc');
+const gameMode = require('./main/gameMode');
+const quickLaunch = require('./main/quickLaunch');
 
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v3.26.1';
+const APP_VERSION = 'v3.40.0';
 
 // Point every per-user path (userData, and therefore crashDumps) at our own
 // folder BEFORE anything reads them. This has to happen before crashReporter.start()
@@ -42,11 +48,13 @@ app.setPath('userData', userDataPath);
 // Combined with the auto-reload in createWindow(), an occasional renderer blip
 // becomes invisible and self-healing. uploadToServer:false keeps everything local.
 //
-// IMPORTANT: this only works if those two binaries are actually present in the
-// Electron dist. If the install is incomplete (partial copy, or antivirus
-// quarantining the crashpad handler — a known false positive), Crashpad can't run,
-// no crash is captured, and the Windows dialog reappears. verifyCrashHandler()
-// (called after the logger exists) surfaces that instead of failing silently.
+// NOTE on binaries: Electron up to ~v35 shipped Crashpad as separate files
+// (chrome_crashpad_handler.exe + chrome_wer.dll) next to electron.exe; a
+// partial install / antivirus quarantine of those broke the suppression.
+// Electron 42+ ships NEITHER on Windows — Crashpad runs from electron.exe
+// itself (--type=crashpad-handler), so their absence is normal there.
+// verifyCrashHandler() (called after the logger exists) knows both layouts.
+let crashReporterStarted = false;
 try {
   crashReporter.start({
     productName: 'Launcher',
@@ -55,29 +63,36 @@ try {
     uploadToServer: false,
     compress: true
   });
+  crashReporterStarted = true;
 } catch (e) {
   // Never let crash-reporter setup itself prevent startup.
   console.error('crashReporter.start failed:', e && e.message);
 }
 
-// Confirms the Crashpad binaries the dialog-suppression relies on are actually on
-// disk. Missing binaries are exactly why the "stack-based buffer overrun" dialog
-// can still appear despite crashReporter.start() above — so make it loud and
-// actionable in the log rather than a silent, baffling failure.
+// Confirms the crash-dialog suppression is actually in place. On old-layout
+// dists a PARTIAL set of Crashpad binaries is exactly why the "stack-based
+// buffer overrun" dialog can still appear despite crashReporter.start()
+// above — so make that loud and actionable in the log rather than a silent,
+// baffling failure. On Electron 42+ there are no separate binaries to check;
+// what matters is that crashReporter.start() succeeded.
 function verifyCrashHandler(logger) {
   if (process.platform !== 'win32') return;
   try {
     const distDir = path.dirname(process.execPath);
-    const required = ['chrome_crashpad_handler.exe', 'chrome_wer.dll'];
-    const missing = required.filter((f) => !fs.existsSync(path.join(distDir, f)));
-    if (missing.length) {
+    const legacy = ['chrome_crashpad_handler.exe', 'chrome_wer.dll'];
+    const present = legacy.filter((f) => fs.existsSync(path.join(distDir, f)));
+    if (present.length > 0 && present.length < legacy.length) {
       logger.error(
-        'Crash handler binaries missing — the Windows crash dialog will NOT be suppressed. Reinstall/repair Electron (npm install) or check antivirus quarantine.',
+        'Crash handler binaries incomplete — the Windows crash dialog may NOT be suppressed. Reinstall/repair Electron (npm install) or check antivirus quarantine.',
         null,
-        { distDir, missing }
+        { distDir, present }
       );
+    } else if (!crashReporterStarted) {
+      logger.error('Crash reporter failed to start — the Windows crash dialog will NOT be suppressed.', null, { distDir });
     } else {
-      logger.system('Crash handler verified', { handler: 'crashpad + WER module present' });
+      logger.system('Crash handler verified', {
+        handler: present.length ? 'crashpad + WER module present' : 'in-process crashpad (Electron 42+ layout)'
+      });
     }
   } catch (e) {
     logger.warn('Crash handler verification failed', e);
@@ -159,8 +174,11 @@ if (!gotSingleInstanceLock) {
   let micModule = null;
   let spotifyModule = null;
   let macrosModule = null;
+  let controllerMacrosModule = null;
   let videoEditorModule = null;
   let crosshairModule = null;
+  let volumeMixerModule = null;
+  let gameModeModule = null;
 
   function registerFocusHotkey(accelerator) {
     if (!accelerator || typeof accelerator !== 'string' || accelerator === '-') return false;
@@ -328,11 +346,22 @@ if (!gotSingleInstanceLock) {
     weather.init(ctx);
     displaySettings.init(ctx);
     macrosModule = macros.init(ctx);
+    // Controller Macros rides the Macros engine's key watcher for its trigger
+    // hotkeys and refuses bindings the Macros widget already owns.
+    controllerMacrosModule = controllerMacros.init(ctx, {
+      keyWatch: macrosModule.setExternalWatch,
+      getKeyboardMacroHotkeys: macrosModule.getOwnedHotkeys
+    });
     clipboardHistory.init(ctx);
     screenResolution.init(ctx);
     bluetooth.init(ctx);
     videoEditorModule = videoEditor.init(ctx);
     crosshairModule = crosshair.init(ctx);
+    backgrounds.init(ctx);
+    quickLaunch.init(ctx);
+    volumeMixerModule = volumeMixer.init(ctx);
+    discordRpc.init(ctx);
+    gameModeModule = gameMode.init(ctx);
 
     createTray();
     registerFocusHotkey(focusHotkey);
@@ -379,6 +408,8 @@ if (!gotSingleInstanceLock) {
     // Kill any in-flight ffmpeg export so it doesn't linger after the app exits.
     if (videoEditorModule) videoEditorModule.teardown();
     if (crosshairModule) crosshairModule.teardown();
+    if (volumeMixerModule) volumeMixerModule.teardown();
+    if (gameModeModule) gameModeModule.teardown();
     logger.system('Application quit');
   });
 
@@ -387,6 +418,14 @@ if (!gotSingleInstanceLock) {
   // before any renderer script — including the icon-rendering ones — runs.
   ipcMain.on('get-icons-base-path-sync', (event) => {
     event.returnValue = path.join(userDataPath, 'icons');
+  });
+
+  // Same deal for custom backgrounds: preload reads this once, synchronously,
+  // so renderer/background.js can build file:// URLs and apply the saved
+  // background immediately at script load — no async round-trip, no flash of
+  // the default background before the custom one appears.
+  ipcMain.on('get-backgrounds-base-path-sync', (event) => {
+    event.returnValue = path.join(userDataPath, 'backgrounds');
   });
 
   ipcMain.on('window-minimize', () => mainWindow?.minimize());
@@ -438,7 +477,9 @@ if (!gotSingleInstanceLock) {
     if (spotifyModule) spotifyModule.reapplyShortcuts();
     if (micModule) micModule.reapplyHotkey();
     if (macrosModule) macrosModule.reapplyHotkeys();
+    if (controllerMacrosModule) controllerMacrosModule.reapplyHotkeys();
     if (crosshairModule) crosshairModule.reapplyHotkey();
+    if (volumeMixerModule) volumeMixerModule.reapplyHotkeys();
     logger.log('All hotkeys re-enabled');
     return { success: true };
   });

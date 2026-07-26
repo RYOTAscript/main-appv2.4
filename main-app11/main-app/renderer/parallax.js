@@ -11,10 +11,11 @@
 
         const PARALLAX_KEY = 'parallaxEnabled';
         // How strongly each layer follows the cursor, in px at full deflection.
-        // `tilt` is the whole panel's max lean, in degrees — kept small (and the
-        // perspective distant) because rotated text can never be perfectly sharp;
-        // at ~1° the softness is imperceptible.
-        const PARALLAX_DEPTHS = { bgX: 10, bgY: 8, gridX: 16, gridY: 12, appsX: 4, appsY: 3, widgetsX: 5, widgetsY: 4, tilt: 1.1 };
+        // There is deliberately NO whole-panel 3D tilt: a perspective-rotated
+        // panel is composited off its own rasterized layer, which softens every
+        // glyph of text while the mouse moves — it read as "the app goes blurry
+        // with parallax on". Only pixel-snapped translations are used.
+        const PARALLAX_DEPTHS = { bgX: 10, bgY: 8, gridX: 16, gridY: 12, appsX: 4, appsY: 3, widgetsX: 5, widgetsY: 4 };
         const PARALLAX_EASE_TRACK = 0.09;    // lerp per frame while following the cursor
         const PARALLAX_EASE_RETURN = 0.03;   // much floatier drift back to center
         const PARALLAX_SETTLE = 0.001;       // treat deltas below this as "arrived"
@@ -24,39 +25,40 @@
         let parallaxTX = 0, parallaxTY = 0;  // target position, normalized -1..1
         let parallaxCX = 0, parallaxCY = 0;  // current (smoothed) position
         let parallaxEase = PARALLAX_EASE_TRACK;
-        let parallaxTiltReady = false;       // startup fade-in released yet?
 
         function parallaxLayers() {
             return {
-                win: document.getElementById('main-window'),
-                bg: document.querySelector('.bg-scene'),
+                // #bg-root is the whole Background Studio stack (preset scene, blobs,
+                // custom image/video, particle canvas) so every background type —
+                // including the user's own media — drifts as one far layer.
+                bg: document.getElementById('bg-root'),
                 grid: document.querySelector('.grid-overlay'),
                 apps: document.getElementById('apps-grid'),
                 widgets: document.getElementById('widgets-row')
             };
         }
 
+        // The Transparent preset's screen-aligned backdrop (live capture video
+        // or wallpaper frost) must stay glued to the real desktop behind the
+        // window — drifting it breaks that illusion. So while a backdrop layer
+        // is active, the background drift is skipped — the icon and widget
+        // layers keep their parallax, so the effect stays alive.
+        function parallaxBackdropActive() {
+            return !!document.querySelector('#bg-backdrop .bg-active');
+        }
+
         function parallaxApply() {
             const d = PARALLAX_DEPTHS;
-            const { win, bg, grid, apps, widgets } = parallaxLayers();
-            // The whole panel leans toward the cursor: the corner under the mouse
-            // lifts slightly toward the viewer (rotateY is negated because a
-            // positive CSS rotateY pushes the right edge *away*).
-            // The startup .fade-in animation fills forwards, which pins the
-            // panel's transform and would silently swallow the tilt — release it
-            // once, on the first real tilt (its final frame equals the natural
-            // state, so removing it changes nothing visually).
-            if (win) {
-                if (!parallaxTiltReady) {
-                    win.classList.remove('fade-in');
-                    parallaxTiltReady = true;
-                }
-                win.style.transform = `perspective(1800px) rotateX(${(parallaxCY * d.tilt).toFixed(3)}deg) rotateY(${(-parallaxCX * d.tilt).toFixed(3)}deg)`;
-            }
+            const { bg, grid, apps, widgets } = parallaxLayers();
+            const backdrop = parallaxBackdropActive();
             // The slight scale keeps the background's edges covered while it
             // translates; without it a sliver of empty window would peek through.
             // (Fractional offsets are fine here — it's a soft gradient.)
-            if (bg) bg.style.transform = `translate3d(${(-parallaxCX * d.bgX).toFixed(2)}px, ${(-parallaxCY * d.bgY).toFixed(2)}px, 0) scale(1.045)`;
+            if (bg) {
+                bg.style.transform = backdrop
+                    ? ''
+                    : `translate3d(${(-parallaxCX * d.bgX).toFixed(2)}px, ${(-parallaxCY * d.bgY).toFixed(2)}px, 0) scale(1.045)`;
+            }
             // The grid can't be transform-parallaxed — its gridDrift keyframes own
             // the transform — so its background-position shifts instead, which the
             // drift animation doesn't touch. Whole pixels only: a fractional
@@ -68,7 +70,10 @@
         }
 
         function parallaxClear() {
-            const { win, bg, grid, apps, widgets } = parallaxLayers();
+            const { bg, grid, apps, widgets } = parallaxLayers();
+            // Also clear any panel transform left over from the old 3D-tilt
+            // version of this effect.
+            const win = document.getElementById('main-window');
             if (win) win.style.transform = '';
             if (bg) bg.style.transform = '';
             if (grid) grid.style.backgroundPosition = '';
@@ -82,10 +87,8 @@
             if (Math.abs(parallaxTX - parallaxCX) < PARALLAX_SETTLE && Math.abs(parallaxTY - parallaxCY) < PARALLAX_SETTLE) {
                 parallaxCX = parallaxTX;
                 parallaxCY = parallaxTY;
-                // Settled at dead center = drop every inline transform. A 3D-
-                // transformed panel is composited off its own rasterized layer,
-                // which renders text slightly soft even at 0° — clearing it
-                // returns the app to normal, pixel-perfect rendering at rest.
+                // Settled at dead center = drop every inline transform so the
+                // app returns to normal, pixel-perfect rendering at rest.
                 if (parallaxTX === 0 && parallaxTY === 0) parallaxClear();
                 else parallaxApply();
                 parallaxRaf = null;         // settled — stop the loop until new input

@@ -67,7 +67,7 @@
             localStorage.setItem('spotifyDiskSpeed', val.toString());
             if (valEl) valEl.textContent = val.toFixed(1);
             const pct = Math.max(0, Math.min(100, ((val - 0.5) / (5.0 - 0.5)) * 100));
-            slider.style.background = `linear-gradient(to right, #fff ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+            slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
             scheduleSettingsSave();
         }
 
@@ -79,7 +79,7 @@
             if (slider) {
                 slider.value = val;
                 const pct = Math.max(0, Math.min(100, ((val - 0.5) / (5.0 - 0.5)) * 100));
-                slider.style.background = `linear-gradient(to right, #fff ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+                slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
             }
             if (valEl) valEl.textContent = val.toFixed(1);
         }
@@ -94,7 +94,7 @@
             localStorage.setItem('lyricsAnticipateMs', val.toString());
             if (valEl) valEl.textContent = (val / 1000).toFixed(1) + 's';
             const pct = Math.max(0, Math.min(100, (val / 2000) * 100));
-            slider.style.background = `linear-gradient(to right, #fff ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+            slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
             scheduleSettingsSave();
         }
 
@@ -106,7 +106,7 @@
             if (slider) {
                 slider.value = val;
                 const pct = Math.max(0, Math.min(100, (val / 2000) * 100));
-                slider.style.background = `linear-gradient(to right, #fff ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+                slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
             }
             if (valEl) valEl.textContent = (val / 1000).toFixed(1) + 's';
         }
@@ -254,7 +254,7 @@
             localStorage.setItem('spotifyBeatGlowIntensity', val.toString());
             if (valEl) valEl.textContent = `${Math.round(val * 100)}%`;
             const pct = Math.max(0, Math.min(100, ((val - 0.5) / (3 - 0.5)) * 100));
-            slider.style.background = `linear-gradient(to right, #fff ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+            slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
             scheduleSettingsSave();
         }
 
@@ -266,7 +266,7 @@
             if (slider) {
                 slider.value = val;
                 const pct = Math.max(0, Math.min(100, ((val - 0.5) / (3 - 0.5)) * 100));
-                slider.style.background = `linear-gradient(to right, #fff ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+                slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
             }
             if (valEl) valEl.textContent = `${Math.round(val * 100)}%`;
         }

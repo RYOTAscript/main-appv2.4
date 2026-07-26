@@ -89,6 +89,26 @@ Performance:
 UI:
 - Preserve animations and layout stability
 - Avoid flicker or layout jumps
+- Tailwind is a static vendored build (`styles/vendor/tailwind.css`), not
+  the CDN. Any new Tailwind class added in HTML or renderer JS requires
+  `npm run build:css` and committing the regenerated file — otherwise the
+  class silently does nothing at runtime.
+
+Mini Widgets (Widget Library):
+- `MINI_WIDGETS` in `renderer/core.js` is the single source of truth. To add
+  a widget, add ONE registry entry (id, label, icon, description,
+  longDescription, category, keywords, version, author, features, optional
+  defaultHotkey, optional panelId + panelRenderer) plus the widget's own
+  backend/renderer logic. The Widget Library, its search index, the
+  dashboard Mini Widgets strip, and the Settings summary all generate from
+  the registry — never hardcode widget lists in UI code.
+- The full field reference is the comment block above `MINI_WIDGETS`.
+- Config panels (`panelId`) are hosted in the library's detail view; their
+  render functions must no-op when the panel div is absent
+  (`if (!panel) return;`) because the div only exists while the detail is
+  open.
+- Enabled state lives in `miniWidgetPrefs`, favourites in `miniWidgetFavs`,
+  recents in `miniWidgetRecents` (all localStorage; keep keys stable).
 
 ---
 

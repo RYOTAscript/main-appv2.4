@@ -227,6 +227,21 @@ function init(ctx) {
     return null;
   }
 
+  // Network-level failures (PC offline, DNS down, firewall blocking while
+  // gaming) are an EXPECTED condition for an always-on app, but they were
+  // logged as a full ERROR with stack trace on every poll — dozens of
+  // identical entries per session. Log one warning when connectivity drops
+  // and one line when it returns; genuine non-network exceptions stay errors.
+  let spotifyNetworkDown = false;
+  const SPOTIFY_NETWORK_CODES = new Set(['ENOTFOUND', 'EACCES', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET']);
+  function isSpotifyNetworkError(e) {
+    if (!e) return false;
+    if (SPOTIFY_NETWORK_CODES.has(e.code)) return true;
+    if (Array.isArray(e.errors) && e.errors.some((inner) => inner && SPOTIFY_NETWORK_CODES.has(inner.code))) return true;
+    if (e.cause && e.cause !== e) return isSpotifyNetworkError(e.cause);
+    return /ENOTFOUND|ECONN|ETIMEDOUT|EACCES|network|fetch failed/i.test(e.message || '');
+  }
+
   async function spotifyApiRequest(endpoint, method = 'GET', body = null, retryCount = 0) {
     logger.debug('Spotify API request', { endpoint, method, retryCount });
     const ok = await ensureSpotifyToken();
@@ -246,6 +261,10 @@ function init(ctx) {
       logger.debug('About to call safeFetch', { endpoint, method });
       const response = await safeFetch(`https://api.spotify.com/v1${endpoint}`, options);
       logger.debug('safeFetch returned', { endpoint, status: response.status });
+      if (spotifyNetworkDown) {
+        spotifyNetworkDown = false;
+        logger.log('Spotify connectivity restored', 'INFO');
+      }
 
       if (response.status === 401) {
         // Cap retries — if the refreshed token still gets a 401 (e.g. a scope
@@ -302,7 +321,14 @@ function init(ctx) {
         return { _noContent: true };
       }
     } catch (e) {
-      logger.error('Spotify API request failed with exception', e, { endpoint, method });
+      if (isSpotifyNetworkError(e)) {
+        if (!spotifyNetworkDown) {
+          spotifyNetworkDown = true;
+          logger.warn('Spotify unreachable (offline or network blocked) — retrying quietly until it returns', { endpoint, error: e.code || e.message });
+        }
+      } else {
+        logger.error('Spotify API request failed with exception', e, { endpoint, method });
+      }
       return null;
     }
   }
@@ -609,7 +635,10 @@ function init(ctx) {
 
     const data = await spotifyApiRequest('/me/player');
     if (data === null) {
-      logger.warn('Spotify API returned null - treating as not connected');
+      // While the network is down the cause was already reported once by
+      // spotifyApiRequest — per-poll repeats of this line add nothing.
+      if (spotifyNetworkDown) logger.debug('Spotify API returned null - treating as not connected');
+      else logger.warn('Spotify API returned null - treating as not connected');
       return { connected: false };
     }
     if (data._error) {

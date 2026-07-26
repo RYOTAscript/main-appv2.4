@@ -5,8 +5,25 @@ const { contextBridge, ipcRenderer } = require('electron');
 // launcher icons stored under userData.
 const iconsBasePath = ipcRenderer.sendSync('get-icons-base-path-sync');
 
+// Same synchronous read for custom backgrounds (renderer/background.js) — the
+// saved background must apply at script load, before first paint settles, so
+// there's no flash of the default scene under a custom image/video.
+const backgroundsBasePath = ipcRenderer.sendSync('get-backgrounds-base-path-sync');
+
 contextBridge.exposeInMainWorld('electronAPI', {
   iconsBasePath,
+  backgroundsBasePath,
+
+  // Background Studio (custom background library)
+  backgroundSelect: () => ipcRenderer.invoke('background-select'),
+  backgroundList: () => ipcRenderer.invoke('background-list'),
+  backgroundDelete: (fileName) => ipcRenderer.invoke('background-delete', fileName),
+  backgroundDesktopInfo: () => ipcRenderer.invoke('background-desktop-info'),
+  backgroundLiveCapture: (enabled) => ipcRenderer.invoke('background-live-capture', enabled),
+  backgroundSampleBehind: () => ipcRenderer.invoke('background-sample-behind'),
+  onWindowMoved: (callback) => ipcRenderer.on('window-moved', (_event, pos) => callback(pos)),
+  onDisplayChanged: (callback) => ipcRenderer.on('display-changed', () => callback()),
+
   launchApp: (path, options) => ipcRenderer.invoke('launch-app', path, options),
   launchFPSOptimizer: () => ipcRenderer.invoke('launch-fps-optimizer'),
   setAutoStart: (enabled) => ipcRenderer.invoke('set-autostart', enabled),
@@ -49,7 +66,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   disableAllHotkeys: () => ipcRenderer.invoke('disable-all-hotkeys'),
   enableAllHotkeys: () => ipcRenderer.invoke('enable-all-hotkeys'),
   onSpotifyVolumeAdjust: (callback) => ipcRenderer.on('spotify-volume-adjust', (_event, delta) => callback(delta)),
-  getWeather: () => ipcRenderer.invoke('get-weather'),
+  getWeather: (opts) => ipcRenderer.invoke('get-weather', opts),
   getCloseWindowsStartup: () => ipcRenderer.invoke('get-close-windows-startup'),
   setCloseWindowsStartup: (enabled) => ipcRenderer.invoke('set-close-windows-startup', enabled),
   getLyrics: (trackName, artistName, albumName, durationMs) => ipcRenderer.invoke('get-lyrics', trackName, artistName, albumName, durationMs),
@@ -85,6 +102,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   macrosExport: () => ipcRenderer.invoke('macros-export'),
   macrosImport: () => ipcRenderer.invoke('macros-import'),
   onMacrosStatus: (callback) => ipcRenderer.on('macros-status', (_event, data) => callback(data)),
+
+  // Mini Widgets: Controller Macros
+  controllerMacrosGet: () => ipcRenderer.invoke('controller-macros-get'),
+  controllerMacrosSetEnabled: (enabled) => ipcRenderer.invoke('controller-macros-set-enabled', enabled),
+  controllerMacrosSave: (macro) => ipcRenderer.invoke('controller-macros-save', macro),
+  controllerMacrosDelete: (id) => ipcRenderer.invoke('controller-macros-delete', id),
+  controllerMacrosPlay: (id) => ipcRenderer.invoke('controller-macros-play', id),
+  controllerMacrosPlaySteps: (steps, speed) => ipcRenderer.invoke('controller-macros-play-steps', steps, speed),
+  controllerMacrosStop: () => ipcRenderer.invoke('controller-macros-stop'),
+  controllerMacrosSetArmed: (armed) => ipcRenderer.invoke('controller-macros-set-armed', armed),
+  controllerMacrosSetToggleHotkey: (accelerator) => ipcRenderer.invoke('controller-macros-set-toggle-hotkey', accelerator),
+  controllerMacrosSetPadType: (type) => ipcRenderer.invoke('controller-macros-set-pad-type', type),
+  controllerMacrosDriverStatus: () => ipcRenderer.invoke('controller-macros-driver-status'),
+  controllerMacrosOpenDriverPage: () => ipcRenderer.invoke('controller-macros-open-driver-page'),
+  onControllerMacrosStatus: (callback) => ipcRenderer.on('controller-macros-status', (_event, data) => callback(data)),
 
   // Mini Widgets: Spotify Enhanced
   spotifyGetQueue: () => ipcRenderer.invoke('spotify-get-queue'),
@@ -128,5 +160,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
   clipboardDelete: (id) => ipcRenderer.invoke('clipboard-delete', id),
   clipboardClear: () => ipcRenderer.invoke('clipboard-clear'),
   onClipboardChanged: (callback) => ipcRenderer.on('clipboard-changed', (_event, data) => callback(data)),
+
+  // Mini Widgets: Quick Launch Enhanced
+  quickLaunchDetectGames: () => ipcRenderer.invoke('quicklaunch-detect-games'),
+  quickLaunchRunning: (names) => ipcRenderer.invoke('quicklaunch-running', names),
+  quickLaunchLaunchUri: (uri) => ipcRenderer.invoke('quicklaunch-launch-uri', uri),
+  quickLaunchLaunchMany: (paths) => ipcRenderer.invoke('quicklaunch-launch-many', paths),
+
+  // Mini Widgets: Volume Mixer
+  volumeMixerSetEnabled: (enabled) => ipcRenderer.invoke('volume-mixer-set-enabled', enabled),
+  volumeMixerList: () => ipcRenderer.invoke('volume-mixer-list'),
+  volumeMixerSetApp: (pid, volume) => ipcRenderer.invoke('volume-mixer-set-app', pid, volume),
+  volumeMixerMuteApp: (pid, muted) => ipcRenderer.invoke('volume-mixer-mute-app', pid, muted),
+  volumeMixerSetMaster: (volume) => ipcRenderer.invoke('volume-mixer-set-master', volume),
+  volumeMixerMuteMaster: (muted) => ipcRenderer.invoke('volume-mixer-mute-master', muted),
+  volumeMixerGetHotkeys: () => ipcRenderer.invoke('volume-mixer-get-hotkeys'),
+  volumeMixerSetHotkey: (which, accelerator) => ipcRenderer.invoke('volume-mixer-set-hotkey', which, accelerator),
+  onVolumeMixerChanged: (callback) => ipcRenderer.on('volume-mixer-changed', () => callback()),
+
+  // Mini Widgets: Discord Rich Presence
+  discordRpcGet: () => ipcRenderer.invoke('discord-rpc-get'),
+  discordRpcSetEnabled: (enabled) => ipcRenderer.invoke('discord-rpc-set-enabled', enabled),
+  discordRpcSetConfig: (config) => ipcRenderer.invoke('discord-rpc-set-config', config),
+  discordRpcReconnect: () => ipcRenderer.invoke('discord-rpc-reconnect'),
+  onDiscordRpcStatus: (callback) => ipcRenderer.on('discord-rpc-status', (_event, data) => callback(data)),
+
+  // Game Mode
+  gameModeGet: () => ipcRenderer.invoke('game-mode-get'),
+  gameModeSetEnabled: (enabled) => ipcRenderer.invoke('game-mode-set-enabled', enabled),
+  gameModeSaveRule: (rule) => ipcRenderer.invoke('game-mode-save-rule', rule),
+  gameModeDeleteRule: (id) => ipcRenderer.invoke('game-mode-delete-rule', id),
+  gameModeListProcesses: () => ipcRenderer.invoke('game-mode-list-processes'),
+  onGameModeEvent: (callback) => ipcRenderer.on('game-mode-event', (_event, data) => callback(data)),
+  onGameModeDetect: (callback) => ipcRenderer.on('game-mode-detect', (_event, data) => callback(data)),
 
 });

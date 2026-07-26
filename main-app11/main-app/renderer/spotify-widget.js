@@ -151,7 +151,7 @@
                     volSlider.value = data.volume_percent;
                     const volNum = Number(data.volume_percent);
                     const pct = Math.max(0, Math.min(100, volNum));
-                    volSlider.style.background = `linear-gradient(to right, #fff ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+                    volSlider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
                     spotifyUpdateVolumeIcon(data.volume_percent);
                 }
             }
@@ -275,7 +275,7 @@
             if (slider) {
                 const volNum = Number(value);
                 const pct = Math.max(0, Math.min(100, volNum));
-                slider.style.background = `linear-gradient(to right, #fff ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+                slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
             }
             clearTimeout(volumeSliderTimeout);
             volumeSliderTimeout = setTimeout(() => spotifySetVolume(value), 50);
@@ -302,7 +302,7 @@
                 if (volSlider) {
                     volSlider.value = newVol;
                     const pct = Math.max(0, Math.min(100, newVol));
-                    volSlider.style.background = `linear-gradient(to right, #fff ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+                    volSlider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
                 }
                 spotifyUpdateVolumeIcon(newVol);
                 await window.electronAPI.spotifySetVolume(newVol);
@@ -376,7 +376,7 @@
 
             const volNum = Number(slider.value);
             const pct = Math.max(0, Math.min(100, volNum));
-            slider.style.background = `linear-gradient(to right, #fff ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+            slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
 
             slider.addEventListener('mousedown', () => {
                 isDraggingVolume = true;
@@ -577,6 +577,10 @@
             initSpotifyWidget();
             applyLyricsPrefs();
             initLyricsPanel();
+            if (typeof initTimerWidget === 'function') initTimerWidget();
+            // Game Mode: wire the game-launch event stream at startup so profiles
+            // apply even when the Widget Library panel is closed.
+            if (typeof initGameMode === 'function') initGameMode();
 
             const notes = document.getElementById('notes');
             const placeholder = document.getElementById('placeholder');
@@ -720,7 +724,8 @@
                 const tag = active && active.tagName;
                 const alreadyTyping = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (active && active.isContentEditable);
                 const macroRecording = typeof isMacroRecording === 'function' && isMacroRecording();
-                const macroBinding = typeof isMacroBinding === 'function' && isMacroBinding();
+                const macroBinding = (typeof isMacroBinding === 'function' && isMacroBinding())
+                    || (typeof isControllerMacroBinding === 'function' && isControllerMacroBinding());
                 // Also suspended while the Video Editor preview is on screen — its
                 // playback hotkeys (Space, etc.) belong to the editor, not the
                 // search box (see renderer/video-editor.js).

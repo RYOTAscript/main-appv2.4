@@ -94,15 +94,33 @@
             const grid = document.getElementById('apps-grid');
             const reveal = !appsRevealPlayed;
             appsRevealPlayed = true;
-            grid.innerHTML = pinnedApps.map((app, i) => `
-                <div class="app-icon flex flex-col items-center cursor-pointer py-3 px-2 rounded-3xl border border-transparent hover:border-white/10${reveal ? ' app-reveal' : ''}"${reveal ? ` style="animation-delay:${0.12 + i * 0.05}s"` : ''} data-index="${i}">
-                    <div class="icon-tile w-16 h-16 bg-neutral-950 border border-white/10 rounded-3xl flex items-center justify-center overflow-hidden mb-2.5 transition-all">
+
+            // Quick Launch Enhanced: folders + running-app indicators. When it's off
+            // the launcher renders exactly as before (every pinned app, no dots).
+            const enhanced = typeof isQuickLaunchEnhancedEnabled === 'function' && isQuickLaunchEnhancedEnabled();
+            const activeFolder = enhanced && typeof quickLaunchActiveFolder !== 'undefined' ? quickLaunchActiveFolder : 'All';
+            const runningSet = enhanced && typeof quickLaunchRunningSet !== 'undefined' ? quickLaunchRunningSet : null;
+
+            // Keep data-index pointing at the real pinnedApps index so clicks always
+            // launch the right app even when a folder filter hides some tiles.
+            const entries = pinnedApps
+                .map((app, i) => ({ app, i }))
+                .filter(({ app }) => !enhanced || appMatchesFolder(app, activeFolder));
+
+            grid.innerHTML = entries.map(({ app, i }, pos) => {
+                const running = runningSet && appIsRunning(app, runningSet);
+                return `
+                <div class="app-icon flex flex-col items-center cursor-pointer py-3 px-2 rounded-3xl border border-transparent hover:border-white/10${reveal ? ' app-reveal' : ''}"${reveal ? ` style="animation-delay:${0.12 + pos * 0.05}s"` : ''} data-index="${i}">
+                    <div class="icon-tile w-16 h-16 bg-neutral-950 border border-white/10 rounded-3xl flex items-center justify-center overflow-hidden mb-2.5 transition-all relative">
                         <img src="${esc(getIconPath(app.icon))}" alt="" style="width:70%;height:70%;object-fit:contain;"
-                             onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\\'fas fa-bolt text-3xl text-neutral-400\\'></i>';">
+                             onerror="this.outerHTML='<i class=\\'fas fa-bolt text-3xl text-neutral-400\\'></i>';">
+                        ${running ? '<span class="app-running-dot" title="Running"></span>' : ''}
                     </div>
-                    <span class="text-[11px] text-neutral-500 text-center leading-tight">${esc(app.name)}</span>
-                </div>
-            `).join('');
+                    <span class="text-[11px] ${running ? 'text-emerald-400' : 'text-neutral-500'} text-center leading-tight">${esc(app.name)}</span>
+                </div>`;
+            }).join('');
+
+            if (enhanced && typeof renderQuickLaunchBar === 'function') renderQuickLaunchBar();
         }
 
         document.getElementById('apps-grid').addEventListener('click', (e) => {
@@ -115,6 +133,21 @@
         async function launchApp(fullPath, name) {
             if (name === 'FPS Optimizer') {
                 openFpsOptimizer();
+                return;
+            }
+
+            // Auto-detected store games are pinned with a protocol URI (steam://,
+            // com.epicgames.launcher://) as their path — launch those through the
+            // store client rather than the file-path launcher.
+            if (typeof fullPath === 'string' && /^(steam|com\.epicgames\.launcher):/i.test(fullPath.trim())) {
+                showToast(`Launching ${name}...`);
+                try {
+                    const res = await window.electronAPI?.quickLaunchLaunchUri(fullPath.trim());
+                    if (res && !res.success) showToast(`Failed: ${res.error || 'unknown error'}`, true);
+                } catch (e) {
+                    showToast('Launch failed', true);
+                    console.error(e);
+                }
                 return;
             }
 

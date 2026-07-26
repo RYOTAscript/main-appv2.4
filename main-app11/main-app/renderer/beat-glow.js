@@ -189,7 +189,10 @@
             const glow2 = 8 + i * 28 * mult;
             const alpha1 = Math.min(0.65, 0.12 + i * 0.32 * mult).toFixed(3);
             const alpha2 = Math.min(0.4, 0.06 + i * 0.18 * mult).toFixed(3);
-            disk.style.filter = `drop-shadow(0 0 ${glow1.toFixed(1)}px rgba(255,255,255,${alpha1})) drop-shadow(0 0 ${glow2.toFixed(1)}px rgba(255,255,255,${alpha2}))`;
+            // Follows the accent theme (Settings → Background) — bgAccentRgbStr is
+            // kept current by renderer/background.js; white when unthemed.
+            const beatRgb = typeof bgAccentRgbStr === 'string' ? bgAccentRgbStr : '255, 255, 255';
+            disk.style.filter = `drop-shadow(0 0 ${glow1.toFixed(1)}px rgba(${beatRgb},${alpha1})) drop-shadow(0 0 ${glow2.toFixed(1)}px rgba(${beatRgb},${alpha2}))`;
         }
 
         function triggerBeatPulse(strength) {

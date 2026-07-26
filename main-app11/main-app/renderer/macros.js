@@ -8,6 +8,7 @@
         let macrosExpandedId = null;      // macro whose step editor is open
         let macrosBindTarget = null;      // { kind: 'macro'|'toggle', id? } while capturing a hotkey
         let macrosKeyCapture = null;      // callback while capturing a key name for a step
+        let macrosMouseCapture = null;    // callback while capturing a mouse button for a step
         let macrosCaptureTarget = null;   // { id, index } while Alt+X position capture is armed
         let macrosRecordFiltersOpen = false; // "Record new" dropdown open state
 
@@ -29,7 +30,10 @@
             }
         })();
 
-        const MACRO_BUTTON_NAMES = ['Left', 'Right', 'Middle'];
+        const MACRO_BUTTON_NAMES = ['Left', 'Right', 'Middle', 'Mouse 4', 'Mouse 5'];
+        // DOM MouseEvent.button (0 left, 1 middle, 2 right, 3 back, 4 forward) ->
+        // engine step button index (0 left, 1 right, 2 middle, 3 Mouse4, 4 Mouse5).
+        const MACRO_DOM_BUTTON_TO_STEP_B = { 0: 0, 2: 1, 1: 2, 3: 3, 4: 4 };
         const MACRO_TRIGGERS = [
             ['pressed', 'Key Pressed'],
             ['hold', 'Key Hold'],
@@ -319,9 +323,9 @@
                         <option value="key">Key press</option>
                         <option value="kd">Hold key</option>
                         <option value="ku">Release key</option>
-                        <option value="click-0">Left click</option>
-                        <option value="click-1">Right click</option>
-                        <option value="click-2">Middle click</option>
+                        <option value="click">Mouse click</option>
+                        <option value="mdown">Hold mouse button</option>
+                        <option value="mup">Release mouse button</option>
                         <option value="scroll-up">Scroll up</option>
                         <option value="scroll-down">Scroll down</option>
                         <option value="move">Move mouse to…</option>
@@ -562,9 +566,6 @@
             if (type === 'delay') {
                 m.steps.push({ t: 'delay', ms: 500 });
                 await saveMacro(m);
-            } else if (type.startsWith('click-')) {
-                m.steps.push({ t: 'click', b: Number(type.slice(6)) });
-                await saveMacro(m);
             } else if (type === 'scroll-up' || type === 'scroll-down') {
                 m.steps.push({ t: 'scroll', d: type === 'scroll-up' ? 3 : -3 });
                 await saveMacro(m);
@@ -575,6 +576,22 @@
                 const index = m.steps.push({ t: 'move' }) - 1;
                 await saveMacro(m);
                 await armMacroPointCapture(id, index);
+            } else if (type === 'click' || type === 'mdown' || type === 'mup') {
+                // Mouse-button step: capture the next physical mouse button press
+                // (Left/Right/Middle/side buttons), same flow as a key step below.
+                const stepType = type === 'click' ? 'click' : (type === 'mdown' ? 'md' : 'mu');
+                const btn = document.getElementById(`macro-add-step-btn-${id}`);
+                if (btn) btn.textContent = 'press a mouse button…';
+                await disableAllHotkeys();
+                macrosMouseCapture = async (b) => {
+                    await enableAllHotkeys();
+                    if (b !== null) {
+                        m.steps.push({ t: stepType, b });
+                        await saveMacro(m);
+                    } else {
+                        await renderMacrosPanel();
+                    }
+                };
             } else {
                 // Key step: capture the next physical key press.
                 const btn = document.getElementById(`macro-add-step-btn-${id}`);
@@ -664,6 +681,20 @@
         // capture-phase pattern as the keydown binder (and before spotify-widget,
         // via stopImmediatePropagation) so the click can't also do its normal job.
         document.addEventListener('mousedown', async (e) => {
+            if (macrosMouseCapture) {
+                const b = MACRO_DOM_BUTTON_TO_STEP_B[e.button];
+                if (b === undefined) return; // unknown button — keep waiting
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                if (e.button === 2) {
+                    macrosSuppressContextMenu = true;
+                    setTimeout(() => { macrosSuppressContextMenu = false; }, 1000);
+                }
+                const cb = macrosMouseCapture;
+                macrosMouseCapture = null;
+                await cb(b);
+                return;
+            }
             if (!macrosBindTarget) return;
             const name = MACRO_MOUSE_BUTTONS[e.button];
             if (!name) return; // unknown button — leave for normal use
@@ -710,6 +741,19 @@
             // works because macros.js is loaded before spotify-widget.js, so this
             // listener runs first and can cut the others off.
             //
+            // Mouse-button capture for a step only reacts to Escape (cancel);
+            // any other key is swallowed while waiting for a mouse click.
+            if (macrosMouseCapture) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                if (e.key === 'Escape') {
+                    const cb = macrosMouseCapture;
+                    macrosMouseCapture = null;
+                    await cb(null);
+                }
+                return;
+            }
+
             // Key-name capture for a "key" step has priority over hotkey binding.
             if (macrosKeyCapture) {
                 e.preventDefault();

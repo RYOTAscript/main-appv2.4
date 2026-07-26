@@ -41,12 +41,18 @@ function writeSelectedDisplayId(userDataPath, displayId, logger) {
 function resolveTargetDisplay(userDataPath, logger) {
   const displays = screen.getAllDisplays();
   const savedId = readSelectedDisplayId(userDataPath, logger);
-  if (savedId !== null) {
+  const primary = screen.getPrimaryDisplay();
+  if (savedId !== null && savedId !== primary.id) {
     const match = displays.find((d) => d.id === savedId);
     if (match) return match;
-    if (logger) logger.warn('Saved display no longer connected — falling back to primary display', { savedId });
+    // Windows can re-enumerate display ids permanently (GPU/driver updates),
+    // so a stale id would otherwise warn on EVERY launch forever. Heal the
+    // preference to primary once and say so — re-picking a monitor is one
+    // click in Settings → Display if the user wanted another one.
+    writeSelectedDisplayId(userDataPath, primary.id, logger);
+    if (logger) logger.warn('Saved display no longer connected — display preference reset to primary', { savedId, newId: primary.id });
   }
-  return screen.getPrimaryDisplay();
+  return primary;
 }
 
 // Centers a window of the given size within the saved (or primary, on

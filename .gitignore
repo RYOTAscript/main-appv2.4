@@ -14,3 +14,7 @@ main-crash.log
 # OS cruft
 Thumbs.db
 .DS_Store
+*.lnk
+
+# Nimbalyst tooling / session artifacts
+.nimbalyst/

@@ -153,48 +153,45 @@
             scheduleSettingsSave();
         }
 
-        // Builds the "Mini Widgets" Settings rows from the MINI_WIDGETS registry, so
-        // adding a future widget there doesn't require touching this rendering code.
+        // The "Mini Widgets" Settings section is now a summary of the Widget
+        // Library (renderer/widget-library.js): enabled/favourite counts, quick
+        // chips, and a button into the full library. All per-widget toggles,
+        // hotkeys and config panels live in the library's detail view. The full
+        // widget names are rendered here (as chips) so the Settings search box
+        // still finds e.g. "bluetooth" or "crosshair".
         function renderMiniWidgetsSettings() {
             const container = document.getElementById('mini-widgets-settings-list');
             if (!container) return;
             const prefs = safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {});
-            container.innerHTML = MINI_WIDGETS.map(w => `
-                <div class="border border-white/10 rounded-xl p-4">
-                    <div class="flex items-center justify-between gap-4 mb-2">
-                        <label class="flex items-center gap-3 cursor-pointer">
-                            <span class="ios-toggle"><input type="checkbox" id="toggle-widget-${w.id}" class="ios-toggle-input" ${prefs[w.id] ? 'checked' : ''} onchange="saveMiniWidgetPrefs()"><span class="ios-toggle-track"></span></span>
-                            <span><i class="${w.iconStyle || 'fas'} ${w.icon} mr-1.5 text-neutral-500"></i>${w.label}</span>
-                        </label>
-                        ${w.defaultHotkey ? `<button type="button" id="${getHotkeyButtonId(w.id)}" class="hotkey-bind no-drag"
-                            onclick="startHotkeyBind('${w.id}')"></button>` : ''}
-                    </div>
-                    <div id="mini-widget-body-${w.id}" class="${prefs[w.id] ? '' : 'hidden'}">
-                        <p class="text-xs text-neutral-600">${w.description}</p>
-                        ${w.panelId ? `<div id="${w.panelId}"></div>` : ''}
-                    </div>
-                </div>
-            `).join('');
-            updateHotkeyDisplays();
-            if (typeof renderMacrosPanel === 'function') renderMacrosPanel();
-            if (typeof renderClipboardPanel === 'function') renderClipboardPanel();
-            if (typeof renderSpotifyEnhancedPanel === 'function') renderSpotifyEnhancedPanel();
-            if (typeof renderScreenResolutionPanel === 'function') renderScreenResolutionPanel();
-            if (typeof renderBluetoothPanel === 'function') renderBluetoothPanel();
-            if (typeof renderVideoEditorPanel === 'function') renderVideoEditorPanel();
-            if (typeof renderCrosshairPanel === 'function') renderCrosshairPanel();
-        }
+            const favs = typeof getWidgetFavs === 'function' ? getWidgetFavs() : [];
+            const shown = MINI_WIDGETS
+                .filter(w => prefs[w.id] || favs.includes(w.id))
+                .sort((a, b) => {
+                    const favA = favs.includes(a.id) ? 1 : 0;
+                    const favB = favs.includes(b.id) ? 1 : 0;
+                    if (favA !== favB) return favB - favA;
+                    return a.label.localeCompare(b.label);
+                });
+            const enabledCount = MINI_WIDGETS.filter(w => prefs[w.id]).length;
+            const chips = shown.length ? shown.map(w => `
+                <button type="button" class="mini-widget-chip no-drag${prefs[w.id] ? '' : ' chip-disabled'}"
+                    onclick="openWidgetLibrary('${w.id}')" title="${esc(w.description)}">
+                    <i class="${w.iconStyle || 'fas'} ${w.icon} text-[10px]"></i>
+                    <span>${esc(w.label)}</span>
+                    ${favs.includes(w.id) ? '<i class="fas fa-star text-[8px] mini-widget-chip-star"></i>' : ''}
+                </button>
+            `).join('') : '<p class="text-xs text-neutral-600">No widgets enabled yet.</p>';
 
-        function saveMiniWidgetPrefs() {
-            const prefs = {};
-            for (const w of MINI_WIDGETS) {
-                const cb = document.getElementById(`toggle-widget-${w.id}`);
-                prefs[w.id] = !!(cb && cb.checked);
-                document.getElementById(`mini-widget-body-${w.id}`)?.classList.toggle('hidden', !prefs[w.id]);
-            }
-            localStorage.setItem('miniWidgetPrefs', JSON.stringify(prefs));
-            applyMiniWidgetPrefs();
-            scheduleSettingsSave();
+            container.innerHTML = `
+                <div class="border border-white/10 rounded-xl p-4">
+                    <div class="flex items-center justify-between gap-4 mb-3">
+                        <p class="text-xs text-neutral-500">${enabledCount} of ${MINI_WIDGETS.length} widgets enabled${favs.length ? ` · ${favs.length} favourite${favs.length === 1 ? '' : 's'}` : ''}</p>
+                        <button type="button" onclick="openWidgetLibrary()"
+                            class="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-xl text-xs transition-colors no-drag">
+                            <i class="fas fa-shapes mr-1.5"></i>Open Widget Library</button>
+                    </div>
+                    <div class="flex gap-2 flex-wrap">${chips}</div>
+                </div>`;
         }
 
         // Turns the system-wide mic-mute overlay (a separate always-on-top window,
@@ -208,6 +205,10 @@
             if (window.electronAPI?.macrosSetEnabled) {
                 await window.electronAPI.macrosSetEnabled(!!prefs.macros);
                 if (typeof renderMacrosPanel === 'function') renderMacrosPanel();
+            }
+            if (window.electronAPI?.controllerMacrosSetEnabled) {
+                await window.electronAPI.controllerMacrosSetEnabled(!!prefs.controllerMacros);
+                if (typeof renderControllerMacrosPanel === 'function') renderControllerMacrosPanel();
             }
             if (window.electronAPI?.clipboardSetEnabled) {
                 await window.electronAPI.clipboardSetEnabled(!!prefs.clipboard);
@@ -233,6 +234,46 @@
             // toggle, and (re)render its settings panel.
             if (typeof applyCrosshairEnabled === 'function') {
                 applyCrosshairEnabled();
+            }
+            // Weather Enhanced is renderer-only — (re)render the panel so toggling
+            // it on immediately loads current conditions + forecast.
+            if (typeof renderWeatherEnhancedPanel === 'function') {
+                renderWeatherEnhancedPanel();
+            }
+            // Countdown Timer is renderer-only — refresh its panel and the header
+            // readout (which hides itself when the widget is disabled).
+            if (typeof renderTimerPanel === 'function') renderTimerPanel();
+            if (typeof updateTimerIndicator === 'function') updateTimerIndicator();
+            // Quick Notes Enhanced: swap the Quick Notes card between the basic
+            // textarea and the multi-note editor, and refresh its panel.
+            if (typeof applyNotesEnhancedEnabled === 'function') {
+                applyNotesEnhancedEnabled(!!prefs.notesEnhanced);
+            }
+            if (typeof renderNotesEnhancedPanel === 'function') renderNotesEnhancedPanel();
+            // Quick Launch Enhanced: show/hide folder + profile controls, start/stop
+            // the running-app poll, and refresh its panel.
+            if (typeof applyQuickLaunchEnhancedEnabled === 'function') {
+                applyQuickLaunchEnhancedEnabled(!!prefs.launchEnhanced);
+            }
+            if (typeof renderQuickLaunchEnhancedPanel === 'function') renderQuickLaunchEnhancedPanel();
+            // Game Mode: start/stop the foreground-window watcher in the main
+            // process, then refresh its panel.
+            if (typeof applyGameModeEnabled === 'function') {
+                await applyGameModeEnabled(!!prefs.gameMode);
+            }
+            // Volume Mixer: start/stop the Core Audio helper and its hotkeys, then
+            // refresh the mixer panel.
+            if (typeof applyVolumeMixerEnabled === 'function') {
+                await applyVolumeMixerEnabled(!!prefs.volumeMixer);
+            }
+            // Discord Rich Presence: connect/disconnect the IPC pipe to Discord,
+            // then refresh its panel + live preview.
+            if (typeof applyDiscordRpcEnabled === 'function') {
+                await applyDiscordRpcEnabled(!!prefs.discordRpc);
+            }
+            // Dashboard Mini Widgets strip mirrors the favourites.
+            if (typeof renderMiniWidgetsStrip === 'function') {
+                renderMiniWidgetsStrip();
             }
         }
 
@@ -296,6 +337,11 @@
                 sec.classList.toggle('hidden', !match);
                 if (match) anyVisible = true;
             });
+            // Group headers only make sense over the full, ordered list — while a
+            // search is active the surviving sections stand on their own.
+            panel.querySelectorAll(':scope > .settings-group-label').forEach(label => {
+                label.classList.toggle('hidden', !!q);
+            });
             document.getElementById('settings-search-empty').classList.toggle('hidden', anyVisible);
         }
 
@@ -304,6 +350,7 @@
             applyWidgetPrefs();
             applyAppearance();
             renderMiniWidgetsSettings();
+            renderBackgroundSettings();
 
             if (window.electronAPI?.getAutoStart) {
                 const enabled = await window.electronAPI.getAutoStart();
@@ -331,7 +378,8 @@
             document.getElementById('settings-search').value = '';
             filterSettings('');
             // Stagger the section entrance cascade (animation itself is in main.css).
-            document.querySelectorAll('#settings-modal .settings-panel > .mb-10').forEach((sec, i) => {
+            // Group labels ride the cascade too so each header rises with its group.
+            document.querySelectorAll('#settings-modal .settings-panel > .mb-10, #settings-modal .settings-panel > .settings-group-label').forEach((sec, i) => {
                 sec.style.animationDelay = `${Math.min(0.06 + i * 0.035, 0.34)}s`;
             });
             cancelModalClose(document.getElementById('settings-modal'));
@@ -346,8 +394,14 @@
             showToast('App removed');
         }
 
+        // Base Quick Launch caps at 6 tiles; Quick Launch Enhanced lifts the cap so
+        // folders and auto-detected games have room.
+        function quickLaunchAppLimit() {
+            return (typeof isQuickLaunchEnhancedEnabled === 'function' && isQuickLaunchEnhancedEnabled()) ? 60 : 6;
+        }
+
         function addNewApp() {
-            if (pinnedApps.length >= 6) return;
+            if (pinnedApps.length >= quickLaunchAppLimit()) return;
             pinnedApps.push({
                 name: 'New App',
                 path: '',
@@ -361,6 +415,17 @@
 
         function renderSettingsApps() {
             const container = document.getElementById('settings-apps');
+            // Quick Launch Enhanced adds a per-app folder selector.
+            const enhanced = typeof isQuickLaunchEnhancedEnabled === 'function' && isQuickLaunchEnhancedEnabled();
+            const folders = enhanced && typeof getQuickLaunchFolders === 'function' ? getQuickLaunchFolders() : [];
+            const folderSelect = (app, i) => {
+                if (!enhanced) return '';
+                const opts = ['<option value="">No folder</option>']
+                    .concat(folders.map(f => `<option value="${esc(f)}"${(app.folder || '') === f ? ' selected' : ''}>${esc(f)}</option>`))
+                    .join('');
+                return `<select onchange="updateAppFolder(${i}, this.value)"
+                           class="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs mb-3 focus:outline-none focus:border-neutral-600 no-drag">${opts}</select>`;
+            };
             let html = pinnedApps.map((app, i) => `
                 <div class="border border-neutral-800 rounded-2xl p-4 bg-neutral-950/50 relative" draggable="true" data-index="${i}"
                      ondragstart="dragStart(event)" ondragover="dragOver(event)" ondrop="drop(event)">
@@ -373,11 +438,12 @@
                            class="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-sm mb-2 focus:outline-none focus:border-neutral-600">
                     <input type="text" value="${esc(app.path)}" onchange="updateAppPath(${i}, this.value)"
                            class="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs mb-3 focus:outline-none focus:border-neutral-600">
+                    ${folderSelect(app, i)}
                     <button onclick="changeIcon(${i})" class="text-xs w-full py-2 border border-neutral-700 rounded-xl hover:bg-neutral-800 transition-colors">Change Icon</button>
                 </div>
             `).join('');
 
-            if (pinnedApps.length < 6) {
+            if (pinnedApps.length < quickLaunchAppLimit()) {
                 html += `
                 <div class="border border-neutral-700 border-dashed rounded-2xl p-4 bg-neutral-950/30 flex items-center justify-center cursor-pointer hover:bg-neutral-900/40 transition-colors" onclick="addNewApp()">
                     <div class="text-center">
@@ -406,6 +472,15 @@
         }
 
         function updateAppName(i, val) { pinnedApps[i].name = val; scheduleSettingsSave(); }
+
+        // Quick Launch Enhanced: assign an app to a folder (empty = ungrouped).
+        function updateAppFolder(i, val) {
+            if (!pinnedApps[i]) return;
+            if (val) pinnedApps[i].folder = val;
+            else delete pinnedApps[i].folder;
+            scheduleSettingsSave();
+            renderApps();
+        }
 
         // Windows Explorer's "Copy as path" wraps the path in double quotes;
         // strip surrounding quotes so pasted paths launch without manual cleanup.
@@ -493,8 +568,12 @@
                 hotkeys,
                 widgetPrefs: safeParseJSON(localStorage.getItem('widgetPrefs'), {}),
                 miniWidgetPrefs: safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {}),
+                miniWidgetFavs: safeParseJSON(localStorage.getItem('miniWidgetFavs'), []),
+                miniWidgetRecents: safeParseJSON(localStorage.getItem('miniWidgetRecents'), []),
+                widgetLibCategory: localStorage.getItem('widgetLibCategory') || 'All',
                 glowIntensity: localStorage.getItem('glowIntensity') || 'medium',
                 parallaxEnabled: localStorage.getItem('parallaxEnabled') === 'true',
+                backgroundSettings: getBgSettings(),
                 spotifyAutoPlay: localStorage.getItem('spotifyAutoPlay') === 'true',
                 spotifyAutoPlayDelay: localStorage.getItem('spotifyAutoPlayDelay') || '2800',
                 lyricsAnticipateMs: localStorage.getItem('lyricsAnticipateMs') || String(DEFAULT_LYRICS_ANTICIPATE_MS),
@@ -504,6 +583,10 @@
                 spotifyPlaylistSort: localStorage.getItem('spotifyPlaylistSort') || 'recent',
                 spotifyEwDraggable: localStorage.getItem('spotifyEwDraggable') || '0',
                 spotifyEwPos: safeParseJSON(localStorage.getItem('spotifyEwPos'), {}),
+                notesEnhancedData: safeParseJSON(localStorage.getItem('notesEnhancedData'), null),
+                notesHistory: safeParseJSON(localStorage.getItem('notesHistory'), {}),
+                quickLaunchFolders: safeParseJSON(localStorage.getItem('quickLaunchFolders'), null),
+                launchProfiles: safeParseJSON(localStorage.getItem('launchProfiles'), []),
                 version: APP_VERSION
             };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -531,12 +614,24 @@
                             localStorage.setItem('pinnedApps', JSON.stringify(pinnedApps));
                         }
                         if (data.widgetPrefs) localStorage.setItem('widgetPrefs', JSON.stringify(data.widgetPrefs));
+                        if (data.miniWidgetFavs) localStorage.setItem('miniWidgetFavs', JSON.stringify(data.miniWidgetFavs));
+                        if (data.miniWidgetRecents) localStorage.setItem('miniWidgetRecents', JSON.stringify(data.miniWidgetRecents));
+                        if (data.widgetLibCategory) localStorage.setItem('widgetLibCategory', data.widgetLibCategory);
                         if (data.miniWidgetPrefs) {
                             localStorage.setItem('miniWidgetPrefs', JSON.stringify(data.miniWidgetPrefs));
+                        }
+                        if (data.miniWidgetPrefs || data.miniWidgetFavs) {
                             renderMiniWidgetsSettings();
-                            await applyMiniWidgetPrefs();
+                            await applyMiniWidgetPrefs(); // also refreshes the dashboard strip
                         }
                         if (data.glowIntensity) localStorage.setItem('glowIntensity', data.glowIntensity);
+                        if (data.backgroundSettings && typeof data.backgroundSettings === 'object') {
+                            // Merge over defaults so a backup from a future/older version
+                            // with missing keys still lands in a valid state.
+                            setBgSettings(data.backgroundSettings);
+                            applyBackground();
+                            renderBackgroundSettings();
+                        }
                         if (typeof data.parallaxEnabled === 'boolean') {
                             localStorage.setItem('parallaxEnabled', data.parallaxEnabled ? 'true' : 'false');
                             loadParallaxPref();
@@ -581,9 +676,15 @@
                             localStorage.setItem('spotifyEwPos', JSON.stringify(data.spotifyEwPos));
                         }
                         if (typeof applySpotifyEwDraggable === 'function') applySpotifyEwDraggable();
+                        if (data.notesEnhancedData) localStorage.setItem('notesEnhancedData', JSON.stringify(data.notesEnhancedData));
+                        if (data.notesHistory) localStorage.setItem('notesHistory', JSON.stringify(data.notesHistory));
+                        if (data.quickLaunchFolders) localStorage.setItem('quickLaunchFolders', JSON.stringify(data.quickLaunchFolders));
+                        if (data.launchProfiles) localStorage.setItem('launchProfiles', JSON.stringify(data.launchProfiles));
                         applyWidgetPrefs();
                         applyAppearance();
                         applyParallaxPref();
+                        if (typeof applyNotesEnhancedEnabled === 'function') applyNotesEnhancedEnabled(isNotesEnhancedEnabled());
+                        if (typeof applyQuickLaunchEnhancedEnabled === 'function') applyQuickLaunchEnhancedEnabled(isQuickLaunchEnhancedEnabled());
                         renderApps();
                         markSettingsSaved();
                         showToast('Settings imported');

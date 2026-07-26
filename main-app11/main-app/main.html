@@ -5,16 +5,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>main</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="styles/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/backgrounds.css">
+    <!-- Tailwind must load LAST: the old CDN injected its styles at runtime after
+         all stylesheets, so utilities like `hidden` win equal-specificity ties
+         against component classes in main.css (e.g. .spotify-enhanced-widget). -->
+    <link rel="stylesheet" href="styles/vendor/tailwind.css">
 </head>
 
 <body class="h-screen flex items-center justify-center bg-transparent">
     <div class="relative w-[920px] h-[640px] rounded-[32px] border border-white/10 shadow-2xl overflow-hidden glow-strong fade-in"
         id="main-window">
-        <div class="bg-scene absolute inset-0 pointer-events-none"></div>
+        <!-- Background Studio layer stack (see styles/backgrounds.css).
+             #bg-root is the parallax "far layer" and carries the effect filters. -->
+        <div id="bg-root" data-preset="mono">
+            <div id="bg-backdrop">
+                <video id="bg-live" class="bg-wallpaper" muted autoplay playsinline disablepictureinpicture></video>
+                <img id="bg-wallpaper" class="bg-wallpaper" alt="">
+            </div>
+            <div class="bg-scene"></div>
+            <div class="bg-blob bg-blob-a"></div>
+            <div class="bg-blob bg-blob-b"></div>
+            <div class="bg-blob bg-blob-c"></div>
+            <img id="bg-image" class="bg-media" alt="">
+            <video id="bg-video" class="bg-media" muted loop autoplay playsinline disablepictureinpicture></video>
+            <canvas id="bg-canvas"></canvas>
+        </div>
         <div class="grid-overlay absolute inset-0 pointer-events-none"></div>
+        <div id="bg-vignette" class="absolute inset-0 pointer-events-none"></div>
+        <div id="bg-noise" class="absolute inset-0 pointer-events-none"></div>
         <div class="scanline absolute inset-0 pointer-events-none"></div>
         <div class="relative z-10 h-full flex flex-col" id="content-layer">
 
@@ -25,10 +45,12 @@
                         onerror="this.outerHTML='<div class=\'w-9 h-9 bg-white rounded-2xl flex items-center justify-center text-xl font-bold text-black\'>M</div>'">
                     <div>
                         <h1 class="text-2xl font-semibold tracking-tight text-white">main</h1>
-                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.26.1</p>
+                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.40.0</p>
                     </div>
                 </div>
                 <div class="no-drag flex items-center gap-3 text-sm">
+                    <button id="timer-indicator" onclick="openTimerFromIndicator()"
+                        class="timer-indicator hidden" title="Countdown timer"></button>
                     <div id="weather"
                         class="flex items-center gap-2 tabular-nums font-mono text-neutral-400 text-sm mr-4 opacity-0 transition-opacity duration-500"
                         data-tooltip="Loading weather…">
@@ -48,7 +70,14 @@
 
             <!-- Quick Launch -->
             <div class="px-8 pt-8">
-                <h2 class="section-label mb-5 reveal-item" style="animation-delay:0.08s">Quick Launch</h2>
+                <div class="flex items-center justify-between mb-5 reveal-item" style="animation-delay:0.08s">
+                    <h2 class="section-label">Quick Launch</h2>
+                    <!-- Enhanced controls (folders, profiles, detect games); populated
+                         by renderer/quick-launch.js only while the Quick Launch Enhanced
+                         mini widget is enabled. -->
+                    <div id="quick-launch-controls" class="quick-launch-controls hidden"></div>
+                </div>
+                <div id="quick-launch-folders" class="quick-launch-folders hidden"></div>
                 <div class="grid grid-cols-6 gap-6" id="apps-grid"></div>
             </div>
 
@@ -57,14 +86,22 @@
                 <div id="widget-notes"
                     class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow relative reveal-item"
                     style="animation-delay:0.24s">
-                    <h3 class="section-label mb-3">Quick Notes</h3>
-                    <div class="relative w-full h-[7.5rem]" onclick="document.getElementById('notes').focus()">
-                        <div id="placeholder"
-                            class="absolute top-0 left-0 text-xs text-neutral-600 transition-opacity duration-300 select-none z-0">
-                            start typing here...</div>
-                        <textarea id="notes"
-                            class="relative z-[1] w-full h-full bg-transparent resize-none focus:outline-none text-sm text-neutral-300 leading-relaxed"></textarea>
+                    <!-- Basic Quick Notes: a single scratch note bound to localStorage
+                         'main-notes'. Shown unless the Quick Notes Enhanced mini widget
+                         is enabled, which swaps in #notes-enhanced below. -->
+                    <div id="notes-basic">
+                        <h3 class="section-label mb-3">Quick Notes</h3>
+                        <div class="relative w-full h-[7.5rem]" onclick="document.getElementById('notes').focus()">
+                            <div id="placeholder"
+                                class="absolute top-0 left-0 text-xs text-neutral-600 transition-opacity duration-300 select-none z-0">
+                                start typing here...</div>
+                            <textarea id="notes"
+                                class="relative z-[1] w-full h-full bg-transparent resize-none focus:outline-none text-sm text-neutral-300 leading-relaxed"></textarea>
+                        </div>
                     </div>
+                    <!-- Quick Notes Enhanced UI (tabs / checklist / markdown / history);
+                         populated by renderer/notes-enhanced.js only while enabled. -->
+                    <div id="notes-enhanced" class="notes-enhanced hidden"></div>
                 </div>
 
                 <div id="widget-performance" class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow reveal-item"
@@ -196,6 +233,19 @@
                 </div>
             </div>
 
+            <!-- Mini Widgets strip — favourites + enabled widgets only; everything
+                 else lives in the Widget Library (renderer/widget-library.js). -->
+            <div class="px-8 mt-5 reveal-item" style="animation-delay:0.46s" id="mini-widgets-section">
+                <div class="flex items-center justify-between mb-2.5">
+                    <h2 class="section-label">Mini Widgets</h2>
+                    <button type="button" onclick="openWidgetLibrary()"
+                        class="mini-widgets-browse-btn no-drag" title="Open the Widget Library">
+                        <i class="fas fa-shapes text-[10px]"></i><span>Browse Widgets</span>
+                    </button>
+                </div>
+                <div id="mini-widgets-strip" class="flex gap-2 overflow-x-auto mini-widgets-strip"></div>
+            </div>
+
             <!-- FPS Optimizer Modal -->
             <div id="fps-modal" class="hidden absolute inset-0 z-40 no-drag flex"
                 onclick="if(event.target.id === 'fps-modal') closeFpsOptimizer()">
@@ -288,6 +338,8 @@
                         </div>
                         <p id="settings-search-empty" class="hidden text-sm text-neutral-500 mb-6">No settings match your search.</p>
 
+                        <div class="settings-group-label"><i class="fas fa-table-cells-large"></i><span>Layout &amp; Apps</span></div>
+
                         <div class="mb-10">
                             <h3 class="text-sm font-medium mb-4 text-neutral-300">Pinned Apps <span
                                     class="text-neutral-600 font-normal">— drag to reorder</span></h3>
@@ -317,6 +369,14 @@
                         </div>
 
                         <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Mini Widgets <span
+                                    class="text-neutral-600 font-normal text-xs">— browse, enable and configure widgets in the Widget Library</span></h3>
+                            <div id="mini-widgets-settings-list" class="space-y-3 text-sm"></div>
+                        </div>
+
+                        <div class="settings-group-label"><i class="fas fa-palette"></i><span>Look &amp; Feel</span></div>
+
+                        <div class="mb-10">
                             <h3 class="text-sm font-medium mb-4 text-neutral-300">Appearance</h3>
                             <label class="text-sm text-neutral-400 block mb-2">Glow intensity</label>
                             <select id="glow-intensity" onchange="saveAppearance()"
@@ -329,10 +389,140 @@
                                 <span class="ios-toggle"><input type="checkbox" id="parallax-toggle" class="ios-toggle-input" onchange="saveParallaxPref()"><span class="ios-toggle-track"></span></span>
                                 <span>Parallax effect</span>
                             </label>
-                            <p class="text-xs text-neutral-600 mt-2 leading-relaxed">The whole panel tilts toward your
-                                cursor in 3D while the background drifts away and the icons and widgets lean gently
-                                toward it, giving the window a subtle sense of depth. Off by default.</p>
+                            <p class="text-xs text-neutral-600 mt-2 leading-relaxed">The background drifts away from
+                                your cursor while the icons and widgets lean gently toward it, giving the window a
+                                subtle sense of depth. Text stays pixel-sharp. Off by default.</p>
                         </div>
+
+                        <div class="mb-10" id="background-section">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Background <span
+                                    class="text-neutral-600 font-normal text-xs">— animated scenes, your own media, and effects</span></h3>
+
+                            <div id="bg-preset-gallery" class="bg-gallery"></div>
+                            <p class="text-xs text-neutral-600 mt-3 leading-relaxed">Pick a built-in animated scene,
+                                design your own with My Scene, or add your own image, GIF, or looping video. Your
+                                files are copied into the app's data folder, so they keep working even if the
+                                original moves. On the Transparent background, the Blur, Brightness, and
+                                Saturation sliders apply to a live view of whatever is really behind the window
+                                — your desktop, games, other apps — for a true frosted-glass look with rounded
+                                corners. Heads-up: while those effects are on, the app hides itself from
+                                screenshots and screen recordings (that's what makes the live view possible).</p>
+
+                            <div id="bg-diy-options" class="hidden mt-5 space-y-3">
+                                <h4 class="text-xs font-medium text-neutral-400">My Scene — pick your colors</h4>
+                                <div class="flex items-center gap-3 flex-wrap">
+                                    <input type="color" id="bg-diy-c1" class="bg-color-input" value="#22d3ee"
+                                        oninput="saveBgDiy()" title="Color 1">
+                                    <input type="color" id="bg-diy-c2" class="bg-color-input" value="#a78bfa"
+                                        oninput="saveBgDiy()" title="Color 2">
+                                    <input type="color" id="bg-diy-c3" class="bg-color-input" value="#f472b6"
+                                        oninput="saveBgDiy()" title="Color 3">
+                                    <label class="flex items-center gap-3 cursor-pointer text-sm ml-3">
+                                        <span class="ios-toggle"><input type="checkbox" id="bg-diy-blobs" class="ios-toggle-input" onchange="saveBgDiy()" checked><span class="ios-toggle-track"></span></span>
+                                        <span>Drifting color blobs</span>
+                                    </label>
+                                </div>
+                                <p class="text-xs text-neutral-600 leading-relaxed">Your three colors become an animated
+                                    scene — soft light pools plus, optionally, big drifting blobs. Changes apply live.</p>
+                            </div>
+
+                            <div id="bg-media-options" class="hidden mt-5">
+                                <h4 class="text-xs font-medium text-neutral-400 mb-2">Media fit</h4>
+                                <select id="bg-media-fit" onchange="saveBgMediaFit()"
+                                    class="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neutral-500">
+                                    <option value="cover" selected>Fill — crop to cover the window</option>
+                                    <option value="contain">Fit — show everything (letterboxed)</option>
+                                    <option value="fill">Stretch — distort to fill exactly</option>
+                                </select>
+                            </div>
+
+                            <div class="mt-6">
+                                <h4 class="text-xs font-medium text-neutral-400 mb-3">Accent theme</h4>
+                                <div id="bg-theme-row" class="bg-theme-row"></div>
+                                <p class="text-xs text-neutral-600 mt-3 leading-relaxed">Tints the app's glow — the
+                                    window halo, performance bars, sliders, toggles, music progress, and lyrics — to
+                                    match. Auto follows whichever background is active (for your own media it samples
+                                    the picture's dominant color, and on Transparent it watches the screen behind the
+                                    window and keeps re-tinting live), or pick any color with the eyedropper swatch.</p>
+                            </div>
+
+                            <div class="mt-6">
+                                <h4 class="text-xs font-medium text-neutral-400 mb-3">Text color</h4>
+                                <div id="bg-text-row" class="bg-theme-row"></div>
+                                <p class="text-xs text-neutral-600 mt-3 leading-relaxed">Recolors the app's text —
+                                    headings, labels, and values keep their light-to-dim hierarchy in your chosen
+                                    tint. Auto follows the accent theme, and any color you pick is automatically
+                                    brightened enough to stay readable. Colored buttons (like Spotify's green) are
+                                    left alone.</p>
+                            </div>
+
+                            <div class="mt-6 space-y-4">
+                                <h4 class="text-xs font-medium text-neutral-400">Background Effects</h4>
+
+                                <div class="bg-effect-row">
+                                    <span class="bg-effect-label">Blur</span>
+                                    <input type="range" id="bg-blur" min="0" max="40" step="1" value="0"
+                                        class="spotify-disk-speed-slider flex-1" oninput="saveBgControls()">
+                                    <span id="bg-blur-val" class="bg-effect-val">0px</span>
+                                </div>
+
+                                <div class="bg-effect-row">
+                                    <span class="bg-effect-label">Brightness</span>
+                                    <input type="range" id="bg-brightness" min="40" max="140" step="5" value="100"
+                                        class="spotify-disk-speed-slider flex-1" oninput="saveBgControls()">
+                                    <span id="bg-brightness-val" class="bg-effect-val">100%</span>
+                                </div>
+
+                                <div class="bg-effect-row">
+                                    <span class="bg-effect-label">Saturation</span>
+                                    <input type="range" id="bg-saturation" min="0" max="160" step="5" value="100"
+                                        class="spotify-disk-speed-slider flex-1" oninput="saveBgControls()">
+                                    <span id="bg-saturation-val" class="bg-effect-val">100%</span>
+                                </div>
+
+                                <div class="bg-effect-row">
+                                    <span class="bg-effect-label">Animation speed</span>
+                                    <input type="range" id="bg-speed" min="0.25" max="2" step="0.05" value="1"
+                                        class="spotify-disk-speed-slider flex-1" oninput="saveBgControls()">
+                                    <span id="bg-speed-val" class="bg-effect-val">1.0×</span>
+                                </div>
+
+                                <div class="bg-effect-row">
+                                    <span class="bg-effect-label">Panel glass</span>
+                                    <input type="range" id="bg-glass" min="40" max="96" step="1" value="88"
+                                        class="spotify-disk-speed-slider flex-1" oninput="saveBgControls()">
+                                    <span id="bg-glass-val" class="bg-effect-val">88%</span>
+                                </div>
+                                <p class="text-xs text-neutral-600 leading-relaxed">Panel glass sets how solid the
+                                    widget panels are — lower it for frosted, Apple-style glass that lets the
+                                    background glow through behind the blur.</p>
+
+                                <div class="grid grid-cols-2 gap-3 text-sm pt-1">
+                                    <label class="flex items-center gap-3 cursor-pointer">
+                                        <span class="ios-toggle"><input type="checkbox" id="bg-toggle-grain" class="ios-toggle-input" onchange="saveBgControls()"><span class="ios-toggle-track"></span></span>
+                                        <span>Film grain</span>
+                                    </label>
+                                    <label class="flex items-center gap-3 cursor-pointer">
+                                        <span class="ios-toggle"><input type="checkbox" id="bg-toggle-vignette" class="ios-toggle-input" onchange="saveBgControls()"><span class="ios-toggle-track"></span></span>
+                                        <span>Vignette</span>
+                                    </label>
+                                    <label class="flex items-center gap-3 cursor-pointer">
+                                        <span class="ios-toggle"><input type="checkbox" id="bg-toggle-grid" class="ios-toggle-input" onchange="saveBgControls()"><span class="ios-toggle-track"></span></span>
+                                        <span>Grid overlay</span>
+                                    </label>
+                                    <label class="flex items-center gap-3 cursor-pointer">
+                                        <span class="ios-toggle"><input type="checkbox" id="bg-toggle-scanlines" class="ios-toggle-input" onchange="saveBgControls()"><span class="ios-toggle-track"></span></span>
+                                        <span>Scanlines</span>
+                                    </label>
+                                </div>
+
+                                <button type="button" onclick="bgResetAll()"
+                                    class="mt-2 px-4 py-2 border border-neutral-700 rounded-xl hover:bg-neutral-800 text-xs transition-colors no-drag">Reset
+                                    background to default</button>
+                            </div>
+                        </div>
+
+                        <div class="settings-group-label"><i class="fas fa-sliders"></i><span>System</span></div>
 
                         <div class="mb-10">
                             <h3 class="text-sm font-medium mb-4 text-neutral-300">Behavior</h3>
@@ -396,49 +586,7 @@
                             </div>
                         </div>
 
-                        <div class="mb-10">
-                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Spotify Hotkeys <span
-                                    class="text-neutral-600 font-normal text-xs">— click a key to change</span></h3>
-                            <div class="space-y-3 text-sm">
-                                <div class="flex items-center justify-between gap-4">
-                                    <span class="text-neutral-400">Play</span>
-                                    <button type="button" id="hotkey-spotify-play-btn" class="hotkey-bind no-drag"
-                                        onclick="startHotkeyBind('spotifyPlay')"></button>
-                                </div>
-                                <div class="flex items-center justify-between gap-4">
-                                    <span class="text-neutral-400">Pause</span>
-                                    <button type="button" id="hotkey-spotify-pause-btn" class="hotkey-bind no-drag"
-                                        onclick="startHotkeyBind('spotifyPause')"></button>
-                                </div>
-                                <div class="flex items-center justify-between gap-4">
-                                    <span class="text-neutral-400">Skip track</span>
-                                    <button type="button" id="hotkey-spotify-next-btn" class="hotkey-bind no-drag"
-                                        onclick="startHotkeyBind('spotifyNext')"></button>
-                                </div>
-                                <div class="flex items-center justify-between gap-4">
-                                    <span class="text-neutral-400">Previous track</span>
-                                    <button type="button" id="hotkey-spotify-previous-btn" class="hotkey-bind no-drag"
-                                        onclick="startHotkeyBind('spotifyPrevious')"></button>
-                                </div>
-                                <div class="flex items-center justify-between gap-4">
-                                    <span class="text-neutral-400">Volume up</span>
-                                    <button type="button" id="hotkey-spotify-volume-up-btn" class="hotkey-bind no-drag"
-                                        onclick="startHotkeyBind('spotifyVolumeUp')"></button>
-                                </div>
-                                <div class="flex items-center justify-between gap-4">
-                                    <span class="text-neutral-400">Volume down</span>
-                                    <button type="button" id="hotkey-spotify-volume-down-btn"
-                                        class="hotkey-bind no-drag"
-                                        onclick="startHotkeyBind('spotifyVolumeDown')"></button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="mb-10">
-                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Mini Widgets <span
-                                    class="text-neutral-600 font-normal text-xs">— small utilities, each with its own hotkey</span></h3>
-                            <div id="mini-widgets-settings-list" class="space-y-3 text-sm"></div>
-                        </div>
+                        <div class="settings-group-label"><i class="fab fa-spotify"></i><span>Spotify</span></div>
 
                         <div class="mb-10">
                             <h3 class="text-sm font-medium mb-4 text-neutral-300">Spotify Integration</h3>
@@ -485,6 +633,44 @@
                                 </div>
                             </div>
 
+                        </div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Spotify Hotkeys <span
+                                    class="text-neutral-600 font-normal text-xs">— click a key to change</span></h3>
+                            <div class="space-y-3 text-sm">
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Play</span>
+                                    <button type="button" id="hotkey-spotify-play-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyPlay')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Pause</span>
+                                    <button type="button" id="hotkey-spotify-pause-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyPause')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Skip track</span>
+                                    <button type="button" id="hotkey-spotify-next-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyNext')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Previous track</span>
+                                    <button type="button" id="hotkey-spotify-previous-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyPrevious')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Volume up</span>
+                                    <button type="button" id="hotkey-spotify-volume-up-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyVolumeUp')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Volume down</span>
+                                    <button type="button" id="hotkey-spotify-volume-down-btn"
+                                        class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyVolumeDown')"></button>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="mb-10">
@@ -611,6 +797,8 @@
                             </div>
                         </div>
 
+                        <div class="settings-group-label"><i class="fas fa-database"></i><span>Data &amp; Maintenance</span></div>
+
                         <div class="mb-10">
                             <h3 class="text-sm font-medium mb-4 text-neutral-300">FPS Optimizer</h3>
                             <label class="text-sm text-neutral-400 block mb-2">Display Mode</label>
@@ -666,11 +854,55 @@
                 </div>
             </div>
 
+            <!-- Widget Library Modal — browse/search/favourite Mini Widgets.
+                 z-[55]: above Settings (z-50) so it can be opened from there too. -->
+            <div id="widget-library-modal" class="hidden absolute inset-0 z-[55] no-drag"
+                onclick="if(event.target.id === 'widget-library-modal' || event.target.id === 'widget-library-center') closeWidgetLibrary()">
+                <div class="absolute inset-0 bg-black/75 backdrop-blur-md pointer-events-none"></div>
+                <div id="widget-library-center" class="absolute inset-0 flex items-center justify-center p-5">
+                    <div id="widget-library-panel"
+                        class="widget-library-panel glass relative w-full max-w-[720px] rounded-3xl border border-white/10 glow flex flex-col overflow-hidden">
+                        <div class="flex items-center justify-between px-6 pt-6 pb-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-9 h-9 bg-white/10 rounded-2xl flex items-center justify-center">
+                                    <i class="fas fa-shapes text-sm text-white/80"></i>
+                                </div>
+                                <div>
+                                    <h2 class="text-xl font-semibold tracking-tight text-white leading-tight">Widget Library</h2>
+                                    <p class="text-[10px] text-neutral-500 tracking-widest uppercase"><span
+                                            id="widget-lib-count">0 widgets</span> · browse, search &amp; favourite</p>
+                                </div>
+                            </div>
+                            <button onclick="closeWidgetLibrary()" class="window-btn text-lg leading-none" title="Close">✕</button>
+                        </div>
+                        <div class="px-6 pb-3">
+                            <div class="relative">
+                                <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 text-sm"></i>
+                                <input id="widget-lib-search" type="text" placeholder="Search widgets…  (Ctrl+F)"
+                                    oninput="widgetLibSearchInput(this.value)"
+                                    class="w-full bg-neutral-900 border border-neutral-800 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-neutral-600">
+                            </div>
+                        </div>
+                        <div id="widget-lib-categories" class="flex flex-wrap gap-1.5 px-6 pb-3 widget-lib-cat-bar"></div>
+                        <div class="widget-lib-scroll flex-1 overflow-y-auto px-6 pb-6">
+                            <div id="widget-lib-empty" class="hidden text-center py-12">
+                                <i class="fas fa-magnifying-glass text-xl text-neutral-700 mb-3 inline-block"></i>
+                                <p class="text-sm text-neutral-500">No widgets match your search.</p>
+                                <p class="text-[11px] text-neutral-600 mt-1">Try a different term, or pick another category.</p>
+                            </div>
+                            <div id="widget-lib-grid" class="widget-lib-grid grid grid-cols-2 gap-3"></div>
+                        </div>
+                        <!-- Detail panel — slides over the grid inside the same panel -->
+                        <div id="widget-detail" class="widget-detail hidden"></div>
+                    </div>
+                </div>
+            </div>
+
             <div
                 class="absolute bottom-5 left-8 right-8 text-[10px] text-neutral-600 flex justify-between tracking-wide reveal-item"
                 style="animation-delay:0.5s">
                 <div id="footer-hotkeys" class="font-mono"></div>
-                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.26.1</div>
+                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.40.0</div>
             </div>
         </div>
         <div id="toast"
@@ -683,9 +915,11 @@
     <script src="renderer/hotkeys.js"></script>
     <script src="renderer/settings.js"></script>
     <script src="renderer/ui-utils.js"></script>
+    <script src="renderer/background.js"></script>
     <script src="renderer/parallax.js"></script>
     <script src="renderer/widgets-settings.js"></script>
     <script src="renderer/macros.js"></script>
+    <script src="renderer/controller-macros.js"></script>
     <script src="renderer/clipboard.js"></script>
     <script src="renderer/spotify-enhanced.js"></script>
     <script src="renderer/screen-resolution.js"></script>
@@ -693,7 +927,17 @@
     <script src="renderer/video-editor.js"></script>
     <script src="renderer/crosshair-draw.js"></script>
     <script src="renderer/crosshair.js"></script>
+    <!-- Must load BEFORE spotify-widget.js: both register capture-phase keydown
+         listeners, and the library's must run first to claim keys while open. -->
+    <script src="renderer/widget-library.js"></script>
     <script src="renderer/clock-weather.js"></script>
+    <script src="renderer/weather-enhanced.js"></script>
+    <script src="renderer/timer.js"></script>
+    <script src="renderer/notes-enhanced.js"></script>
+    <script src="renderer/quick-launch.js"></script>
+    <script src="renderer/game-mode.js"></script>
+    <script src="renderer/volume-mixer.js"></script>
+    <script src="renderer/discord-rpc.js"></script>
     <script src="renderer/beat-glow.js"></script>
     <script src="renderer/visualizer.js"></script>
     <script src="renderer/spotify-widget.js"></script>
