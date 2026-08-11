@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        overflow: hidden;
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: none;
+    }
+    #crosshair {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+<body>
+    <canvas id="crosshair"></canvas>
+    <script src="renderer/crosshair-draw.js"></script>
+    <script>
+        // The window is a small transparent square centered on the display; the
+        // canvas fills it and the shared renderer draws the crosshair dead-center.
+        const canvas = document.getElementById('crosshair');
+        const ctx = canvas.getContext('2d');
+        let currentConfig = null;
+
+        function paint() {
+            const dpr = window.devicePixelRatio || 1;
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            canvas.width = Math.round(w * dpr);
+            canvas.height = Math.round(h * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            drawCrosshair(ctx, w, h, currentConfig);
+        }
+
+        window.overlayAPI.onConfig((cfg) => {
+            currentConfig = cfg;
+            paint();
+        });
+        window.addEventListener('resize', paint);
+    </script>
+</body>
+</html>

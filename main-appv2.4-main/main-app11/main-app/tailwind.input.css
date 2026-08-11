@@ -1,0 +1,5 @@
+/* Input file for the vendored Tailwind build (npm run build:css).
+   Matches what the Tailwind Play CDN injected: preflight + utilities. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

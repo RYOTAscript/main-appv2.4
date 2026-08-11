@@ -1,0 +1,3632 @@
+        @import url('vendor/fonts/fonts.css');
+
+        :root {
+            --glow-strength: 0.12;
+            --glow-spread: 40px;
+            /* Accent theme (Settings → Background → Accent theme). All the app's
+               "glow" surfaces — window halo, bars, sliders, toggles, lyrics —
+               reference these instead of hardcoded white, so one theme change
+               recolors everything. Defaults ARE white: zero visual change until
+               the user picks a theme. --accent is bare R, G, B components for
+               rgba() composition; --accent-solid is the same color as a value. */
+            --accent: 255, 255, 255;
+            --accent-solid: #fff;
+
+            /* ── Motion system ──
+               One place to tune the whole app's feel. Every retuned
+               animation/transition references these instead of hardcoding
+               numbers, so timing and easing stay consistent app-wide and can
+               be dialled from here.
+
+               Durations form a deliberate scale from micro-feedback to full
+               panel choreography. Easings are the app's two signature curves
+               (a soft decel + an overshoot spring) plus an "emphasized" enter
+               used for the big content entrances and a clean accel for exits.
+               NOTE: some durations are coupled to JS timers (toast 240ms /
+               modal 200ms exits in ui-utils.js) — keep those in sync. */
+            --dur-1: 0.14s;   /* micro: press, tiny control state */
+            --dur-2: 0.2s;    /* fast: hover, chips, inputs, buttons */
+            --dur-3: 0.32s;   /* base: cards, panels, grid reflow */
+            --dur-4: 0.45s;   /* content: modal rise, detail open */
+            --dur-5: 0.7s;    /* expressive: reveal cascade, stat bump */
+
+            --ease-out: var(--ease-out);        /* signature decel */
+            --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);  /* premium enter (expo-out) */
+            --ease-spring: var(--ease-spring);  /* overshoot pop */
+            --ease-in: cubic-bezier(0.4, 0, 1, 1);             /* accel for exits */
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: transparent !important;
+            color: #fff;
+            overflow: hidden;
+            margin: 0;
+        }
+
+        html {
+            background: transparent !important;
+            overflow: hidden;
+        }
+
+        .bg-scene {
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 60%),
+                radial-gradient(ellipse 50% 40% at 80% 100%, rgba(255, 255, 255, 0.03), transparent 50%),
+                #080808;
+        }
+
+        .grid-overlay {
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 48px 48px;
+            mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 20%, transparent 80%);
+            animation: gridDrift 24s linear infinite;
+        }
+
+        .scanline {
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(255, 255, 255, 0.012) 2px,
+                    rgba(255, 255, 255, 0.012) 4px);
+            pointer-events: none;
+        }
+
+        /* Panel opacity is user-adjustable (Settings → Background → Panel glass):
+           lower alpha = more transparent, frosted widgets that let the background
+           show through — the backdrop blur is what keeps text readable over it. */
+        .glass {
+            background: rgba(8, 8, 8, var(--glass-alpha, 0.88));
+            backdrop-filter: blur(48px);
+            -webkit-backdrop-filter: blur(48px);
+        }
+
+        .glow {
+            box-shadow:
+                0 0 var(--glow-spread) rgba(var(--accent), var(--glow-strength)),
+                inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+
+        .glow-strong {
+            box-shadow:
+                0 0 calc(var(--glow-spread) * 1.5) rgba(var(--accent), calc(var(--glow-strength) * 1.8)),
+                0 0 80px rgba(var(--accent), calc(var(--glow-strength) * 0.5)),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .header-drag {
+            -webkit-app-region: drag;
+        }
+
+        .no-drag {
+            -webkit-app-region: no-drag;
+        }
+
+        .app-icon {
+            transition: transform 0.35s var(--ease-spring), box-shadow 0.35s ease, border-color 0.35s ease;
+        }
+
+        /* Quick Launch tiles follow the accent theme: the tile face behind each
+           icon and its border take a deep shade of the accent. The variables are
+           set by bgApplyTheme (renderer/background.js); the fallbacks reproduce
+           the original neutral-950 / white-10 look exactly, and the two-class
+           selector out-ranks the Tailwind utility classes on the same element. */
+        .app-icon .icon-tile {
+            background: var(--tile-bg, #0a0a0a);
+            border-color: var(--tile-border, rgba(255, 255, 255, 0.1));
+            transition: background-color 0.4s ease, border-color 0.35s ease, box-shadow 0.35s ease;
+        }
+
+        .app-icon:hover {
+            transform: scale(1.12) translateY(-4px);
+        }
+
+        .app-icon:hover .icon-tile {
+            border-color: rgba(var(--accent), 0.35);
+            box-shadow: 0 0 30px rgba(var(--accent), 0.15), inset 0 0 20px rgba(var(--accent), 0.04);
+        }
+
+        .fade-in {
+            animation: fadeIn 1s var(--ease-emphasized) forwards;
+        }
+
+        .modal-enter {
+            animation: modalPop 0.45s var(--ease-spring) forwards;
+        }
+
+        .pulse-glow {
+            animation: pulseGlow 3s ease-in-out infinite;
+        }
+
+        .stat-bar {
+            transition: width 1.2s var(--ease-out), filter 0.4s ease, box-shadow 0.4s ease;
+            background: linear-gradient(90deg, #444, var(--accent-solid));
+        }
+
+        .stat-val {
+            transition: color 0.5s ease, text-shadow 0.5s ease, opacity 0.5s ease;
+        }
+
+        .stat-val.stat-bump {
+            animation: statValBump 0.7s var(--ease-out);
+        }
+
+        .stat-bar.stat-bump {
+            animation: statBarPulse 0.7s var(--ease-out);
+        }
+
+        .perf-live-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-solid);
+            box-shadow: 0 0 8px rgba(var(--accent), 0.6);
+            animation: livePulse 2.5s ease-in-out infinite;
+        }
+
+        @keyframes statValBump {
+            0% {
+                opacity: 0.35;
+                text-shadow: 0 0 0 transparent;
+                transform: scale(0.95);
+            }
+
+            45% {
+                opacity: 1;
+                text-shadow: 0 0 14px rgba(var(--accent), 0.75);
+                transform: scale(1.06);
+            }
+
+            100% {
+                opacity: 1;
+                text-shadow: 0 0 0 transparent;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes statBarPulse {
+            0% {
+                filter: brightness(1);
+                box-shadow: none;
+            }
+
+            45% {
+                filter: brightness(1.5);
+                box-shadow: 0 0 16px rgba(var(--accent), 0.4);
+            }
+
+            100% {
+                filter: brightness(1);
+                box-shadow: none;
+            }
+        }
+
+        @keyframes livePulse {
+
+            0%,
+            100% {
+                opacity: 0.35;
+                transform: scale(0.85);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .spotify-ring {
+            width: 72px;
+            height: 72px;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .spotify-ring::before {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            animation: ringSpin 8s linear infinite;
+        }
+
+        .window-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.04);
+            color: #aaa;
+            transition: all var(--dur-2) var(--ease-out);
+        }
+
+        .window-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        /* ── Account / License settings card ── */
+        .account-card {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 18px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .account-head {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .account-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: #000;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: #fff;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .account-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+        .account-id { min-width: 0; flex: 1; }
+        .account-name { font-size: 14px; font-weight: 500; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .account-mail { font-size: 12px; color: #737373; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .account-badge {
+            font-size: 11px;
+            padding: 3px 9px;
+            border-radius: 8px;
+            border: 1px solid rgba(52, 211, 153, 0.3);
+            background: rgba(52, 211, 153, 0.1);
+            color: #34d399;
+            flex-shrink: 0;
+        }
+
+        .account-badge.offline {
+            border-color: rgba(251, 191, 36, 0.3);
+            background: rgba(251, 191, 36, 0.1);
+            color: #fbbf24;
+        }
+
+        .account-label { display: block; font-size: 12px; color: #737373; margin-bottom: 6px; }
+
+        .account-key-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+
+        .account-key {
+            flex: 1;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            letter-spacing: 0.04em;
+            color: #fff;
+            background: #0d0d0d;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 9px 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .account-meta { font-size: 12px; color: #525252; margin-bottom: 16px; }
+
+        .account-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+        .account-btn {
+            padding: 9px 18px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            color: #e5e5e5;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all var(--dur-2) var(--ease-out);
+        }
+
+        .account-btn:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.25); }
+        .account-btn:disabled { opacity: 0.55; cursor: default; }
+
+        .account-btn-danger { border-color: rgba(248, 113, 113, 0.35); color: #f87171; margin-left: auto; }
+        .account-btn-danger:hover { background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.5); }
+
+        .account-status-msg { font-size: 12px; color: #737373; margin-top: 12px; min-height: 15px; }
+
+        /* ── Log out confirmation dialog ── */
+        .logout-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 60; /* above Settings (z-50) */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .logout-scrim {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .logout-dialog {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 380px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 30px 28px 24px;
+            text-align: center;
+        }
+
+        .logout-icon {
+            width: 52px;
+            height: 52px;
+            margin: 0 auto 18px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: #f87171;
+            background: rgba(248, 113, 113, 0.12);
+            border: 1px solid rgba(248, 113, 113, 0.25);
+        }
+
+        .logout-title {
+            font-size: 19px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+            color: #fff;
+            margin: 0 0 8px;
+        }
+
+        .logout-text {
+            font-size: 13px;
+            line-height: 1.55;
+            color: #9a9a9a;
+            margin: 0 auto 22px;
+            max-width: 300px;
+        }
+
+        .logout-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .logout-btn {
+            flex: 1;
+            padding: 11px 16px;
+            border-radius: 14px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.18s var(--ease-spring);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .logout-btn:active { transform: scale(0.97); }
+
+        .logout-btn-cancel {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #fff;
+        }
+
+        .logout-btn-cancel:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .logout-btn-confirm {
+            background: #ef4444;
+            border: 1px solid #ef4444;
+            color: #fff;
+        }
+
+        .logout-btn-confirm:hover {
+            background: #dc2626;
+            border-color: #dc2626;
+            box-shadow: 0 0 24px rgba(239, 68, 68, 0.35);
+        }
+
+        .section-label {
+            font-size: 0.7rem;
+            letter-spacing: 0.2em;
+            color: #666;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        /* Transitions are intentionally NOT on .widget-card by default — they're added
+           after startup via .widgets-animate so show/hide only animate after the initial
+           layout settles. Without this, hidden-widget -> visible changes on startup play
+           the transition and look slow/wrong on every launch. */
+        .widget-card {
+            border-color: transparent;
+            box-shadow: none;
+        }
+
+        .widgets-animate .widget-card {
+            transition: border-color 0.3s ease, box-shadow 0.3s ease, opacity 0.28s ease, transform 0.28s var(--ease-out);
+        }
+
+        .widget-card:hover {
+            border-color: rgba(var(--accent), 0.18);
+            box-shadow: 0 0 30px rgba(var(--accent), 0.06);
+        }
+
+        /* Widgets resize smoothly into their new slot when others are toggled on/off.
+           The `widgets-animate` class is added by JS after the initial layout settles,
+           so the grid does NOT animate on startup (would look broken/slow every launch). */
+        #widgets-row.widgets-animate {
+            transition: grid-template-columns 0.35s var(--ease-out);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(24px) scale(0.98);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @keyframes modalPop {
+            from {
+                opacity: 0;
+                transform: scale(0.82);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes gridDrift {
+            from {
+                transform: translateY(0);
+            }
+
+            to {
+                transform: translateY(48px);
+            }
+        }
+
+        @keyframes pulseGlow {
+
+            0%,
+            100% {
+                opacity: 0.5;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+
+        @keyframes ringSpin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .hidden-widget {
+            display: none !important;
+        }
+
+        #main-window {
+            border-radius: 32px;
+            overflow: hidden;
+            isolation: isolate;
+            clip-path: inset(0 round 32px);
+        }
+
+        .hotkey-bind {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            padding: 6px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.05);
+            color: #e5e5e5;
+            cursor: pointer;
+            transition: all var(--dur-2) var(--ease-out);
+            min-width: 88px;
+            text-align: center;
+        }
+
+        .hotkey-bind:hover {
+            border-color: rgba(255, 255, 255, 0.35);
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 0 16px rgba(255, 255, 255, 0.08);
+        }
+
+        .hotkey-bind.listening {
+            border-color: #fff;
+            color: #fff;
+            animation: hotkeyListen 1s ease-in-out infinite;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+        }
+
+        @keyframes hotkeyListen {
+
+            0%,
+            100% {
+                opacity: 0.55;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+
+        /* Controller Macros — visual joystick pad for stick steps. A round drag
+           surface with a movable knob, paired with a 3x3 direction keypad. */
+        .cm-stick-editor {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            padding: 10px 4px 8px;
+        }
+
+        .cm-stick-pad {
+            position: relative;
+            width: 118px;
+            height: 118px;
+            flex: 0 0 118px;
+            border-radius: 9999px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: radial-gradient(circle at center, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+            cursor: grab;
+            touch-action: none;
+        }
+
+        .cm-stick-pad:active {
+            cursor: grabbing;
+        }
+
+        .cm-stick-cross-h,
+        .cm-stick-cross-v {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.08);
+            pointer-events: none;
+        }
+
+        .cm-stick-cross-h {
+            left: 8%;
+            right: 8%;
+            top: 50%;
+            height: 1px;
+        }
+
+        .cm-stick-cross-v {
+            top: 8%;
+            bottom: 8%;
+            left: 50%;
+            width: 1px;
+        }
+
+        .cm-stick-knob {
+            position: absolute;
+            width: 26px;
+            height: 26px;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 2px solid rgba(0, 0, 0, 0.45);
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.28);
+            pointer-events: none;
+        }
+
+        .cm-stick-side {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .cm-stick-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+            max-width: 150px;
+        }
+
+        .cm-stick-preset {
+            font-size: 14px;
+            line-height: 1;
+            padding: 7px 0;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.05);
+            color: #e5e5e5;
+            cursor: pointer;
+            transition: all var(--dur-1) var(--ease-out);
+        }
+
+        .cm-stick-preset:hover {
+            border-color: rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        #settings-modal .settings-panel {
+            max-height: calc(100% - 48px);
+        }
+
+        /* Sticky Settings search bar — covers the panel's top padding so nothing
+           ghosts above it while pinned, with a soft hairline divider. */
+        #settings-modal .settings-search-bar {
+            position: sticky;
+            top: -2rem;
+            margin-top: -2rem;
+            padding-top: 2rem;
+            background: rgba(8, 8, 8, 0.96);
+            -webkit-backdrop-filter: blur(24px);
+            backdrop-filter: blur(24px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        #settings-search::placeholder {
+            color: #fff;
+            opacity: 1;
+        }
+
+        /* Group headers that organise the Settings scroll into named clusters
+           (Layout & Apps / Look & Feel / System / Spotify / Data & Maintenance).
+           Hidden while searching — the matched sections stand alone then. */
+        #settings-modal .settings-group-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 18px;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: #737373;
+        }
+
+        #settings-modal .settings-group-label i {
+            color: #525252;
+            font-size: 10px;
+        }
+
+        #settings-modal .settings-group-label::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.07);
+        }
+
+        .settings-saved-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--accent-solid);
+            box-shadow: 0 0 8px rgba(var(--accent), 0.5);
+        }
+
+        /* Spotify Vinyl Widget */
+        .vinyl-disk {
+            will-change: transform;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(255, 255, 255, 0.06);
+            filter: drop-shadow(0 0 3px rgba(var(--accent), 0.08)) drop-shadow(0 0 6px rgba(var(--accent), 0.04));
+        }
+
+        .vinyl-disk.vinyl-glow-active {
+            filter: drop-shadow(0 0 4px rgba(var(--accent), 0.12)) drop-shadow(0 0 8px rgba(var(--accent), 0.06));
+        }
+
+        .beat-glow-halo {
+            position: absolute;
+            width: 5rem;
+            height: 5rem;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(var(--accent), 0.4) 0%, rgba(var(--accent), 0.1) 42%, transparent 72%);
+            pointer-events: none;
+            opacity: 0.15;
+            transform: scale(1);
+            z-index: 0;
+            will-change: opacity, transform;
+        }
+
+        .spotify-disk-glow-wrapper {
+            position: relative;
+            z-index: 10;
+        }
+
+        .spotify-visualizer-canvas {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 13rem;
+            height: 13rem;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .spotify-visualizer-canvas.visualizer-active {
+            opacity: 0.9;
+        }
+
+        #spotify-extras-toggle .fa-chevron-down {
+            transition: transform 0.2s ease;
+        }
+
+        #spotify-extras-toggle.extras-collapsed .fa-chevron-down {
+            transform: rotate(-90deg);
+        }
+
+        .spotify-disk-glow-wrapper::before {
+            content: '';
+            position: absolute;
+            inset: -12px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(var(--accent), 0.08) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: -1;
+            filter: blur(8px);
+        }
+
+        .spotify-album-cover {
+            position: absolute;
+            bottom: 2px;
+            left: 2px;
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            object-fit: cover;
+            box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6), 0 0 12px rgba(255, 255, 255, 0.08);
+            z-index: 20;
+        }
+
+        #spotify-disk {
+            position: relative;
+            z-index: 1;
+        }
+
+        .spotify-track-info {
+            transition: opacity 0.15s ease;
+        }
+
+        /* The title/artist lines use a looping "marquee" reveal for long text instead of
+           an ellipsis — the ellipsis is disabled here since the inner elements (below)
+           handle overflow by looping instead of truncating. */
+        #spotify-track, #spotify-artist {
+            text-overflow: clip;
+            position: relative;
+        }
+
+        .marquee-text {
+            display: inline-block;
+            white-space: nowrap;
+            will-change: transform;
+        }
+
+        .marquee-copy {
+            display: inline-block;
+        }
+
+        .marquee-gap {
+            display: inline-block;
+            opacity: 0.4;
+        }
+
+        /* Fade masks for overflowing marquee text.
+           .marquee-fade-right  = static overflow state — fade only at the trailing edge
+           .marquee-fade-both   = scrolling state — fade at both edges so text appears/
+                                  disappears smoothly as it enters/exits the viewport. */
+        .marquee-fade-right {
+            -webkit-mask-image: linear-gradient(to right, black calc(100% - 10px), transparent 100%);
+            mask-image: linear-gradient(to right, black calc(100% - 10px), transparent 100%);
+        }
+
+        .marquee-fade-both {
+            -webkit-mask-image: linear-gradient(to right, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%);
+            mask-image: linear-gradient(to right, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%);
+        }
+
+        .spotify-control-btn {
+            transition: all var(--dur-2) var(--ease-out);
+        }
+
+        .spotify-control-btn:hover {
+            transform: scale(1.15);
+        }
+
+        /* ── Video Editor timeline ── */
+        .ve-timeline {
+            position: relative;
+            height: 36px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .ve-timeline-selection {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            background: rgba(96, 165, 250, 0.18);
+            border-left: 1px solid rgba(96, 165, 250, 0.5);
+            border-right: 1px solid rgba(96, 165, 250, 0.5);
+            pointer-events: none;
+        }
+
+        .ve-playhead {
+            position: absolute;
+            top: -2px;
+            width: 2px;
+            height: calc(100% + 4px);
+            background: #fff;
+            box-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
+            pointer-events: none;
+            transform: translateX(-1px);
+        }
+
+        .ve-handle {
+            position: absolute;
+            top: -3px;
+            width: 12px;
+            height: calc(100% + 6px);
+            background: #60a5fa;
+            border-radius: 4px;
+            transform: translateX(-50%);
+            cursor: ew-resize;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+            transition: background 0.15s ease;
+        }
+
+        .ve-handle:hover {
+            background: #93c5fd;
+        }
+
+        .ve-handle::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 12px;
+            background: rgba(0, 0, 0, 0.35);
+            transform: translate(-50%, -50%);
+            border-radius: 2px;
+        }
+
+        /* ── Vegas-style multi-track lanes (video + one row per audio track) ──
+           Stacked full-width under the trim bar, sharing its exact time axis so the
+           selection shading and playhead line up across every lane. */
+        .ve-tracks {
+            position: relative;
+            margin-top: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.28);
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .ve-lane {
+            position: relative;
+            height: 40px;
+            background-color: #121216;
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: 100% 100%;
+            overflow: hidden;
+        }
+        .ve-lane-video { height: 46px; background-color: #0e0e11; }
+        .ve-lane-audio { background-color: #0d1422; }
+
+        .ve-wave {
+            position: absolute;
+            inset: 0;
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: 100% 100%;
+            opacity: 0.92;
+        }
+
+        .ve-lane-tag {
+            position: absolute;
+            top: 3px;
+            left: 5px;
+            z-index: 3;
+            font-size: 8.5px;
+            letter-spacing: 0.03em;
+            color: #cbd5e1;
+            background: rgba(0, 0, 0, 0.55);
+            padding: 1px 5px;
+            border-radius: 5px;
+            pointer-events: none;
+            text-transform: uppercase;
+            white-space: nowrap;
+            max-width: calc(100% - 10px);
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .ve-lane-video-empty {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #3f3f46;
+            font-size: 14px;
+        }
+
+        /* Per-track include checkbox (top-left) — pushes the audio lane's label
+           over to make room. */
+        .ve-lane-check {
+            position: absolute;
+            top: 4px;
+            left: 6px;
+            z-index: 8;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .ve-lane-check input {
+            width: 13px;
+            height: 13px;
+            margin: 0;
+            accent-color: #8ab4f8;
+            cursor: pointer;
+        }
+        .ve-lane-audio .ve-lane-tag { left: 26px; }
+
+        /* An unticked (excluded) track: greyed out, won't be exported. */
+        .ve-lane-disabled { opacity: 0.45; filter: grayscale(0.85); }
+        .ve-lane-disabled .ve-wave { opacity: 0.5; }
+
+        /* Per-track volume slider, centred in the lane like Vegas' clip gain line. */
+        .ve-lane-vol {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 7;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 9px;
+            border-radius: 9px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .ve-lane-vol i { font-size: 9px; color: #cbd5e1; }
+        .ve-vol-slider {
+            width: 96px;
+            height: 4px;
+            accent-color: #8ab4f8;
+            cursor: pointer;
+        }
+        .ve-vol-val {
+            font-size: 8.5px;
+            color: #cbd5e1;
+            min-width: 30px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Loading shimmer while FFmpeg renders the waveform/filmstrip. */
+        .ve-lane-loading::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+            transform: translateX(-100%);
+            animation: veShimmer 1.2s ease-in-out infinite;
+        }
+        @keyframes veShimmer { to { transform: translateX(100%); } }
+
+        /* Overlays spanning the whole stack, positioned by percentage of duration. */
+        .ve-tracks-dim {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.55);
+            z-index: 4;
+            pointer-events: none;
+        }
+        .ve-tracks-sel {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            border-left: 2px solid #93c5fd;
+            border-right: 2px solid #93c5fd;
+            background: rgba(147, 197, 253, 0.07);
+            z-index: 5;
+            pointer-events: none;
+        }
+        .ve-tracks-playhead {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #ffffff;
+            box-shadow: 0 0 6px rgba(255, 255, 255, 0.55);
+            z-index: 6;
+            pointer-events: none;
+        }
+
+        /* ── Spotify Enhanced inline strip (Queue / Recent / Playlists) ──
+           Crammed into the upper-right of the player, over the vinyl area (translucent
+           so the disk still reads through), clear of the controls/progress below. */
+        .spotify-enhanced-widget {
+            position: absolute;
+            top: 3px;
+            right: 28px;
+            width: 92px;
+            height: 104px;
+            z-index: 30;
+            background: rgba(10, 10, 12, 0.72);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 5px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            overflow: hidden;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+        }
+
+        .spotify-ew-tabs {
+            display: flex;
+            gap: 3px;
+            flex-shrink: 0;
+        }
+
+        .spotify-ew-tab {
+            flex: 1;
+            height: 19px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            color: #a3a3a3;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+
+        .spotify-ew-tab:hover { color: #e5e5e5; }
+
+        .spotify-ew-tab.active {
+            background: rgba(255, 255, 255, 0.16);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .spotify-ew-content {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .spotify-ew-content::-webkit-scrollbar { width: 3px; }
+        .spotify-ew-content::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 3px; }
+
+        .spotify-ew-sub {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 2px 1px;
+            flex-shrink: 0;
+        }
+
+        .spotify-ew-caption {
+            font-size: 7px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #737373;
+        }
+
+        .spotify-ew-sort {
+            font-size: 8px;
+            color: #a3a3a3;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 1px 2px;
+        }
+        .spotify-ew-sort:hover { color: #fff; }
+
+        .spotify-ew-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 3px;
+            border-radius: 5px;
+            font-size: 9px;
+            color: #d4d4d4;
+            line-height: 1.2;
+        }
+
+        .spotify-ew-row.clickable { cursor: pointer; }
+        .spotify-ew-row.clickable:hover { background: rgba(255, 255, 255, 0.07); }
+
+        .spotify-ew-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: #262626;
+        }
+
+        .spotify-ew-name {
+            flex: 1;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .spotify-ew-star {
+            flex-shrink: 0;
+            width: 11px;
+            font-size: 8px;
+            color: #737373;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0;
+        }
+        .spotify-ew-star.on { color: #fbbf24; }
+
+        .spotify-ew-empty {
+            font-size: 8.5px;
+            color: #737373;
+            padding: 4px 3px;
+            line-height: 1.3;
+        }
+
+        .spotify-ew-reconnect {
+            font-size: 8.5px;
+            color: #fcd34d;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px 3px;
+            text-align: left;
+        }
+        .spotify-ew-reconnect:hover { text-decoration: underline; }
+
+        /* ── Drag handle ──
+           Hidden unless the "Draggable panel" toggle in Settings is on, which adds
+           the .draggable class. Grip dots at the very top; grabbing them repositions
+           the whole strip (position persisted per layout mode). */
+        .spotify-ew-drag {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            height: 9px;
+            flex-shrink: 0;
+            cursor: grab;
+            margin: -2px 0 1px;
+        }
+        .spotify-ew-drag span {
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.4);
+        }
+        .spotify-enhanced-widget.draggable .spotify-ew-drag { display: flex; }
+        .spotify-enhanced-widget.dragging {
+            cursor: grabbing;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+        .spotify-enhanced-widget.dragging .spotify-ew-drag { cursor: grabbing; }
+
+        /* ── Expanded strip when Spotify is the only main widget (full-width player) ──
+           There's a big open area right of the vinyl then, so the strip grows into it
+           (beside the disk, not over it) with larger rows/text. Toggled by the
+           .spotify-solo class the renderer adds to #widget-spotify. */
+        .spotify-solo .spotify-enhanced-widget {
+            top: 8px;
+            bottom: 22px;
+            right: 46px;
+            width: 206px;
+            height: auto;
+            padding: 8px;
+            gap: 6px;
+            border-radius: 16px;
+        }
+        .spotify-solo .spotify-ew-tabs { gap: 5px; }
+        .spotify-solo .spotify-ew-tab { height: 26px; font-size: 12px; border-radius: 8px; }
+        .spotify-solo .spotify-ew-content { gap: 3px; }
+        .spotify-solo .spotify-ew-content::-webkit-scrollbar { width: 4px; }
+        .spotify-solo .spotify-ew-sub { padding: 1px 4px 2px; }
+        .spotify-solo .spotify-ew-caption { font-size: 9px; }
+        .spotify-solo .spotify-ew-sort { font-size: 11px; }
+        .spotify-solo .spotify-ew-row { font-size: 12.5px; padding: 4px 6px; gap: 8px; border-radius: 8px; }
+        .spotify-solo .spotify-ew-thumb { width: 28px; height: 28px; border-radius: 5px; }
+        .spotify-solo .spotify-ew-star { width: 16px; font-size: 12px; }
+        .spotify-solo .spotify-ew-empty { font-size: 11px; padding: 6px 4px; }
+        .spotify-solo .spotify-ew-reconnect { font-size: 11px; padding: 6px 4px; }
+        .spotify-solo .spotify-ew-drag { height: 12px; }
+        .spotify-solo .spotify-ew-drag span { width: 4px; height: 4px; }
+
+        /* Spotify Enhanced "like" heart — turns Spotify green and softly glows when the
+           current track is in Liked Songs. A quick pop confirms each toggle. */
+        .spotify-like-btn.is-liked {
+            color: #1db954;
+            text-shadow: 0 0 8px rgba(29, 185, 84, 0.6);
+        }
+
+        .spotify-like-btn.is-liked:hover {
+            color: #1ed760;
+        }
+
+        .spotify-like-btn.is-liked i {
+            animation: spotify-like-pop 0.32s ease;
+        }
+
+        @keyframes spotify-like-pop {
+            0% { transform: scale(1); }
+            45% { transform: scale(1.4); }
+            100% { transform: scale(1); }
+        }
+
+        /* Play/pause "morph" icon. Built from 2 simple bars instead of swapping Font
+           Awesome glyphs, so the same persistent elements can transition smoothly between
+           shapes via clip-path (swapping icon fonts can't animate at all — the old
+           element is destroyed and a new one created each time).
+           Default (no .is-playing class) = play triangle: bar A collapses to a thin
+           spine at the left edge, bar B expands into the full triangle (its two right
+           corners converge onto the apex point). .is-playing = two pause bars. Both
+           states use the same point count (4 corners) per bar, kept as simple convex
+           quadrilaterals throughout so there's no self-intersection in between. */
+        .morph-play-icon {
+            position: relative;
+            width: 11px;
+            height: 11px;
+            display: inline-block;
+        }
+
+        .morph-bar {
+            position: absolute;
+            inset: 0;
+            background: currentColor;
+            transition: clip-path 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .morph-bar-a {
+            clip-path: polygon(20% 15%, 24% 15%, 24% 85%, 20% 85%);
+        }
+
+        .morph-bar-b {
+            clip-path: polygon(20% 15%, 85% 50%, 85% 50%, 20% 85%);
+        }
+
+        #spotify-play-btn.is-playing .morph-bar-a {
+            clip-path: polygon(20% 15%, 38% 15%, 38% 85%, 20% 85%);
+        }
+
+        #spotify-play-btn.is-playing .morph-bar-b {
+            clip-path: polygon(58% 15%, 78% 15%, 78% 85%, 58% 85%);
+        }
+
+        .spotify-progress-bar {
+            /* Linear + matched to the 250ms progress ticker so the bar glides
+               continuously between Spotify's 2.5s polls instead of stepping. */
+            transition: width 0.25s linear;
+            background: linear-gradient(90deg, var(--accent-solid), rgba(var(--accent), 0.85));
+            box-shadow: 0 0 6px rgba(var(--accent), 0.4), 0 0 12px rgba(var(--accent), 0.2);
+        }
+
+        .spotify-progress-track {
+            box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+        }
+
+        .spotify-volume-container {
+            position: relative;
+            width: 24px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .spotify-volume-slider-v {
+            -webkit-appearance: none;
+            appearance: none;
+            position: absolute;
+            width: 80px;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 2px;
+            outline: none;
+            transform: rotate(-90deg);
+            transform-origin: center;
+            left: -28px;
+            top: 38px;
+            cursor: pointer;
+        }
+
+        .spotify-volume-slider-v::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-solid);
+            cursor: pointer;
+            box-shadow: 0 0 6px rgba(var(--accent), 0.6), 0 0 12px rgba(var(--accent), 0.3);
+            transition: width 0.2s ease, height 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .spotify-volume-glow {
+            filter: drop-shadow(0 0 4px rgba(var(--accent), 0.3));
+        }
+
+        /* Volume slider hover & active effects */
+        .spotify-volume-slider-v:hover {
+            height: 4px;
+        }
+
+        .spotify-volume-slider-v:active {
+            height: 5px;
+        }
+
+        .spotify-volume-slider-v:hover::-webkit-slider-thumb {
+            width: 12px;
+            height: 12px;
+            box-shadow: 0 0 8px rgba(var(--accent), 0.8), 0 0 16px rgba(var(--accent), 0.4);
+        }
+
+        /* Spotify Lyrics Display */
+        /* Width scales with whatever space is available (e.g. when other widgets are
+           hidden and #widgets-row drops to fewer grid columns, this card — and this
+           panel within it — gets wider), capped so the disk/art area always keeps room. */
+        .spotify-lyrics-panel {
+            flex-shrink: 0;
+            width: 28%;
+            min-width: 75px;
+            max-width: 260px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 6px;
+            padding: 8px 3px;
+            overflow: hidden;
+        }
+
+        #spotify-lyrics-lines {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        /* Fixed-height viewport showing the current line + upcoming lines. Tall enough to
+           hold the current line (which may wrap to a few rows) plus the two upcoming lines,
+           which renderer/lyrics.js stacks by measured height (layoutLyricsSlots). The top
+           padding baked into LYRICS_TOP_PAD is headroom so the current line's white glow
+           renders fully instead of being clipped by overflow:hidden. */
+        #spotify-lyrics-window {
+            position: relative;
+            width: 100%;
+            height: 218px;
+            overflow: hidden;
+        }
+
+        .lyrics-slot {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: max-content;
+            max-width: var(--lyrics-max-width, 220px);
+            /* No max-height: lines size to their content so renderer/lyrics.js can measure
+               each one's real height and stack the next line below it (layoutLyricsSlots).
+               A fixed cap here would clip tall wrapped lines AND cap offsetHeight, which
+               is exactly what caused wrapped lyrics to overlap the line below. */
+            padding: 6px 4px;
+            text-align: center;
+            white-space: normal;
+            word-break: break-word;
+            font-size: var(--lyrics-font-size, 13px);
+            line-height: 1.3;
+            font-weight: 700;
+            color: #fff;
+            opacity: 0.3;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+            letter-spacing: -0.3px;
+            transition: transform 0.45s var(--ease-out), opacity 0.4s ease;
+            will-change: transform, opacity;
+        }
+
+        .lyrics-slot:hover {
+            opacity: 0.7;
+        }
+
+        .lyrics-slot-current {
+            text-shadow: 0 0 8px rgba(var(--accent), 0.9), 0 0 20px rgba(var(--accent), 0.6);
+        }
+
+        .lyrics-slot-current:hover {
+            opacity: 1;
+        }
+
+        /* Secondary "paren" line rendered beneath the main lyric text when a line
+           ends with one or more trailing parenthesized groups, e.g.:
+             Scrape the bowl          ← .lyrics-main-text (inherits all slot styles)
+             (skrrt, skrrt)           ← .lyrics-paren-text
+           text-shadow (glow) is inherited from the parent .lyrics-slot-current so
+           the secondary line glows in sync with the main text. */
+        .lyrics-main-text {
+            display: block;
+            text-align: center;
+        }
+
+        .lyrics-paren-text {
+            display: block;
+            text-align: center;
+            font-size: 75%;
+            opacity: 0.78;
+            /* text-shadow, font-weight, letter-spacing, font-family all inherited */
+        }
+
+        /* Same secondary formatting for the full-screen modal */
+        .lyrics-full-line .lyrics-paren-text {
+            display: block;
+            font-size: 75%;
+            opacity: 0.78;
+            padding-top: 1px;
+        }
+
+        /* Shown in place of the conveyor while a new track's lyrics are being fetched.
+           Sits in the exact same 3-slot layout as the real lines (via lyricsSlotTransform/
+           lyricsSlotOpacity in JS), so it reads as "lines are about to appear here"
+           rather than a generic spinner. */
+        .lyrics-skeleton-line {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            height: 11px;
+            border-radius: 6px;
+            /* A narrow, bright "sheen" band travels across a soft base tint, rather
+               than a broad low-contrast wash — reads as a glossy sweep. The inset
+               hairline gives each bar a little depth so it doesn't look flat. */
+            background: linear-gradient(
+                100deg,
+                rgba(255, 255, 255, 0.06) 0%,
+                rgba(255, 255, 255, 0.06) 38%,
+                rgba(255, 255, 255, 0.34) 50%,
+                rgba(255, 255, 255, 0.06) 62%,
+                rgba(255, 255, 255, 0.06) 100%
+            );
+            background-size: 220% 100%;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+            animation: skel-sheen 1.7s ease-in-out infinite;
+            /* Gentle fade when the skeleton appears / re-appears (set from opacity:0
+               in showLyricsLoading), so it never pops in — see renderer/lyrics.js. */
+            transition: opacity 0.4s ease, height 0.3s ease;
+        }
+
+        /* The top bar stands in for the "current" line, so it glows in the accent
+           colour just like a real .lyrics-slot-current does — the loading state then
+           reads as the same conveyor about to fill in, not a generic grey placeholder. */
+        .lyrics-skeleton-line.is-current {
+            height: 13px;
+            border-radius: 7px;
+            background: linear-gradient(
+                100deg,
+                rgba(var(--accent), 0.16) 0%,
+                rgba(var(--accent), 0.16) 38%,
+                rgba(var(--accent), 0.48) 50%,
+                rgba(var(--accent), 0.16) 62%,
+                rgba(var(--accent), 0.16) 100%
+            );
+            background-size: 220% 100%;
+            box-shadow:
+                inset 0 0 0 1px rgba(var(--accent), 0.28),
+                0 0 10px rgba(var(--accent), 0.35),
+                0 0 22px rgba(var(--accent), 0.18);
+        }
+
+        /* Shared glossy-sweep used by every skeleton surface. The bright band starts
+           off the right edge and travels left across, then the cycle repeats. */
+        @keyframes skel-sheen {
+            0% { background-position: 165% 0; }
+            100% { background-position: -65% 0; }
+        }
+
+        /* Sheen for round/large surfaces that can't animate background-position without
+           dragging their other background layers (e.g. the vinyl disk): a bright band
+           swept across via an ::after overlay instead. */
+        @keyframes skel-sweep {
+            0% { transform: translateX(-120%) skewX(-12deg); }
+            100% { transform: translateX(120%) skewX(-12deg); }
+        }
+
+        /* ── Spotify player "loadup" skeleton ──
+           Shown in #spotify-loading while authenticated and waiting for the first
+           track payload (showSpotifyLoading in spotify-widget.js). Mirrors the
+           active player's three-column shape so it reads as "the player is about to
+           appear here" rather than a generic spinner. Shares the shimmer language of
+           the lyrics skeleton above. */
+        #spotify-loading {
+            animation: spotify-skel-in 0.35s ease both;
+        }
+
+        @keyframes spotify-skel-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Simple flat surfaces (bars, control dots, volume) share the glossy sweep by
+           animating background-position over a narrow bright band + a depth hairline. */
+        .spotify-skel-bar,
+        .spotify-skel-dot,
+        .spotify-skel-volume {
+            display: block;
+            background: linear-gradient(
+                100deg,
+                rgba(255, 255, 255, 0.05) 0%,
+                rgba(255, 255, 255, 0.05) 38%,
+                rgba(255, 255, 255, 0.30) 50%,
+                rgba(255, 255, 255, 0.05) 62%,
+                rgba(255, 255, 255, 0.05) 100%
+            );
+            background-size: 220% 100%;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.045);
+            animation: skel-sheen 1.7s ease-in-out infinite;
+        }
+
+        .spotify-skel-bar {
+            height: 9px;
+            border-radius: 6px;
+        }
+
+        .spotify-skel-lyrics {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 9px;
+            width: 46px;
+            padding-left: 2px;
+        }
+
+        /* The vinyl disk: a static base (soft radial body, a subtle top-left light,
+           a couple of faint concentric grooves, and the centre hole) with a bright
+           sheen swept across by ::after — so it reads as a real disk catching light
+           rather than a shimmering pill. */
+        .spotify-skel-disk {
+            position: relative;
+            overflow: hidden;
+            width: 84px;
+            height: 84px;
+            border-radius: 9999px;
+            background:
+                radial-gradient(circle at center,
+                    rgba(0, 0, 0, 0.5) 0 15%,
+                    rgba(255, 255, 255, 0.05) 16% 100%),
+                repeating-radial-gradient(circle at center,
+                    rgba(255, 255, 255, 0.05) 0 3px,
+                    rgba(255, 255, 255, 0.09) 3px 6px),
+                radial-gradient(circle at 32% 28%,
+                    rgba(255, 255, 255, 0.14), transparent 46%);
+            box-shadow:
+                inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+                0 6px 20px rgba(0, 0, 0, 0.35);
+        }
+
+        .spotify-skel-disk::after {
+            content: '';
+            position: absolute;
+            top: -20%;
+            left: 0;
+            width: 55%;
+            height: 140%;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.28),
+                transparent
+            );
+            animation: skel-sweep 2s ease-in-out infinite;
+        }
+
+        .spotify-skel-trackinfo {
+            position: absolute;
+            top: -4px;
+            right: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            padding: 6px 9px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .spotify-skel-dot {
+            width: 20px;
+            height: 20px;
+            border-radius: 9999px;
+        }
+
+        .spotify-skel-dot-lg {
+            width: 26px;
+            height: 26px;
+        }
+
+        .spotify-skel-progress {
+            width: 100%;
+            height: 4px;
+            border-radius: 9999px;
+        }
+
+        .spotify-skel-volume {
+            width: 4px;
+            height: 76px;
+            border-radius: 9999px;
+        }
+
+        .lyrics-unavailable-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 14px 8px;
+            text-align: center;
+            width: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+            /* Fade + rise in so it doesn't pop in after the loading skeleton clears. */
+            animation: lyrics-unavailable-in 0.45s var(--ease-out) both;
+        }
+
+        @keyframes lyrics-unavailable-in {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Circular icon chip — soft glassy body with a top light, a hairline ring and
+           a gentle breathing glow, so "no lyrics" reads as an intentional empty state
+           rather than a stray icon. */
+        .lyrics-unavailable-badge {
+            position: relative;
+            width: 38px;
+            height: 38px;
+            border-radius: 9999px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 2px;
+            background:
+                radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.12), transparent 55%),
+                linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+            box-shadow:
+                inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+                inset 0 1px 1px rgba(255, 255, 255, 0.08),
+                0 4px 14px rgba(0, 0, 0, 0.3);
+            animation: lyrics-badge-breathe 3.4s ease-in-out infinite;
+        }
+
+        .lyrics-unavailable-badge i {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        @keyframes lyrics-badge-breathe {
+            0%, 100% { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 1px rgba(255,255,255,0.08), 0 4px 14px rgba(0,0,0,0.3); }
+            50% { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14), inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 18px rgba(0,0,0,0.34); }
+        }
+
+        .lyrics-unavailable-title {
+            display: block;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            color: rgba(255, 255, 255, 0.72);
+        }
+
+        .lyrics-unavailable-sub {
+            display: block;
+            font-size: 8.5px;
+            font-weight: 400;
+            line-height: 1.35;
+            max-width: 130px;
+            color: rgba(255, 255, 255, 0.34);
+            letter-spacing: 0.2px;
+        }
+
+        .spotify-lyrics-expand-btn {
+            display: none;
+            margin-top: auto;
+            padding: 4px 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 4px;
+            color: #999;
+            font-size: 8px;
+            cursor: pointer;
+            transition: all var(--dur-2) var(--ease-out);
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .spotify-lyrics-expand-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        /* Lyrics Modal */
+        #lyrics-modal {
+            display: none;
+            position: absolute;
+            inset: 0;
+            z-index: 45;
+            flex-direction: column;
+            pointer-events: auto;
+        }
+
+        #lyrics-modal.shown {
+            display: flex;
+        }
+
+        #lyrics-modal-content {
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            z-index: 45;
+            height: 100%;
+        }
+
+        #lyrics-modal-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #lyrics-modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
+        .lyrics-full-list {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .lyrics-full-line {
+            padding: 10px 0;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #999;
+            cursor: pointer;
+            transition: all var(--dur-2) var(--ease-out);
+            border-left: 2px solid transparent;
+            padding-left: 8px;
+        }
+
+        .lyrics-full-line:hover {
+            color: #ddd;
+            border-left-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .lyrics-full-line.current {
+            color: #fff;
+            border-left-color: #fff;
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+            font-weight: 500;
+        }
+
+        .spotify-volume-slider-v:active::-webkit-slider-thumb {
+            width: 14px;
+            height: 14px;
+            box-shadow: 0 0 10px rgba(var(--accent), 1), 0 0 20px rgba(var(--accent), 0.5);
+        }
+
+        /* Volume icon smooth transitions */
+        #spotify-vol-icon {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        /* Vinyl Disk Speed Slider */
+        .spotify-disk-speed-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .spotify-disk-speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-solid);
+            cursor: pointer;
+            box-shadow: 0 0 6px rgba(var(--accent), 0.6), 0 0 12px rgba(var(--accent), 0.3);
+            transition: width 0.2s ease, height 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .spotify-disk-speed-slider:hover::-webkit-slider-thumb {
+            width: 12px;
+            height: 12px;
+            box-shadow: 0 0 8px rgba(var(--accent), 0.8), 0 0 16px rgba(var(--accent), 0.4);
+        }
+
+        .spotify-disk-speed-slider:active::-webkit-slider-thumb {
+            width: 14px;
+            height: 14px;
+            box-shadow: 0 0 10px rgba(var(--accent), 1), 0 0 20px rgba(var(--accent), 0.5);
+        }
+
+        /* iOS-style toggle switches, used for all Settings checkboxes. The real
+           <input type="checkbox"> stays fully functional (same id/onchange as before)
+           but is invisible — :checked + sibling-selector drives the visible track/knob. */
+        .ios-toggle {
+            position: relative;
+            display: inline-block;
+            width: 36px;
+            height: 21px;
+            flex-shrink: 0;
+        }
+
+        .ios-toggle-input {
+            position: absolute;
+            inset: 0;
+            margin: 0;
+            opacity: 0;
+            cursor: pointer;
+            z-index: 2;
+        }
+
+        .ios-toggle-track {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.18);
+            border-radius: 999px;
+            transition: background-color 0.25s ease;
+            pointer-events: none;
+        }
+
+        .ios-toggle-track::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 17px;
+            height: 17px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            transition: transform 0.25s var(--ease-spring);
+        }
+
+        .ios-toggle-input:checked + .ios-toggle-track {
+            background: rgba(var(--accent), 0.9);
+        }
+
+        .ios-toggle-input:checked + .ios-toggle-track::after {
+            transform: translateX(15px);
+            background: #111;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+        }
+
+        .ios-toggle-input:active + .ios-toggle-track::after {
+            width: 19px; /* iOS gives the knob a little horizontal squish while pressed */
+        }
+
+        .ios-toggle-input:focus-visible + .ios-toggle-track {
+            outline: 2px solid rgba(255, 255, 255, 0.5);
+            outline-offset: 2px;
+        }
+
+        /* Remove orange circle (focus ring) */
+        *:focus {
+            outline: none !important;
+        }
+
+        /* Cleaner Scrollbar with Glow */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.05);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.1);
+        }
+
+        #clock {
+            transition: all 0.4s var(--ease-out);
+        }
+
+        #clock-seconds {
+            display: inline-block;
+            max-width: 0;
+            opacity: 0;
+            transition: all 0.4s var(--ease-out);
+            white-space: nowrap;
+        }
+
+        #clock:hover #clock-seconds {
+            max-width: 4ch;
+            opacity: 1;
+            margin-left: 2px;
+        }
+
+        #weather {
+            position: relative;
+        }
+
+        #weather::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 130%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(30, 30, 30, 0.95);
+            color: #e5e5e5;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #weather:hover::after {
+            opacity: 1;
+        }
+
+        #close-windows-startup-label {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            padding-left: 1.5rem;
+            opacity: 0;
+            max-height: 0;
+            transform: translateY(-12px) scale(0.95);
+            overflow: hidden;
+            margin-bottom: 0;
+            pointer-events: none;
+            transition: opacity 0.35s ease, transform 0.35s var(--ease-spring), max-height 0.35s ease, margin-bottom 0.35s ease;
+        }
+
+        #close-windows-startup-label.visible {
+            opacity: 1;
+            max-height: 24px;
+            transform: translateY(0) scale(1);
+            margin-bottom: 1rem;
+            pointer-events: auto;
+        }
+
+        /* ══════════════════════════════════════════════════════════════════
+           Motion & polish (v3.24.0)
+           ══════════════════════════════════════════════════════════════════ */
+
+        /* ── Ambient background light drift ──
+           Two huge, very faint radial "light pools" that slowly wander behind the
+           grid. Pure transform animation on soft gradients (no filter), so it's
+           GPU-composited and effectively free. Kept monochrome to match the theme. */
+        .bg-scene::before,
+        .bg-scene::after {
+            content: '';
+            position: absolute;
+            border-radius: 50%;
+            pointer-events: none;
+            will-change: transform;
+        }
+
+        .bg-scene::before {
+            width: 65%;
+            height: 60%;
+            top: -12%;
+            left: -10%;
+            background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.045), transparent 65%);
+            animation: auroraDriftA 46s ease-in-out infinite alternate;
+        }
+
+        .bg-scene::after {
+            width: 55%;
+            height: 62%;
+            bottom: -18%;
+            right: -12%;
+            background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.035), transparent 65%);
+            animation: auroraDriftB 58s ease-in-out infinite alternate;
+        }
+
+        @keyframes auroraDriftA {
+            from { transform: translate(0, 0) scale(1); }
+            to { transform: translate(20%, 14%) scale(1.18); }
+        }
+
+        @keyframes auroraDriftB {
+            from { transform: translate(0, 0) scale(1.12); }
+            to { transform: translate(-16%, -12%) scale(0.94); }
+        }
+
+        /* ── Startup reveal cascade ──
+           Elements marked .reveal-item (header, section labels, widget cards,
+           footer) and .app-reveal (Quick Launch icons, first render only) rise
+           into place with per-element animation-delay set inline/in JS.
+           fill-mode is `backwards`, NOT `both`/`forwards`: once the animation
+           ends it must release the element, otherwise the retained transform
+           would permanently override hover transforms and widget transitions. */
+        .reveal-item,
+        .app-reveal {
+            animation: revealUp var(--dur-5) var(--ease-emphasized) backwards;
+        }
+
+        @keyframes revealUp {
+            from {
+                opacity: 0;
+                transform: translateY(16px) scale(0.985);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        /* ── Quick Launch icon sheen ──
+           A light band sweeps across the tile once each time the cursor enters.
+           At rest it sits off-tile (clipped by the tile's overflow:hidden), so
+           there's nothing to animate back on mouse-out. */
+        .icon-tile {
+            position: relative;
+        }
+
+        .icon-tile::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, 0.09) 50%, transparent 68%);
+            transform: translateX(-130%);
+            pointer-events: none;
+        }
+
+        .app-icon:hover .icon-tile::after {
+            animation: iconSheen 0.65s ease;
+        }
+
+        @keyframes iconSheen {
+            to { transform: translateX(130%); }
+        }
+
+        /* Press feedback: everything clickable dips slightly while held. */
+        button:active {
+            transform: scale(0.96);
+        }
+
+        .spotify-control-btn:active {
+            transform: scale(0.95);
+        }
+
+        .app-icon:active {
+            transform: scale(1.04) translateY(-2px);
+        }
+
+        /* Widgets float up a touch on hover (only once .widgets-animate is on,
+           so startup layout stays perfectly still — same rule as the toggles). */
+        .widgets-animate .widget-card:hover {
+            transform: translateY(-3px);
+        }
+
+        /* ── Modal enter/exit ──
+           Modals previously snapped open and closed via the `hidden` class.
+           Opening: the whole overlay fades while the inner content rises/pops
+           (display:none → block restarts these animations on every open).
+           Closing: JS adds .modal-closing (see animateModalClose in ui-utils.js)
+           which plays the reverse before `hidden` is applied. */
+        #settings-modal:not(.hidden),
+        #fps-modal:not(.hidden),
+        #lyrics-modal.shown {
+            animation: overlayFadeIn 0.28s ease backwards;
+        }
+
+        @keyframes overlayFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Restarts automatically every open: the parent modal flips from
+           display:none, which resets descendant animations. Kept on the content
+           elements themselves (single id) so the .modal-closing exit rule below
+           out-ranks it in the cascade. */
+        #fps-modal-content,
+        #lyrics-modal-content {
+            animation: modalRise var(--dur-4) var(--ease-emphasized) backwards;
+        }
+
+        @keyframes modalRise {
+            from {
+                opacity: 0;
+                transform: translateY(22px) scale(0.985);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        /* Settings sections cascade in one after another; per-section delays are
+           assigned in openSettings(). Sections un-hidden while searching replay
+           their little rise, which makes filtering feel alive. */
+        #settings-modal .settings-panel > .mb-10,
+        #settings-modal .settings-panel > .settings-group-label {
+            animation: revealUp 0.5s var(--ease-emphasized) backwards;
+        }
+
+        /* Exit — defined after the entrance rules so it wins the cascade. */
+        #settings-modal.modal-closing,
+        #fps-modal.modal-closing,
+        #lyrics-modal.modal-closing {
+            animation: overlayFadeOut var(--dur-2) var(--ease-in) forwards;
+            pointer-events: none;
+        }
+
+        .modal-closing .settings-panel,
+        .modal-closing #fps-modal-content,
+        .modal-closing #lyrics-modal-content {
+            animation: modalSink var(--dur-2) var(--ease-in) forwards;
+        }
+
+        @keyframes overlayFadeOut {
+            to { opacity: 0; }
+        }
+
+        @keyframes modalSink {
+            to {
+                opacity: 0;
+                transform: translateY(10px) scale(0.975);
+            }
+        }
+
+        /* ── Toast ──
+           Slides up from the bottom edge and settles; drops away on dismiss.
+           The Tailwind -translate-x-1/2 class still centres it when no animation
+           is running, so every keyframe must carry the same translateX(-50%). */
+        #toast.toast-in {
+            animation: toastIn 0.38s var(--ease-out) both;
+        }
+
+        #toast.toast-out {
+            animation: toastOut 0.24s var(--ease-in) both;
+        }
+
+        @keyframes toastIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, 14px) scale(0.94);
+            }
+
+            to {
+                opacity: 1;
+                transform: translate(-50%, 0) scale(1);
+            }
+        }
+
+        @keyframes toastOut {
+            from {
+                opacity: 1;
+                transform: translate(-50%, 0) scale(1);
+            }
+
+            to {
+                opacity: 0;
+                transform: translate(-50%, 10px) scale(0.96);
+            }
+        }
+
+        /* Inputs and selects ease their border/background instead of snapping. */
+        input[type="text"],
+        select,
+        textarea {
+            transition: border-color 0.25s ease, background-color 0.25s ease;
+        }
+
+        /* ── Widget Library ──
+           Browse/search/favourite UI over the MINI_WIDGETS registry
+           (renderer/widget-library.js). Opens with the spec'd scale 95→100% +
+           fade; the overlay fade also ramps the backdrop blur in smoothly. */
+        #widget-library-modal:not(.hidden) {
+            animation: overlayFadeIn 0.28s ease backwards;
+        }
+
+        .widget-library-panel {
+            height: min(552px, 100%);
+            /* Restarts every open: parent flips from display:none. */
+            animation: widgetLibPop var(--dur-3) var(--ease-emphasized) backwards;
+        }
+
+        @keyframes widgetLibPop {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        /* Exit — reuses the shared modal close path (animateModalClose). */
+        #widget-library-modal.modal-closing {
+            animation: overlayFadeOut var(--dur-2) var(--ease-in) forwards;
+            pointer-events: none;
+        }
+
+        .modal-closing .widget-library-panel {
+            animation: modalSink var(--dur-2) var(--ease-in) forwards;
+        }
+
+        /* Search input — match the Settings search: white text + white
+           placeholder (Tailwind's preflight placeholder is too dark here). */
+        #widget-lib-search {
+            color: #fff;
+            caret-color: #fff;
+        }
+
+        #widget-lib-search::placeholder {
+            color: #fff;
+            opacity: 1;
+        }
+
+        /* Category chips row — wraps to a second line rather than clipping the
+           last chip at the panel edge. The hairline divider separates the
+           fixed header area from the scrolling grid below it. */
+        .widget-lib-cat-bar {
+            flex: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .widget-lib-chip {
+            flex: none;
+            padding: 5px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.03);
+            color: #a3a3a3;
+            font-size: 11px;
+            line-height: 1;
+            transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+        }
+
+        .widget-lib-chip:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #e5e5e5;
+            transform: translateY(-1px);
+        }
+
+        .widget-lib-chip.active {
+            background: rgba(255, 255, 255, 0.92);
+            border-color: transparent;
+            color: #0a0a0a;
+            font-weight: 500;
+        }
+
+        /* Widget cards — hover lifts with a growing shadow + border glow; new
+           search/filter results rise in with a small per-card stagger (delay is
+           set inline by renderWidgetLibGrid). */
+        .widget-lib-card {
+            display: flex;
+            flex-direction: column;
+            padding: 14px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.03);
+            cursor: pointer;
+            animation: revealUp 0.4s var(--ease-emphasized) backwards;
+            transition: transform var(--dur-2) var(--ease-out),
+                border-color var(--dur-2) ease, background-color var(--dur-2) ease, box-shadow var(--dur-2) ease;
+        }
+
+        .widget-lib-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.05);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 0 18px rgba(var(--accent), 0.08);
+        }
+
+        .widget-lib-card.kb-selected {
+            border-color: rgba(255, 255, 255, 0.45);
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35), 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        .widget-lib-card-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 13px;
+            flex: none;
+        }
+
+        /* Reserve two lines even for one-line descriptions so every card in a
+           row is the same height and the toggles/footers line up. */
+        .widget-lib-card-desc {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            min-height: 2.6em;
+        }
+
+        /* The scroll container clips its content box — without this breathing
+           room the top row's hover lift and keyboard-selection ring get cut
+           off at the container edge. */
+        .widget-lib-scroll {
+            padding-top: 10px;
+        }
+
+        .widget-lib-cat-tag {
+            padding: 2px 7px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.04);
+            color: #8a8a8a;
+            font-size: 9px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .widget-lib-recent-badge {
+            color: #6b6b6b;
+            font-size: 9px;
+        }
+
+        /* Favourite star — pops 0.9 → 1.15 → 1 when toggled (.fav-pop is re-added
+           per click by toggleWidgetFavourite). */
+        .widget-fav-btn {
+            width: 26px;
+            height: 26px;
+            border-radius: 9px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #737373;
+            font-size: 12px;
+            transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .widget-fav-btn:hover {
+            color: #e5e5e5;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .widget-fav-btn.faved {
+            color: #facc15;
+        }
+
+        .widget-fav-btn.faved:hover {
+            color: #fde047;
+        }
+
+        .widget-fav-btn-lg {
+            width: 34px;
+            height: 34px;
+            font-size: 15px;
+            flex: none;
+        }
+
+        .widget-fav-btn.fav-pop {
+            animation: favPop 0.36s var(--ease-spring);
+        }
+
+        @keyframes favPop {
+            0% { transform: scale(0.9); }
+            55% { transform: scale(1.15); }
+            100% { transform: scale(1); }
+        }
+
+        /* Detail panel — slides over the grid inside the library panel. Opaque
+           enough that the grid underneath never bleeds through. */
+        .widget-detail {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            border-radius: inherit;
+            background: rgba(12, 12, 14, 0.96);
+            backdrop-filter: blur(14px);
+        }
+
+        .widget-detail.detail-in {
+            animation: detailIn var(--dur-3) var(--ease-emphasized) backwards;
+        }
+
+        .widget-detail.detail-out {
+            animation: detailOut var(--dur-2) var(--ease-in) forwards;
+            pointer-events: none;
+        }
+
+        @keyframes detailIn {
+            from {
+                opacity: 0;
+                transform: translateY(14px) scale(0.985);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @keyframes detailOut {
+            to {
+                opacity: 0;
+                transform: translateY(10px) scale(0.985);
+            }
+        }
+
+        .widget-detail-back {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #a3a3a3;
+            font-size: 12px;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+
+        .widget-detail-back:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+        }
+
+        .widget-detail-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 22px;
+            flex: none;
+        }
+
+        .widget-status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 999px;
+            background: #525252;
+            display: inline-block;
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .widget-status-dot.on {
+            background: #4ade80;
+            box-shadow: 0 0 8px rgba(74, 222, 128, 0.6);
+        }
+
+        .widget-detail-toggle {
+            padding: 9px 18px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.9);
+            color: #0a0a0a;
+            transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+        }
+
+        .widget-detail-toggle:hover {
+            background: #fff;
+            transform: translateY(-1px);
+        }
+
+        .widget-detail-toggle.on {
+            background: rgba(248, 113, 113, 0.12);
+            border-color: rgba(248, 113, 113, 0.4);
+            color: #f87171;
+        }
+
+        .widget-detail-toggle.on:hover {
+            background: rgba(248, 113, 113, 0.2);
+        }
+
+        /* Dashboard Mini Widgets strip — one scrollable row of chips. The
+           padding/negative-margin pair keeps the chips' hover lift and shadow
+           from being clipped by the overflow container. */
+        .mini-widgets-strip {
+            scrollbar-width: none;
+            padding: 6px 2px;
+            margin: -6px -2px;
+        }
+
+        .mini-widgets-strip::-webkit-scrollbar {
+            display: none;
+        }
+
+        .mini-widget-chip {
+            flex: none;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 13px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.04);
+            color: #d4d4d4;
+            font-size: 11px;
+            line-height: 1;
+            transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .mini-widget-chip:hover {
+            background: rgba(255, 255, 255, 0.09);
+            border-color: rgba(255, 255, 255, 0.22);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+        }
+
+        .mini-widget-chip.chip-disabled {
+            color: #737373;
+            border-style: dashed;
+        }
+
+        .mini-widget-chip-star {
+            color: #facc15;
+        }
+
+        .mini-widget-chip-empty {
+            color: #737373;
+            border-style: dashed;
+        }
+
+        /* ── Countdown Timer: header readout (main-UI sync) ── */
+        .timer-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            margin-right: 4px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.05);
+            color: #d4d4d4;
+            font-size: 12px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            line-height: 1;
+            transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+
+        .timer-indicator:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.25);
+            color: #fff;
+        }
+
+        .timer-indicator.timer-indicator-done {
+            color: #22c55e;
+            border-color: rgba(34, 197, 94, 0.5);
+            background: rgba(34, 197, 94, 0.12);
+            animation: timer-done-pulse 1.4s ease-in-out infinite;
+        }
+
+        @keyframes timer-done-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+            50% { box-shadow: 0 0 0 5px rgba(34, 197, 94, 0); }
+        }
+
+        /* ── Countdown Timer: panel controls ── */
+        .timer-btn {
+            flex: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 9px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.05);
+            color: #e5e5e5;
+            font-size: 12px;
+            transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+
+        .timer-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.25);
+            color: #fff;
+        }
+
+        .timer-btn.timer-btn-primary {
+            background: rgba(34, 197, 94, 0.16);
+            border-color: rgba(34, 197, 94, 0.4);
+            color: #86efac;
+        }
+
+        .timer-btn.timer-btn-primary:hover {
+            background: rgba(34, 197, 94, 0.24);
+            color: #bbf7d0;
+        }
+
+        .timer-btn.timer-btn-ghost {
+            background: transparent;
+        }
+
+        .timer-face-done {
+            border-color: rgba(34, 197, 94, 0.4) !important;
+            background: rgba(34, 197, 94, 0.08) !important;
+        }
+
+        .mini-widgets-browse-btn {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 13px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.05);
+            color: #a3a3a3;
+            font-size: 11px;
+            line-height: 1;
+            transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .mini-widgets-browse-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-1px);
+        }
+
+        /* Respect the OS "reduce motion" setting for the purely decorative bits.
+           Functional feedback (toasts, stat bumps, toggles) is left alone. */
+        /* ── Reduced motion ──
+           When the OS "reduce motion" preference is on, collapse every
+           animation and transition to effectively-instant instead of listing
+           individual selectors. near-0 (not `none`) is deliberate: entrance
+           animations still resolve to their FINAL frame, so backwards/both
+           fills that start at opacity:0 don't leave elements invisible, and
+           the JS timers that hide modals/toasts still line up. Infinite loops
+           (spinners, pulses, drifting grid/aurora) stop after one iteration. */
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
+        /* ── Quick Notes Enhanced ─────────────────────────────────────────── */
+        .notes-enhanced {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            gap: 6px;
+        }
+        .notes-enhanced.hidden { display: none; }
+        .notes-enh-head {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .notes-tabs {
+            display: flex;
+            gap: 4px;
+            overflow-x: auto;
+            flex: 1;
+            scrollbar-width: none;
+        }
+        .notes-tabs::-webkit-scrollbar { display: none; }
+        .notes-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.03);
+            color: #a3a3a3;
+            font-size: 10px;
+            white-space: nowrap;
+            max-width: 96px;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .notes-tab span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .notes-tab:hover { background: rgba(255, 255, 255, 0.07); color: #e5e5e5; }
+        .notes-tab.active {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+        .notes-icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 22px;
+            border-radius: 7px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.03);
+            color: #a3a3a3;
+            transition: background 0.15s, color 0.15s;
+            flex-shrink: 0;
+        }
+        .notes-icon-btn:hover { background: rgba(255, 255, 255, 0.09); color: #fff; }
+        .notes-icon-btn.on {
+            background: rgba(255, 255, 255, 0.14);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        .notes-icon-btn.notes-danger:hover { background: rgba(220, 38, 38, 0.35); color: #fca5a5; }
+        .notes-icon-btn:disabled { opacity: 0.35; pointer-events: none; }
+        .notes-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .notes-title-input {
+            flex: 1;
+            min-width: 0;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            color: #e5e5e5;
+            font-size: 12px;
+            padding: 2px 2px 3px;
+        }
+        .notes-title-input:focus { outline: none; border-bottom-color: rgba(255, 255, 255, 0.3); }
+        .notes-tool-group { display: flex; gap: 4px; }
+        .notes-body {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+        .notes-textarea {
+            width: 100%;
+            height: 100%;
+            min-height: 72px;
+            background: transparent;
+            border: none;
+            resize: none;
+            color: #d4d4d4;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .notes-textarea:focus { outline: none; }
+        .notes-md-preview {
+            font-size: 12px;
+            color: #d4d4d4;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+        .notes-md-preview h1 { font-size: 15px; font-weight: 600; color: #fff; margin: 4px 0; }
+        .notes-md-preview h2 { font-size: 13px; font-weight: 600; color: #fff; margin: 4px 0; }
+        .notes-md-preview h3 { font-size: 12px; font-weight: 600; color: #f5f5f5; margin: 3px 0; }
+        .notes-md-preview p { margin: 3px 0; }
+        .notes-md-preview ul, .notes-md-preview ol { margin: 3px 0 3px 18px; }
+        .notes-md-preview li { margin: 1px 0; }
+        .notes-md-preview code { background: rgba(255, 255, 255, 0.08); padding: 1px 4px; border-radius: 4px; font-size: 11px; }
+        .notes-md-preview pre { background: rgba(0, 0, 0, 0.35); padding: 6px 8px; border-radius: 6px; overflow-x: auto; margin: 4px 0; }
+        .notes-md-preview pre code { background: none; padding: 0; }
+        .notes-md-preview a { color: #93c5fd; text-decoration: underline; cursor: pointer; }
+        .notes-md-preview strong { color: #fff; }
+        .notes-checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+        .notes-check-item { display: flex; align-items: center; gap: 6px; }
+        .notes-check-box {
+            width: 16px;
+            height: 16px;
+            border-radius: 5px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: transparent;
+            flex-shrink: 0;
+            transition: background 0.15s, color 0.15s;
+        }
+        .notes-check-item.done .notes-check-box { background: #10b981; border-color: #10b981; color: #062; }
+        .notes-check-text {
+            flex: 1;
+            min-width: 0;
+            background: transparent;
+            border: none;
+            color: #d4d4d4;
+            font-size: 12px;
+        }
+        .notes-check-text:focus { outline: none; }
+        .notes-check-item.done .notes-check-text { text-decoration: line-through; color: #737373; }
+        .notes-check-del {
+            color: #525252;
+            width: 18px;
+            height: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 5px;
+            flex-shrink: 0;
+        }
+        .notes-check-del:hover { color: #fca5a5; background: rgba(220, 38, 38, 0.2); }
+        .notes-add-item {
+            margin-top: 6px;
+            font-size: 11px;
+            color: #a3a3a3;
+            padding: 3px 8px;
+            border-radius: 7px;
+            border: 1px dashed rgba(255, 255, 255, 0.15);
+            width: 100%;
+        }
+        .notes-add-item:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+        .notes-history-panel {
+            position: absolute;
+            right: 12px;
+            bottom: 12px;
+            left: 12px;
+            max-height: 140px;
+            background: rgba(20, 20, 22, 0.97);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            padding: 8px;
+            z-index: 20;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+        }
+        .notes-history-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #737373;
+            margin-bottom: 4px;
+        }
+        .notes-history-list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+        .notes-hist-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 6px;
+            border-radius: 7px;
+            text-align: left;
+            width: 100%;
+        }
+        .notes-hist-row:hover { background: rgba(255, 255, 255, 0.06); }
+        .notes-hist-time { font-size: 10px; color: #737373; flex-shrink: 0; width: 52px; }
+        .notes-hist-prev { font-size: 11px; color: #d4d4d4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .notes-hist-empty { font-size: 11px; color: #525252; padding: 6px; }
+
+        /* ── Quick Launch Enhanced ────────────────────────────────────────── */
+        .quick-launch-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .quick-launch-controls.hidden, .quick-launch-folders.hidden { display: none; }
+        .quick-launch-folders {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        .ql-folder-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 11px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.03);
+            color: #a3a3a3;
+            font-size: 11px;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .ql-folder-tab:hover { background: rgba(255, 255, 255, 0.07); color: #e5e5e5; }
+        .ql-folder-tab.active {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.22);
+            color: #fff;
+        }
+        .ql-folder-count {
+            font-size: 9px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 999px;
+            padding: 1px 6px;
+            color: #d4d4d4;
+        }
+        .ql-folder-add {
+            width: 26px;
+            height: 26px;
+            border-radius: 999px;
+            border: 1px dashed rgba(255, 255, 255, 0.18);
+            color: #a3a3a3;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .ql-folder-add:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+        .ql-ctrl-btn, .ql-profile-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.04);
+            color: #d4d4d4;
+            font-size: 11px;
+            transition: background 0.15s, color 0.15s;
+        }
+        .ql-ctrl-btn:hover, .ql-profile-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+        .ql-profile-btn { color: #a5b4fc; }
+        .app-running-dot {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25), 0 0 8px rgba(16, 185, 129, 0.7);
+        }
+        /* Config-panel bits (Widget Library detail) */
+        .ql-panel-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.04);
+            color: #d4d4d4;
+            font-size: 11px;
+        }
+        .ql-panel-chip-add { color: #a3a3a3; cursor: pointer; }
+        .ql-panel-chip-add:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+        .ql-panel-chip-del {
+            color: #737373;
+            font-size: 10px;
+            line-height: 1;
+            margin-left: 2px;
+        }
+        .ql-panel-chip-del:hover { color: #fca5a5; }
+        .ql-panel-btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 7px 12px;
+            border-radius: 9px;
+            background: #262626;
+            color: #e5e5e5;
+            font-size: 12px;
+            transition: background 0.15s;
+        }
+        .ql-panel-btn:hover { background: #333; }
+        .ql-panel-profile {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 7px 10px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 9px;
+        }
+        .ql-panel-profile-del { color: #737373; }
+        .ql-panel-profile-del:hover { color: #fca5a5; }
+        .ql-prof-apps {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+        .ql-prof-app {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 12px;
+            color: #d4d4d4;
+            cursor: pointer;
+        }
+        .ql-prof-app input { accent-color: #6366f1; }
+
+        /* ── Volume Mixer widget ── */
+        .vol-mix-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .vol-mix-master .vol-mix-row {
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .vol-mix-mute {
+            width: 34px;
+            height: 34px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 9px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.04);
+            color: #d4d4d4;
+            font-size: 13px;
+            transition: color 0.15s, background 0.15s, border-color 0.15s;
+        }
+        .vol-mix-mute:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+        .vol-mix-mute.muted { color: #f87171; border-color: rgba(248, 113, 113, 0.35); }
+        .vol-mix-body { flex: 1; min-width: 0; }
+        .vol-mix-name {
+            font-size: 12px;
+            color: #e5e5e5;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .vol-mix-pct {
+            font-size: 11px;
+            color: #a3a3a3;
+            font-variant-numeric: tabular-nums;
+            flex-shrink: 0;
+        }
+        .vol-mix-slider {
+            width: 100%;
+            margin-top: 5px;
+            accent-color: #818cf8;
+            height: 4px;
+            cursor: pointer;
+        }
+        .vol-mix-slider.is-muted { accent-color: #6b7280; }
+
+        /* ── Game Mode widget ── */
+        .game-mode-widget-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.03);
+            color: #a3a3a3;
+            font-size: 11px;
+            transition: color 0.15s, background 0.15s, border-color 0.15s;
+        }
+        .game-mode-widget-chip:hover { color: #e5e5e5; background: rgba(255, 255, 255, 0.07); }
+        .game-mode-widget-chip.on {
+            color: #fff;
+            background: rgba(129, 140, 248, 0.18);
+            border-color: rgba(129, 140, 248, 0.45);
+        }
+
+        /* ── Discord Rich Presence live preview ── */
+        .drpc-prev-card {
+            background: #232428;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 12px;
+        }
+        .drpc-prev-header {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #b5bac1;
+            margin-bottom: 8px;
+        }
+        .drpc-prev-body { display: flex; gap: 12px; }
+        .drpc-prev-art { position: relative; flex-shrink: 0; }
+        .drpc-prev-large {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #5865f2, #404eed);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 22px;
+        }
+        .drpc-prev-large.drpc-prev-empty {
+            background: #1e1f22;
+            color: #4e5058;
+        }
+        .drpc-prev-small {
+            position: absolute;
+            right: -5px;
+            bottom: -5px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #1e1f22;
+            border: 3px solid #232428;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #b5bac1;
+            font-size: 12px;
+        }
+        .drpc-prev-text { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+        .drpc-prev-details { font-size: 13px; font-weight: 600; color: #fff; line-height: 1.3; }
+        .drpc-prev-state { font-size: 12px; color: #dbdee1; line-height: 1.3; margin-top: 1px; }
+        .drpc-prev-time { font-size: 12px; color: #b5bac1; line-height: 1.3; margin-top: 1px; font-variant-numeric: tabular-nums; }
+        .drpc-prev-btns { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+        .drpc-prev-btn {
+            text-align: center;
+            font-size: 13px;
+            font-weight: 500;
+            color: #fff;
+            background: #4e5058;
+            border-radius: 6px;
+            padding: 8px;
+        }
+
+        /* ── ValClips Quality mini widget ──
+           Themed to the launcher: neutral glass surfaces + the app's --accent for
+           primary actions, with fixed semantic colours (ok / warn / info) for
+           encode status, mirroring how the Video Editor and other widgets read. */
+        #valclips-panel {
+            --vq-ok: 74, 222, 128;      /* green  */
+            --vq-warn: 251, 191, 36;    /* amber  */
+            --vq-info: 138, 180, 248;   /* blue (matches VE waveforms) */
+        }
+        .vq-txt-ok { color: rgb(var(--vq-ok)); }
+        .vq-txt-warn { color: rgb(var(--vq-warn)); }
+        .vq-txt-teal { color: rgb(var(--vq-info)); }
+        .vq-txt-accent { color: var(--accent-solid); }
+        .vq-mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #d4d4d4; }
+        .vq-mono-strong { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; color: #e5e5e5; }
+
+        .vq-btn-primary {
+            font-size: 12px; font-weight: 500; padding: 8px 14px; border-radius: 12px;
+            background: var(--accent-solid); color: #0a0a0a; border: none; cursor: pointer;
+            transition: filter 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 0 14px rgba(var(--accent), 0.25);
+        }
+        .vq-btn-primary:hover { filter: brightness(1.08); box-shadow: 0 0 20px rgba(var(--accent), 0.4); }
+
+        .vq-link { font-size: 11px; color: #737373; cursor: pointer; background: none; border: none; padding: 0; transition: color 0.15s ease; }
+        .vq-link:hover { color: #d4d4d4; }
+        .vq-x { color: #737373; background: none; border: none; cursor: pointer; padding: 2px 6px; border-radius: 8px; font-size: 13px; line-height: 1; transition: all var(--dur-1) var(--ease-out); }
+        .vq-x:hover { color: #e5e5e5; background: rgba(255, 255, 255, 0.06); }
+
+        /* engine status card */
+        .vq-engine {
+            display: flex; align-items: center; gap: 10px; font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 10px 14px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .vq-engine-info { color: #a3a3a3; }
+        .vq-engine-ok { color: #d4d4d4; }
+        .vq-engine-warn { color: #e5c07b; border-color: rgba(var(--vq-warn), 0.3); background: rgba(var(--vq-warn), 0.06); }
+        .vq-engine-title { font-weight: 600; color: #e5e5e5; }
+        .vq-engine-sub { color: #737373; font-size: 11px; }
+        .vq-dot { width: 8px; height: 8px; border-radius: 50%; background: rgb(var(--vq-ok)); box-shadow: 0 0 8px rgba(var(--vq-ok), 0.6); }
+
+        .vq-bar { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+        .vq-bar-fill { height: 100%; border-radius: 99px; background: rgba(255, 255, 255, 0.35); transition: width 0.3s ease; }
+        .vq-bar-grad { background: linear-gradient(90deg, var(--accent-solid), rgba(var(--vq-info), 0.9)); }
+
+        /* segmented toggles */
+        .vq-seg-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #737373; }
+        .vq-seg-group { display: flex; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; }
+        .vq-seg-group-full { width: 100%; }
+        .vq-seg-group-full .vq-seg { flex: 1; }
+        .vq-seg {
+            padding: 6px 12px; font-size: 11px; font-weight: 600; color: #a3a3a3;
+            background: transparent; border: none; cursor: pointer; transition: all var(--dur-1) var(--ease-out); white-space: nowrap;
+        }
+        .vq-seg:hover { background: rgba(255, 255, 255, 0.05); color: #e5e5e5; }
+        .vq-seg-on { background: var(--accent-solid); color: #0a0a0a; }
+        .vq-seg-on:hover { background: var(--accent-solid); color: #0a0a0a; filter: brightness(1.05); }
+
+        /* drop zone */
+        .vq-dropzone {
+            border: 1px dashed rgba(255, 255, 255, 0.18); border-radius: 18px; padding: 26px 16px;
+            display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+            cursor: pointer; transition: all var(--dur-2) var(--ease-out); background: rgba(255, 255, 255, 0.015);
+        }
+        .vq-dropzone:hover { border-color: rgba(var(--accent), 0.4); background: rgba(var(--accent), 0.04); }
+        .vq-dropzone-over { border-color: var(--accent-solid); background: rgba(var(--accent), 0.08); box-shadow: inset 0 0 30px rgba(var(--accent), 0.08); }
+        .vq-dropzone-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+        .vq-dropzone-icon { font-size: 26px; color: #525252; }
+        .vq-dropzone-title { font-size: 13px; font-weight: 600; color: #d4d4d4; }
+        .vq-dropzone-sub { font-size: 11px; color: #737373; }
+
+        /* job rows */
+        .vq-job {
+            border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 12px 14px;
+            background: rgba(255, 255, 255, 0.025); transition: border-color 0.2s ease;
+        }
+        .vq-job:hover { border-color: rgba(255, 255, 255, 0.14); }
+        .vq-job-name { font-size: 13px; font-weight: 600; color: #f5f5f5; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .vq-job-note { margin-top: 2px; font-size: 11px; color: #737373; display: flex; align-items: center; gap: 4px; }
+        .vq-prog-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #737373; }
+        .vq-error-line { margin-top: 4px; font-size: 11px; color: rgba(248, 113, 113, 0.85); word-break: break-word; }
+
+        /* badges */
+        .vq-badge { display: inline-flex; align-items: center; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 7px; cursor: default; white-space: nowrap; }
+        .vq-badge-neutral { background: rgba(255, 255, 255, 0.08); color: #d4d4d4; }
+        .vq-badge-teal { background: rgba(var(--vq-info), 0.15); color: rgb(var(--vq-info)); }
+        .vq-badge-accent { background: rgba(var(--accent), 0.2); color: var(--accent-solid); }
+        .vq-badge-warn { background: rgba(var(--vq-warn), 0.18); color: rgb(var(--vq-warn)); }
+        .vq-badge-ok { background: rgba(var(--vq-ok), 0.15); color: rgb(var(--vq-ok)); }
+
+        /* full-process elapsed timer (live while busy) */
+        .vq-timer { display: inline-flex; align-items: center; font-size: 10px; color: rgb(var(--vq-info)); background: rgba(var(--vq-info), 0.12); padding: 2px 7px; border-radius: 7px; font-variant-numeric: tabular-nums; }
+
+        /* result summary */
+        .vq-result { margin-top: 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+        .vq-gauge { height: 6px; width: 96px; border-radius: 99px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+        .vq-gauge-fill { height: 100%; border-radius: 99px; }
+        .vq-gauge-ok { background: rgb(var(--vq-ok)); }
+        .vq-gauge-warn { background: rgb(var(--vq-warn)); }
+        .vq-gauge-accent { background: var(--accent-solid); }
+
+        /* checklist */
+        .vq-checklist { margin-top: 10px; border: 1px solid rgba(var(--vq-info), 0.2); background: rgba(var(--vq-info), 0.05); border-radius: 12px; padding: 8px 12px; }
+        .vq-checklist-toggle { width: 100%; text-align: left; font-size: 11px; font-weight: 600; color: rgb(var(--vq-info)); background: none; border: none; cursor: pointer; }
+        .vq-cl-list { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+        .vq-cl-item { display: flex; gap: 8px; font-size: 11px; color: #a3a3a3; }
+        .vq-cl-num { font-family: 'JetBrains Mono', monospace; color: rgb(var(--vq-info)); }
+        .vq-cl-title { font-weight: 600; color: #e5e5e5; }
+        .vq-cl-detail { color: #737373; }
+
+        /* analysis / quality detail */
+        .vq-detail { margin-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 12px; }
+        .vq-kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; }
+        .vq-kv-grid-4 { grid-template-columns: repeat(2, 1fr); }
+        @media (min-width: 640px) { .vq-kv-grid-4 { grid-template-columns: repeat(4, 1fr); } }
+        .vq-kv { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; }
+        .vq-kv > span:first-child { color: #737373; }
+        .vq-warns { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+        .vq-warn-line { font-size: 11px; color: rgb(var(--vq-warn)); }
+        .vq-plan { margin-top: 12px; }
+        .vq-plan-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #737373; }
+        .vq-plan-list { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; }
+        .vq-plan-list li { font-size: 11px; color: #a3a3a3; }
+        .vq-verdict { font-size: 13px; font-weight: 600; }
+        .vq-verdict-strong { color: #fff; }
+        .vq-cmd-row { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+        .vq-cmd { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(0, 0, 0, 0.4); border-radius: 10px; padding: 6px 12px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #737373; }
+
+        /* inline settings drawer */
+        .vq-settings { border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 12px 14px; background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column; gap: 12px; }
+        .vq-set-section { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #737373; margin-top: 4px; }
+        .vq-set-section:first-child { margin-top: 0; }
+        .vq-set-row { display: flex; align-items: center; gap: 16px; }
+        .vq-set-label { font-size: 13px; font-weight: 500; color: #d4d4d4; }
+        .vq-set-hint { margin-top: 2px; font-size: 11px; color: #737373; }
+        .vq-input { width: 160px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 6px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #e5e5e5; outline: none; }
+        .vq-input:focus { border-color: rgba(var(--accent), 0.5); }
+        .vq-range-wrap { display: flex; align-items: center; gap: 8px; }
+        .vq-range { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 99px; background: rgba(255, 255, 255, 0.15); outline: none; cursor: pointer; width: 140px; }
+        .vq-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent-solid); box-shadow: 0 0 6px rgba(var(--accent), 0.5); cursor: pointer; }
+
+        /* modal host */
+        .vq-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(6px); }
+        .vq-modal-card { width: 32rem; max-width: 92vw; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(20, 20, 22, 0.96); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); padding: 20px 22px; }
+        .vq-modal-title { font-size: 14px; font-weight: 700; color: #fff; }
+        .vq-modal-mono { margin-top: 8px; max-height: 10rem; overflow: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a3a3a3; word-break: break-all; }
+        .vq-modal-note { margin-top: 10px; font-size: 11px; color: #737373; }
+        .vq-modal-actions { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; }
+        .vq-check-list { margin-top: 12px; max-height: 16rem; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+        .vq-check-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; font-size: 12px; color: #d4d4d4; cursor: pointer; }
+        .vq-check-row:hover { background: rgba(255, 255, 255, 0.05); }
+
+        /* tune modal */
+        .vq-tune-card { width: 60rem; max-width: 94vw; max-height: 88vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+        .vq-tune-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+        .vq-tune-body { display: grid; grid-template-columns: 1fr; gap: 20px; padding: 20px; overflow-y: auto; min-height: 0; }
+        @media (min-width: 820px) { .vq-tune-body { grid-template-columns: 1fr 20rem; } }
+        .vq-tune-previews { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .vq-tune-pv-label { text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #737373; margin-bottom: 4px; }
+        .vq-tune-pv { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(0, 0, 0, 0.4); max-height: 52vh; }
+        .vq-tune-pv video { max-height: 100%; max-width: 100%; }
+        .vq-tune-pv-empty { position: absolute; font-size: 11px; color: #525252; }
+        .vq-shimmer { position: absolute; inset-inline: 0; top: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent-solid), transparent); background-size: 200% 100%; animation: vqShimmer 1.2s linear infinite; }
+        @keyframes vqShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        .vq-tune-sliders { display: flex; flex-direction: column; gap: 18px; }
+        .vq-slider-block .vq-range { width: 100%; margin-top: 8px; }
+        .vq-slider-head { display: flex; align-items: baseline; justify-content: space-between; font-size: 13px; font-weight: 600; color: #d4d4d4; }
+        .vq-mint { display: flex; align-items: flex-start; gap: 10px; font-size: 11px; color: #a3a3a3; }
+        .vq-tune-foot { display: flex; align-items: center; gap: 8px; padding: 16px 20px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+
+        /* compare modal (full-screen stage) */
+        .vq-cmp { position: fixed; inset: 0; z-index: 1; display: flex; flex-direction: column; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.9); }
+        .vq-cmp-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+        .vq-cmp-stage { position: relative; display: flex; align-items: center; justify-content: center; flex: 1; min-height: 0; overflow: hidden; padding: 16px; }
+        .vq-cmp-foot { display: flex; align-items: center; gap: 16px; padding: 12px 20px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+        .vq-cmp-wipe { position: relative; height: 100%; max-width: 100%; overflow: hidden; border-radius: 12px; }
+        .vq-cmp-wipe > video { height: 100%; width: 100%; object-fit: contain; }
+        .vq-cmp-overlay { position: absolute; inset: 0; overflow: hidden; }
+        .vq-cmp-overlay > video { height: 100%; width: 100%; object-fit: contain; }
+        .vq-cmp-divider { position: absolute; inset-block: 0; width: 2px; background: var(--accent-solid); box-shadow: 0 0 10px rgba(var(--accent), 0.8); pointer-events: none; }
+        .vq-cmp-side { display: flex; height: 100%; max-width: 100%; align-items: center; justify-content: center; gap: 8px; }
+        .vq-cmp-half { position: relative; height: 100%; overflow: hidden; border-radius: 12px; }
+        .vq-cmp-half > video { height: 100%; width: 100%; object-fit: contain; }
+        .vq-cmp-tag { position: absolute; top: 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.6); padding: 2px 8px; font-size: 10px; font-weight: 700; }
+        .vq-cmp-tag-l { left: 8px; }
+        .vq-cmp-tag-r { right: 8px; }
+
+        /* Widget Library — active state for the hide-info (eye) toggle */
+        .widget-info-toggle-on { color: var(--accent-solid); }
+        .widget-info-toggle-on:hover { color: var(--accent-solid); filter: brightness(1.1); }
+
+        /* ─────────────────────────────────────────────────────────────────────
+           Bluetooth Manager — radio power card, switch, device rows, favourites
+           ───────────────────────────────────────────────────────────────────── */
+        .bt-radio { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.08); transition: background .2s, border-color .2s; }
+        .bt-radio-on { background: linear-gradient(135deg, rgba(37, 99, 235, 0.16), rgba(37, 99, 235, 0.05)); border-color: rgba(59, 130, 246, 0.35); }
+        .bt-radio-off { background: rgba(255, 255, 255, 0.03); }
+        .bt-radio-glyph { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; font-size: 15px; flex-shrink: 0; }
+        .bt-radio-on .bt-radio-glyph { background: rgba(59, 130, 246, 0.22); color: #93c5fd; box-shadow: 0 0 14px rgba(59, 130, 246, 0.35); }
+        .bt-radio-off .bt-radio-glyph { background: rgba(255, 255, 255, 0.06); color: #737373; }
+
+        .bt-switch { position: relative; width: 42px; height: 24px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.12); cursor: pointer; flex-shrink: 0; transition: background .2s, border-color .2s; }
+        .bt-switch-knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #e5e5e5; transition: transform .2s ease, background .2s; }
+        .bt-switch-on { background: rgba(37, 99, 235, 0.9); border-color: rgba(59, 130, 246, 0.7); }
+        .bt-switch-on .bt-switch-knob { transform: translateX(18px); background: #fff; }
+
+        .bt-device { transition: border-color .2s, background .2s; }
+        .bt-device-on { border-color: rgba(59, 130, 246, 0.28); background: rgba(37, 99, 235, 0.06); }
+        .bt-icon { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; background: rgba(255, 255, 255, 0.05); font-size: 13px; flex-shrink: 0; }
+        .bt-dot { width: 6px; height: 6px; border-radius: 50%; background: #525252; display: inline-block; }
+        .bt-dot-on { background: #3b82f6; box-shadow: 0 0 6px rgba(59, 130, 246, 0.8); }
+
+        .bt-iconbtn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); color: #a3a3a3; transition: all var(--dur-1) var(--ease-out); cursor: pointer; }
+        .bt-iconbtn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+        .bt-iconbtn:disabled { opacity: .4; cursor: default; }
+        .bt-iconbtn-danger:hover { background: rgba(153, 27, 27, 0.4); border-color: rgba(185, 28, 28, 0.5); color: #f87171; }
+        .bt-fav-on { color: #fbbf24; border-color: rgba(251, 191, 36, 0.35); background: rgba(251, 191, 36, 0.1); }
+        .bt-fav-on:hover { color: #fbbf24; }
+        .bt-toggle-on { color: var(--accent-solid) !important; border-color: rgba(var(--accent), 0.5) !important; background: rgba(var(--accent), 0.12) !important; }
+
+        .bt-search { position: relative; display: flex; align-items: center; }
+        .bt-search > i { position: absolute; left: 11px; font-size: 11px; color: #737373; pointer-events: none; }
+        .bt-search input { width: 100%; padding: 7px 30px 7px 30px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); color: #e5e5e5; font-size: 12px; outline: none; transition: border-color .2s; }
+        .bt-search input:focus { border-color: rgba(var(--accent), 0.5); }
+        .bt-search-clear { position: absolute; right: 8px; width: 20px; height: 20px; border-radius: 6px; color: #737373; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .bt-search-clear:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+
+        /* ─────────────────────────────────────────────────────────────────────
+           File Search — voidtools "Everything"-style panel
+           ───────────────────────────────────────────────────────────────────── */
+        .fs-root { display: flex; flex-direction: column; gap: 8px; }
+        .fs-searchbar { position: relative; display: flex; align-items: center; }
+        .fs-search-icon { position: absolute; left: 12px; font-size: 12px; color: #737373; pointer-events: none; }
+        #fs-input { width: 100%; padding: 9px 34px 9px 32px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #f5f5f5; font-size: 13px; outline: none; transition: border-color .2s, box-shadow .2s; }
+        #fs-input:focus { border-color: rgba(var(--accent), 0.6); box-shadow: 0 0 0 3px rgba(var(--accent), 0.12); }
+        .fs-clear { position: absolute; right: 9px; width: 22px; height: 22px; border-radius: 7px; color: #737373; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .fs-clear:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+
+        .fs-statusbar { font-size: 11px; color: #a3a3a3; }
+        .fs-status-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .fs-status-left { display: flex; align-items: center; min-width: 0; }
+        .fs-status-sub { font-size: 10px; color: #6b6b6b; margin-top: 3px; }
+
+        .fs-btn { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: #d4d4d4; font-size: 11px; font-weight: 500; cursor: pointer; transition: all var(--dur-1) var(--ease-out); white-space: nowrap; }
+        .fs-btn:hover { background: rgba(255, 255, 255, 0.09); color: #fff; }
+        .fs-btn-active { color: var(--accent-solid); border-color: rgba(var(--accent), 0.5); background: rgba(var(--accent), 0.12); }
+        .fs-btn-primary { background: rgba(var(--accent), 0.18); border-color: rgba(var(--accent), 0.45); color: var(--accent-solid); }
+        .fs-btn-primary:hover { background: rgba(var(--accent), 0.28); color: #fff; }
+        .fs-btn-danger { color: #f87171; border-color: rgba(185, 28, 28, 0.4); background: rgba(153, 27, 27, 0.2); }
+        .fs-btn-danger:hover { background: rgba(153, 27, 27, 0.4); color: #fff; }
+
+        .fs-settings { padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); }
+        .fs-settings-label { font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: #737373; margin-bottom: 6px; }
+        .fs-chips { display: flex; flex-direction: column; gap: 5px; }
+        .fs-chip { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.07); font-size: 11px; color: #d4d4d4; }
+        .fs-chip .truncate { flex: 1; min-width: 0; }
+        .fs-chip-x { flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px; color: #737373; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .fs-chip-x:hover { color: #f87171; background: rgba(153, 27, 27, 0.3); }
+        .fs-check { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #a3a3a3; cursor: pointer; }
+        .fs-check input { accent-color: var(--accent-solid); width: 14px; height: 14px; }
+
+        .fs-results { border-radius: 12px; overflow: hidden; }
+        .fs-results-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 2px 8px; font-size: 10px; color: #737373; }
+        .fs-sort { display: flex; align-items: center; gap: 3px; }
+        .fs-sort-btn { padding: 3px 7px; border-radius: 6px; font-size: 10px; color: #a3a3a3; background: transparent; border: 1px solid transparent; cursor: pointer; transition: all var(--dur-1) var(--ease-out); }
+        .fs-sort-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+        .fs-sort-active { color: var(--accent-solid); border-color: rgba(var(--accent), 0.4); background: rgba(var(--accent), 0.1); }
+
+        .fs-rows { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; padding-right: 2px; }
+        .fs-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; border: 1px solid transparent; cursor: default; transition: background .12s, border-color .12s; }
+        .fs-row:hover { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.08); }
+        .fs-row-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); color: #93c5fd; font-size: 13px; flex-shrink: 0; }
+        .fs-row-name { font-size: 12px; color: #e5e5e5; }
+        .fs-row-path { font-size: 10px; color: #6b6b6b; }
+        .fs-row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-size: 10px; color: #737373; flex-shrink: 0; text-align: right; min-width: 60px; }
+        .fs-row-actions { display: flex; align-items: center; gap: 3px; flex-shrink: 0; opacity: 0; transition: opacity .12s; }
+        .fs-row:hover .fs-row-actions { opacity: 1; }
+        .fs-iconbtn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); color: #a3a3a3; cursor: pointer; transition: all var(--dur-1) var(--ease-out); }
+        .fs-iconbtn:hover { background: rgba(var(--accent), 0.2); border-color: rgba(var(--accent), 0.4); color: #fff; }
+
+        .fs-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 28px 16px; text-align: center; color: #6b6b6b; }
+        .fs-empty > i { font-size: 22px; opacity: .5; }
+        .fs-empty > p { font-size: 12px; }
+        .fs-hint { font-size: 10px; color: #525252; line-height: 1.7; }
+        .fs-hint code { background: rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 1px 5px; color: #a3a3a3; font-size: 10px; }
+
+        /* ─────────────────────────────────────────────────────────────────────
+           Shared loading system — reusable across every widget
+           · .load-bar        indeterminate sweep (unknown duration/total)
+           · .app-progress-*  determinate fill with smooth easing + travelling sheen
+           · .load-ring       lightweight ring spinner (nicer than a bare glyph)
+           ───────────────────────────────────────────────────────────────────── */
+
+        /* Indeterminate: a segment sweeps left→right forever. Just markup a bare
+           <div class="load-bar"></div> — no inner element needed. */
+        .load-bar { position: relative; height: 4px; border-radius: 99px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+        .load-bar::after {
+            content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; border-radius: 99px;
+            background: linear-gradient(90deg, transparent, rgba(var(--accent), 0.65), var(--accent-solid), rgba(var(--accent), 0.65), transparent);
+            box-shadow: 0 0 10px rgba(var(--accent), 0.35);
+            /* Animate transform (compositor-only), not `left`, so the sweep
+               never triggers layout while it loops. -100%/250% of the 40%-wide
+               segment reproduce the old left:-40%→100% travel exactly. */
+            will-change: transform;
+            transform: translateX(-100%);
+            animation: loadBarSweep 1.15s cubic-bezier(0.45, 0, 0.35, 1) infinite;
+        }
+        @keyframes loadBarSweep {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(250%); }
+        }
+
+        /* Determinate: accent gradient, glow, smooth width easing, and a soft sheen
+           that travels while the bar is on screen so progress always feels alive. */
+        .app-progress-track { position: relative; height: 100%; border-radius: 99px; background: rgba(255, 255, 255, 0.08); overflow: hidden; box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.35); }
+        .app-progress-fill {
+            position: relative; height: 100%; border-radius: 99px; overflow: hidden;
+            background: linear-gradient(90deg, rgba(var(--accent), 0.75), var(--accent-solid));
+            box-shadow: 0 0 8px rgba(var(--accent), 0.35);
+            transition: width 0.35s var(--ease-out);
+        }
+        .app-progress-fill::after {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+            transform: translateX(-100%);
+            animation: appProgSheen 1.5s ease-in-out infinite;
+        }
+        /* Freeze the sheen at 100% (finished) so a completed bar reads as "done", not busy. */
+        .app-progress-fill.is-complete::after { animation: none; opacity: 0; }
+        @keyframes appProgSheen {
+            0% { transform: translateX(-100%); }
+            60%, 100% { transform: translateX(100%); }
+        }
+
+        /* Ring spinner — set font-size/color on the element; it sizes from that. */
+        .load-ring { display: inline-block; width: 1em; height: 1em; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.18); border-top-color: var(--accent-solid); animation: loadRingSpin 0.7s linear infinite; vertical-align: -0.15em; }
+        @keyframes loadRingSpin { to { transform: rotate(360deg); } }
+
+        /* ─────────────────────────────────────────────────────────────────────
+           Claude Limit Auto-Continue widget
+           ───────────────────────────────────────────────────────────────────── */
+        .cl-root { display: flex; flex-direction: column; gap: 12px; }
+        .cl-section { display: flex; flex-direction: column; gap: 4px; }
+        .cl-label { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: #737373; }
+        .cl-hint { font-size: 10px; color: #6b6b6b; }
+        .cl-select, .cl-input, .cl-textarea { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #e5e5e5; border-radius: 9px; font-size: 12px; outline: none; transition: border-color .2s; }
+        .cl-select { flex: 1; min-width: 0; padding: 7px 8px; }
+        .cl-select:focus, .cl-input:focus, .cl-textarea:focus { border-color: rgba(var(--accent), 0.55); }
+        .cl-select option { background: #171717; color: #e5e5e5; }
+        .cl-input { padding: 6px 8px; }
+        .cl-input-num { width: 68px; }
+        .cl-textarea { padding: 8px 10px; width: 100%; resize: vertical; line-height: 1.5; font-family: inherit; }
+        .cl-check { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #a3a3a3; cursor: pointer; }
+        .cl-check input { accent-color: var(--accent-solid); width: 13px; height: 13px; }
+
+        .cl-btn { display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border-radius: 8px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: #d4d4d4; font-size: 11px; font-weight: 500; cursor: pointer; transition: all var(--dur-1) var(--ease-out); white-space: nowrap; }
+        .cl-btn:hover { background: rgba(255, 255, 255, 0.09); color: #fff; }
+        .cl-btn:disabled { opacity: .4; cursor: default; }
+        .cl-btn-primary { background: rgba(var(--accent), 0.18); border-color: rgba(var(--accent), 0.45); color: var(--accent-solid); }
+        .cl-btn-primary:hover:not(:disabled) { background: rgba(var(--accent), 0.28); color: #fff; }
+        .cl-btn-danger { color: #f87171; border-color: rgba(185, 28, 28, 0.4); background: rgba(153, 27, 27, 0.2); }
+        .cl-btn-danger:hover { background: rgba(153, 27, 27, 0.4); color: #fff; }
+
+        .cl-status { margin-top: 2px; }
+        .cl-idle, .cl-armed { padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.03); }
+        .cl-armed { border-color: rgba(var(--accent), 0.35); background: linear-gradient(135deg, rgba(var(--accent), 0.14), rgba(var(--accent), 0.04)); }
+        .cl-armed-row { display: flex; align-items: center; gap: 10px; }
+        .cl-armed-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-solid); box-shadow: 0 0 8px rgba(var(--accent), 0.7); animation: livePulse 2s ease-in-out infinite; flex-shrink: 0; }
+        .cl-armed-title { font-size: 12px; color: #f5f5f5; }
+        .cl-armed-title span { color: var(--accent-solid); font-variant-numeric: tabular-nums; }
+        .cl-armed-sub { font-size: 10px; color: #8b8b8b; }

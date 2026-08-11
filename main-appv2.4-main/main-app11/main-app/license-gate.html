@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Unlock main</title>
+  <style>
+    :root { --accent: 255, 255, 255; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
+      font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; color: #fff; user-select: none; }
+
+    /* Shell scales + fades in on load. */
+    .shell {
+      position: relative; height: 100vh; border-radius: 22px; overflow: hidden;
+      background: rgba(8, 8, 8, 0.9); backdrop-filter: blur(48px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 0 70px rgba(var(--accent), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      display: flex; flex-direction: column;
+      animation: shellIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    @keyframes shellIn { from { opacity: 0; transform: scale(0.965); } to { opacity: 1; transform: scale(1); } }
+
+    /* ── Animated background ── */
+    .bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+    .scene { position: absolute; inset: 0;
+      background:
+        radial-gradient(ellipse 80% 55% at 50% -5%, rgba(255,255,255,0.07), transparent 60%),
+        radial-gradient(ellipse 55% 45% at 80% 105%, rgba(255,255,255,0.04), transparent 55%); }
+    .blob { position: absolute; border-radius: 50%; filter: blur(46px); will-change: transform; opacity: 0.9; }
+    .blob-a { width: 260px; height: 260px; top: -70px; left: -60px;
+      background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.07), transparent 70%);
+      animation: blobA 20s ease-in-out infinite alternate; }
+    .blob-b { width: 240px; height: 240px; bottom: -80px; right: -60px;
+      background: radial-gradient(circle at 50% 50%, rgba(150,180,255,0.06), transparent 70%);
+      animation: blobB 26s ease-in-out infinite alternate; }
+    .blob-c { width: 200px; height: 200px; top: 40%; left: 45%;
+      background: radial-gradient(circle at 50% 50%, rgba(180,150,255,0.05), transparent 70%);
+      animation: blobC 30s ease-in-out infinite alternate; }
+    @keyframes blobA { from { transform: translate(0,0) scale(1); } to { transform: translate(40px, 50px) scale(1.15); } }
+    @keyframes blobB { from { transform: translate(0,0) scale(1.1); } to { transform: translate(-40px, -40px) scale(0.92); } }
+    @keyframes blobC { from { transform: translate(0,0) scale(0.95); } to { transform: translate(-30px, 30px) scale(1.12); } }
+    .grid { position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px);
+      background-size: 44px 44px;
+      -webkit-mask-image: radial-gradient(ellipse 65% 65% at 50% 45%, black 15%, transparent 80%);
+      mask-image: radial-gradient(ellipse 65% 65% at 50% 45%, black 15%, transparent 80%);
+      animation: gridDrift 26s linear infinite; }
+    @keyframes gridDrift { from { transform: translateY(0); } to { transform: translateY(44px); } }
+
+    /* ── Title bar ── */
+    .titlebar { -webkit-app-region: drag; display: flex; justify-content: flex-end; gap: 8px;
+      padding: 12px 12px 0; position: relative; z-index: 3; }
+    .winbtn { -webkit-app-region: no-drag; width: 28px; height: 28px; border-radius: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.04); color: #aaa;
+      cursor: pointer; font-size: 13px; line-height: 1; transition: all .15s ease; }
+    .winbtn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; border-color: rgba(255, 255, 255, 0.25); }
+
+    /* ── Body ── */
+    .body { position: relative; z-index: 2; flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center; padding: 6px 34px 30px; }
+
+    /* Each element rises in, staggered by --d. */
+    .rise { opacity: 0; animation: rise 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-delay: calc(var(--d, 0) * 0.09s + 0.18s); }
+    @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Logo with spinning ring + breathing glow. */
+    .logo-wrap { position: relative; width: 84px; height: 84px; margin-bottom: 18px;
+      display: flex; align-items: center; justify-content: center; }
+    .logo-ring { position: absolute; inset: 0; border-radius: 50%;
+      background: conic-gradient(from 0deg, transparent 0 62%, rgba(var(--accent), 0.55) 78%, transparent 92%);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+      animation: spin 4.5s linear infinite; }
+    .logo-halo { position: absolute; width: 84px; height: 84px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(var(--accent), 0.28), transparent 68%);
+      animation: halo 3.2s ease-in-out infinite; }
+    .logo { position: relative; z-index: 1; width: 60px; height: 60px; border-radius: 17px; object-fit: cover;
+      border: 1px solid rgba(255, 255, 255, 0.12); background: #000;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.55); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes halo { 0%,100% { opacity: 0.4; transform: scale(0.94); } 50% { opacity: 0.9; transform: scale(1.06); } }
+
+    h1 { font-size: 23px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+    .sub { color: #9a9a9a; font-size: 13px; line-height: 1.55; margin: 8px 0 22px; max-width: 300px; }
+
+    .btn { -webkit-app-region: no-drag; width: 100%; border: none; border-radius: 14px; padding: 12px 16px;
+      font-size: 14px; font-weight: 500; cursor: pointer;
+      transition: transform .2s cubic-bezier(0.34,1.56,0.64,1), background .18s ease, box-shadow .2s ease, border-color .18s ease;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: #fff; color: #000; box-shadow: 0 4px 22px rgba(var(--accent), 0.14); }
+    .btn-primary:hover { background: #f0f0f0; transform: translateY(-1px); box-shadow: 0 6px 28px rgba(var(--accent), 0.22); }
+    .btn-ghost { background: rgba(255, 255, 255, 0.06); color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); }
+    .btn-ghost:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(var(--accent), 0.35);
+      box-shadow: 0 0 20px rgba(var(--accent), 0.08); }
+    .btn:disabled { opacity: .6; cursor: default; transform: none; }
+
+    .divider { display: flex; align-items: center; gap: 10px; width: 100%; color: #666; font-size: 11px;
+      letter-spacing: .08em; text-transform: uppercase; margin: 16px 0; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent); }
+
+    .field { -webkit-app-region: no-drag; width: 100%; }
+    input {
+      width: 100%; background: #0d0d0d; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px;
+      padding: 12px 14px; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 13px;
+      letter-spacing: .08em; text-align: center; text-transform: uppercase; outline: none; margin-bottom: 10px;
+      transition: border-color .18s ease, box-shadow .18s ease; }
+    input:focus { border-color: rgba(var(--accent), 0.55); box-shadow: 0 0 0 3px rgba(var(--accent), 0.08); }
+    input::placeholder { color: #555; letter-spacing: .05em; }
+
+    .msg { min-height: 16px; font-size: 12px; margin-top: 12px; transition: color .2s ease; }
+    .msg.err { color: #f87171; } .msg.ok { color: #34d399; }
+    .msg.show { animation: msgPop 0.3s ease; }
+    @keyframes msgPop { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+
+    .foot { position: absolute; bottom: 22px; left: 0; right: 0; font-size: 12px; color: #8a8a8a; }
+    .link { -webkit-app-region: no-drag; color: #d4d4d4; text-decoration: none; cursor: pointer;
+      border-bottom: 1px solid rgba(255,255,255,0.25); transition: color .15s ease, border-color .15s ease; }
+    .link:hover { color: #fff; border-color: #fff; }
+
+    .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(0,0,0,0.25);
+      border-top-color: #000; border-radius: 50%; animation: spin .7s linear infinite; }
+    .btn-ghost .spin { border: 2px solid rgba(255,255,255,0.25); border-top-color: #fff; }
+    .hidden { display: none !important; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .shell, .rise { animation: none !important; opacity: 1 !important; transform: none !important; }
+      .blob, .grid, .logo-ring, .logo-halo { animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="bg">
+      <div class="scene"></div>
+      <div class="blob blob-a"></div>
+      <div class="blob blob-b"></div>
+      <div class="blob blob-c"></div>
+      <div class="grid"></div>
+    </div>
+
+    <div class="titlebar">
+      <button class="winbtn" id="min" title="Minimize">&#8211;</button>
+      <button class="winbtn" id="quit" title="Quit">&#10005;</button>
+    </div>
+
+    <div class="body">
+      <div class="logo-wrap rise" style="--d:0">
+        <div class="logo-halo"></div>
+        <div class="logo-ring"></div>
+        <img class="logo" src="icons/logo.png" alt="main" onerror="this.style.display='none'" />
+      </div>
+      <h1 class="rise" style="--d:1">Unlock main</h1>
+      <p class="sub rise" style="--d:2">Sign in with the Google account you bought with, or enter your license key.</p>
+
+      <button class="btn btn-primary rise hidden" id="google" style="--d:3">
+        <span id="google-label">Continue with Google</span>
+      </button>
+
+      <div class="divider rise hidden" id="divider" style="--d:3">or enter your key</div>
+
+      <form class="field rise" id="keyform" style="--d:4">
+        <input id="key" type="text" placeholder="MAIN-XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" maxlength="24" />
+        <button class="btn btn-ghost" id="unlock" type="submit">Unlock</button>
+      </form>
+
+      <div class="msg" id="msg"></div>
+
+      <div class="foot rise" style="--d:5">
+        Don't have a license? <span class="link" id="buy">Get main — $5</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const msg = $('msg');
+    function setMsg(text, kind) {
+      msg.textContent = text || '';
+      msg.className = 'msg' + (kind ? ' ' + kind : '');
+      if (text) { msg.classList.add('show'); }
+    }
+    function busy(btn, on, label) {
+      btn.disabled = on;
+      if (on) { btn.dataset.prev = btn.innerHTML; btn.innerHTML = '<span class="spin"></span>' + (label ? ' ' + label : ''); }
+      else if (btn.dataset.prev) { btn.innerHTML = btn.dataset.prev; }
+    }
+
+    (async () => {
+      try {
+        const st = await window.licenseGate.getState();
+        if (st && st.googleAvailable) {
+          $('google').classList.remove('hidden');
+          $('divider').classList.remove('hidden');
+          if (st.email) $('google-label').textContent = 'Continue as ' + st.email;
+        }
+      } catch (e) { /* ignore */ }
+    })();
+
+    $('google').addEventListener('click', async () => {
+      setMsg('');
+      busy($('google'), true, 'Opening browser…');
+      try {
+        const r = await window.licenseGate.signInGoogle();
+        if (r && r.ok && r.purchased) { setMsg('Signed in — unlocking…', 'ok'); return; }
+        if (r && r.ok && !r.purchased) { setMsg('No purchase found on ' + (r.email || 'that account') + '.', 'err'); }
+        else { setMsg((r && r.error) || 'Sign-in failed.', 'err'); }
+      } catch (e) { setMsg('Sign-in failed.', 'err'); }
+      busy($('google'), false);
+    });
+
+    $('keyform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      setMsg('');
+      const key = $('key').value.trim();
+      if (!key) { setMsg('Enter your license key.', 'err'); return; }
+      busy($('unlock'), true, 'Checking…');
+      try {
+        const r = await window.licenseGate.submitKey(key);
+        if (r && r.valid) { setMsg('Verified — unlocking…', 'ok'); return; }
+        setMsg((r && r.error) || 'That key is not valid.', 'err');
+      } catch (e) { setMsg('Something went wrong.', 'err'); }
+      busy($('unlock'), false);
+    });
+
+    $('buy').addEventListener('click', () => window.licenseGate.buy());
+    $('min').addEventListener('click', () => window.licenseGate.minimize());
+    $('quit').addEventListener('click', () => window.licenseGate.quit());
+  </script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+# ── Dependencies ──────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+
+# ── Build output / caches ─────────────────────────────────────────────
+.next/
+**/.next/
+out/
+dist/
+**/dist/
+build/
+*.tsbuildinfo
+.turbo/
+.cache/
+
+# ── Secrets / environment ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# ── Vercel ────────────────────────────────────────────────────────────
+.vercel/
+**/.vercel/
+
+# ── Prisma local DB ───────────────────────────────────────────────────
+prisma/dev.db
+prisma/dev.db-journal
+**/*.sqlite
+**/*.sqlite-journal
+
+# ── Desktop app runtime / packaging artifacts ─────────────────────────
+**/license.json
+**/logs/
+*.log
+
+# ── Electron-builder heavy caches ─────────────────────────────────────
+**/win-unpacked/
+**/*.exe
+**/*.blockmap
+**/*.nsis.7z
+
+# ── OS / editor cruft ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

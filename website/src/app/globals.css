@@ -1,0 +1,729 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   "main" — website design system
+   Tokens are lifted from the desktop app's real stylesheet
+   (main-app11/main-app/styles/main.css + backgrounds.css). The app wins any
+   disagreement, so values here are copied, not approximated.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --glow-strength: 0.12;
+  --glow-spread: 40px;
+  /* Accent theme. Every "glow" surface references these instead of hardcoded
+     white, so one change re-tints the whole site (see AccentProvider).
+     --accent is bare R, G, B for rgba() composition; --accent-solid is the
+     same color as a value. Defaults ARE white: zero visual change until a
+     theme is picked. */
+  --accent: 255, 255, 255;
+  --accent-solid: #ffffff;
+  --bg-speed: 1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #080808;
+  /* Anchor jumps (#features, etc.) land below the fixed navbar instead of
+     under it; smooth-scroll is disabled again in the reduced-motion block. */
+  scroll-behavior: smooth;
+  scroll-padding-top: 6rem;
+}
+
+body {
+  font-family: var(--font-inter), "Inter", sans-serif;
+  color: #fff;
+  background: #080808;
+  margin: 0;
+  min-height: 100vh;
+  /* Never let the body scroll sideways — wide elements scroll in their own box. */
+  overflow-x: hidden;
+}
+
+/* ── Surfaces ────────────────────────────────────────────────────────── */
+
+.glass {
+  background: rgba(8, 8, 8, var(--glass-alpha, 0.88));
+  backdrop-filter: blur(48px);
+  -webkit-backdrop-filter: blur(48px);
+}
+
+.glow {
+  box-shadow:
+    0 0 var(--glow-spread) rgba(var(--accent), var(--glow-strength)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.glow-strong {
+  box-shadow:
+    0 0 calc(var(--glow-spread) * 1.5) rgba(var(--accent), calc(var(--glow-strength) * 1.8)),
+    0 0 80px rgba(var(--accent), calc(var(--glow-strength) * 0.5)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Smoothly transition the accent-driven surfaces when the picker changes,
+   so a swatch click re-tints (not snaps) the whole page. */
+.glow,
+.glow-strong,
+.section-label,
+.stat-bar,
+.ios-toggle-track {
+  transition:
+    box-shadow 0.5s ease,
+    background-color 0.5s ease,
+    border-color 0.5s ease,
+    color 0.5s ease;
+}
+
+/* ── Signature type ──────────────────────────────────────────────────── */
+
+.section-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  color: #666;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.display-type {
+  font-family: var(--font-display);
+  letter-spacing: -0.3px;
+  font-weight: 700;
+}
+
+/* ── Window / ghost buttons ──────────────────────────────────────────── */
+
+.window-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #aaa;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.window-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ── Hotkey pill (JetBrains Mono chip) ───────────────────────────────── */
+
+.hotkey-pill {
+  font-family: var(--font-jetbrains), "JetBrains Mono", monospace;
+  font-size: 11px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e5e5e5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.hotkey-pill:hover {
+  border-color: rgba(var(--accent), 0.35);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 16px rgba(var(--accent), 0.08);
+}
+
+/* ── iOS-style toggle (copied from the app) ──────────────────────────── */
+
+.ios-toggle {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 21px;
+  flex-shrink: 0;
+}
+
+.ios-toggle-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.ios-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  transition: background-color 0.25s ease;
+  pointer-events: none;
+}
+
+.ios-toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ios-toggle-input:checked + .ios-toggle-track {
+  background: rgba(var(--accent), 0.9);
+}
+
+.ios-toggle-input:checked + .ios-toggle-track::after {
+  transform: translateX(15px);
+  background: #111;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.ios-toggle-input:active + .ios-toggle-track::after {
+  width: 19px;
+}
+
+.ios-toggle-input:focus-visible + .ios-toggle-track {
+  outline: 2px solid rgba(var(--accent), 0.6);
+  outline-offset: 2px;
+}
+
+/* ── Animated accent nav underline ───────────────────────────────────── */
+
+.nav-underline {
+  position: relative;
+}
+
+.nav-underline::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 6px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: var(--accent-solid);
+  box-shadow: 0 0 8px rgba(var(--accent), 0.5);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.nav-underline:hover::after,
+.nav-underline--active::after {
+  transform: scaleX(1);
+}
+
+/* ── Progress / stat bars ────────────────────────────────────────────── */
+
+.stat-bar {
+  transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1), filter 0.4s ease,
+    box-shadow 0.4s ease;
+  background: linear-gradient(90deg, #444, var(--accent-solid));
+}
+
+.progress-track {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+  overflow: hidden;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.35);
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--accent-solid), rgba(var(--accent), 0.85));
+  box-shadow: 0 0 12px rgba(var(--accent), 0.4);
+  transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Pulsing "live" dot. */
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  box-shadow: 0 0 8px rgba(var(--accent), 0.6);
+  animation: livePulse 2.5s ease-in-out infinite;
+}
+
+/* ── Spinning ring around a badge (ringSpin, from the app) ───────────── */
+
+.spin-ring {
+  position: relative;
+}
+
+.spin-ring::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--accent), 0.4);
+  animation: ringSpin 8s linear infinite;
+}
+
+/* ── Hero app-window mock ────────────────────────────────────────────── */
+
+/* Load-in assembly: each piece rises/scales in with the app's easing.
+   Delays are set inline per element to stagger like the app's reveal-items. */
+.mock-item {
+  opacity: 0;
+  animation: fadeIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Quick Launch tile — accent border/glow lift on hover (app's .app-icon). */
+.launch-tile {
+  transition:
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    border-color 0.35s ease,
+    box-shadow 0.35s ease;
+}
+
+.launch-tile:hover {
+  transform: scale(1.12) translateY(-4px);
+  border-color: rgba(var(--accent), 0.35);
+  box-shadow: 0 0 30px rgba(var(--accent), 0.15),
+    inset 0 0 20px rgba(var(--accent), 0.04);
+}
+
+.vinyl-disk {
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.06);
+  filter: drop-shadow(0 0 3px rgba(var(--accent), 0.12))
+    drop-shadow(0 0 6px rgba(var(--accent), 0.06));
+}
+
+.beat-halo {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(var(--accent), 0.4) 0%,
+    rgba(var(--accent), 0.1) 42%,
+    transparent 72%
+  );
+  animation: beatPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes beatPulse {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.12);
+  }
+}
+
+/* Gentle idle float for the whole hero window. Desktop only: on touch/mobile
+   the continuous transform forces iOS to re-rasterise the scaled, glassy mock
+   every frame, which reads as flicker — so the phone gets a still window. */
+@media (min-width: 768px) {
+  .hero-float {
+    animation: heroFloat 9s ease-in-out infinite;
+  }
+}
+
+@keyframes heroFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* Mini-widget chip in the strip (app's .mini-widget-chip). */
+.mock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #d4d4d4;
+  font-size: 11px;
+  white-space: nowrap;
+  transition: border-color 0.25s ease, background 0.25s ease,
+    transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.mock-chip:hover {
+  border-color: rgba(var(--accent), 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateY(-2px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Background Studio layer stack (fixed, behind all content)
+   Mirrors main-app11/main-app/styles/{main,backgrounds}.css
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.bg-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.bg-scene {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 100%, rgba(255, 255, 255, 0.03), transparent 50%),
+    #080808;
+}
+
+.bg-blob {
+  position: absolute;
+  border-radius: 50%;
+  will-change: transform;
+  filter: blur(40px);
+}
+
+.bg-blob-a {
+  width: 70%;
+  height: 68%;
+  top: -14%;
+  left: -12%;
+  background: radial-gradient(circle at 50% 50%, rgba(var(--accent), 0.1), transparent 68%);
+  animation: bgBlobA calc(38s / var(--bg-speed)) ease-in-out infinite alternate;
+}
+
+.bg-blob-b {
+  width: 62%;
+  height: 64%;
+  bottom: -18%;
+  right: -10%;
+  background: radial-gradient(circle at 50% 50%, rgba(129, 140, 248, 0.1), transparent 68%);
+  animation: bgBlobB calc(47s / var(--bg-speed)) ease-in-out infinite alternate;
+}
+
+.bg-blob-c {
+  width: 55%;
+  height: 58%;
+  top: 28%;
+  left: 28%;
+  background: radial-gradient(circle at 50% 50%, rgba(34, 211, 238, 0.07), transparent 68%);
+  animation: bgBlobC calc(56s / var(--bg-speed)) ease-in-out infinite alternate;
+}
+
+.grid-overlay {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 20%, transparent 80%);
+  mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 20%, transparent 80%);
+  animation: gridDrift calc(24s / var(--bg-speed)) linear infinite;
+}
+
+.scanline {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.012) 2px,
+    rgba(255, 255, 255, 0.012) 4px
+  );
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 115% 100% at 50% 42%, transparent 52%, rgba(0, 0, 0, 0.62) 100%);
+}
+
+.grain {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  animation: bgGrainShift 0.7s steps(4) infinite;
+}
+
+/* ── Keyframes (match the app's easing) ─────────────────────────────── */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes modalPop {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes gridDrift {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(48px);
+  }
+}
+
+@keyframes pulseGlow {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes ringSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes livePulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bgBlobA {
+  from {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(28%, 20%) scale(1.22);
+  }
+  to {
+    transform: translate(10%, 38%) scale(0.95);
+  }
+}
+
+@keyframes bgBlobB {
+  from {
+    transform: translate(0, 0) scale(1.1);
+  }
+  50% {
+    transform: translate(-24%, -16%) scale(0.9);
+  }
+  to {
+    transform: translate(-8%, -34%) scale(1.18);
+  }
+}
+
+@keyframes bgBlobC {
+  from {
+    transform: translate(0, 0) scale(0.92);
+  }
+  50% {
+    transform: translate(-20%, 14%) scale(1.15);
+  }
+  to {
+    transform: translate(16%, -18%) scale(1);
+  }
+}
+
+@keyframes bgGrainShift {
+  0% {
+    background-position: 0 0;
+  }
+  25% {
+    background-position: -46px 32px;
+  }
+  50% {
+    background-position: 28px -58px;
+  }
+  75% {
+    background-position: -62px -20px;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+/* ── Scroll-reveal helper (IntersectionObserver toggles .is-visible) ──── */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(24px) scale(0.98);
+  will-change: opacity, transform;
+}
+
+.reveal.is-visible {
+  animation: fadeIn 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* modalPop variant — used for the pricing card revealing into view. */
+.reveal-pop {
+  opacity: 0;
+  transform: scale(0.9);
+  will-change: opacity, transform;
+}
+
+.reveal-pop.is-visible {
+  animation: modalPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* ── Legal prose ─────────────────────────────────────────────────────── */
+
+.legal-prose h2 {
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 1.75rem 0 0.6rem;
+}
+
+.legal-prose h2:first-child {
+  margin-top: 0;
+}
+
+.legal-prose p,
+.legal-prose li {
+  color: #a3a3a3;
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+.legal-prose p {
+  margin: 0 0 0.85rem;
+}
+
+.legal-prose ul {
+  margin: 0 0 0.85rem;
+  padding-left: 1.1rem;
+  list-style: disc;
+}
+
+.legal-prose li {
+  margin: 0.3rem 0;
+}
+
+.legal-prose a {
+  color: #d4d4d4;
+  text-decoration: underline;
+}
+
+.legal-prose a:hover {
+  color: #fff;
+}
+
+.legal-prose strong {
+  color: #e5e5e5;
+  font-weight: 600;
+}
+
+/* ── Accessibility ──────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid rgba(var(--accent), 0.7);
+  outline-offset: 2px;
+}
+
+/* Thin dark scrollbars to match the app chrome. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ── Mobile performance / iOS flicker guard ──────────────────────────── */
+@media (max-width: 767px) {
+  /* Heavy backdrop blur is costly and strobes on phones; a lighter blur keeps
+     the frosted look on chrome (nav, panels) without the jank. */
+  .glass {
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  /* The hero app-mock lives inside a transform:scale() stage — the classic iOS
+     combo that makes backdrop-filter flicker while scrolling. Drop the live
+     blur inside the mock and fake the glass with a solid translucent fill:
+     visually near-identical over the mock's dark scene, but rock-steady. */
+  .app-mock .glass {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(12, 12, 14, 0.9);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-blob,
+  .grid-overlay,
+  .grain,
+  .spin-ring::before,
+  .live-dot,
+  .beat-halo,
+  .reveal.is-visible,
+  .reveal-pop.is-visible {
+    animation: none !important;
+  }
+  .mock-item {
+    opacity: 1;
+    animation: none !important;
+  }
+  .hero-float,
+  .animate-spin-slow,
+  .animate-pulse {
+    animation: none !important;
+  }
+  html {
+    scroll-behavior: auto !important;
+  }
+  .reveal,
+  .reveal-pop {
+    opacity: 1;
+    transform: none;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}

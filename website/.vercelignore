@@ -1,0 +1,7 @@
+# Never upload local env files to Vercel — set real values in the Vercel
+# dashboard (Project → Settings → Environment Variables). A deployed .env would
+# ship secrets in the build and its placeholders would mask the dashboard vars.
+.env
+.env.local
+.env.development
+.env.production

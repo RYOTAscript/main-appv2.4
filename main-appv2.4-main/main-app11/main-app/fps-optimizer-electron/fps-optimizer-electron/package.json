@@ -1,0 +1,34 @@
+{
+  "name": "fps-optimizer",
+  "version": "3.0.2",
+  "description": "Windows FPS Optimizer — Electron Edition",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build-win": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.fpsoptimizer.app",
+    "productName": "FPS Optimizer",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "systeminformation": "^5.22.0"
+  }
+}

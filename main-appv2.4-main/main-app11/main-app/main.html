@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>main</title>
+    <link rel="stylesheet" href="styles/vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/backgrounds.css">
+    <!-- Tailwind must load LAST: the old CDN injected its styles at runtime after
+         all stylesheets, so utilities like `hidden` win equal-specificity ties
+         against component classes in main.css (e.g. .spotify-enhanced-widget). -->
+    <link rel="stylesheet" href="styles/vendor/tailwind.css">
+</head>
+
+<body class="h-screen flex items-center justify-center bg-transparent">
+    <div class="relative w-[920px] h-[640px] rounded-[32px] border border-white/10 shadow-2xl overflow-hidden glow-strong fade-in"
+        id="main-window">
+        <!-- Background Studio layer stack (see styles/backgrounds.css).
+             #bg-root is the parallax "far layer" and carries the effect filters. -->
+        <div id="bg-root" data-preset="mono">
+            <div id="bg-backdrop">
+                <video id="bg-live" class="bg-wallpaper" muted autoplay playsinline disablepictureinpicture></video>
+                <img id="bg-wallpaper" class="bg-wallpaper" alt="">
+            </div>
+            <div class="bg-scene"></div>
+            <div class="bg-blob bg-blob-a"></div>
+            <div class="bg-blob bg-blob-b"></div>
+            <div class="bg-blob bg-blob-c"></div>
+            <img id="bg-image" class="bg-media" alt="">
+            <video id="bg-video" class="bg-media" muted loop autoplay playsinline disablepictureinpicture></video>
+            <canvas id="bg-canvas"></canvas>
+        </div>
+        <div class="grid-overlay absolute inset-0 pointer-events-none"></div>
+        <div id="bg-vignette" class="absolute inset-0 pointer-events-none"></div>
+        <div id="bg-noise" class="absolute inset-0 pointer-events-none"></div>
+        <div class="scanline absolute inset-0 pointer-events-none"></div>
+        <div class="relative z-10 h-full flex flex-col" id="content-layer">
+
+            <!-- Header -->
+            <div class="header-drag flex items-center justify-between px-8 py-5 border-b border-white/10 select-none reveal-item">
+                <div class="flex items-center gap-3">
+                    <img src="icons/main.ico" class="w-9 h-9 rounded-2xl object-contain"
+                        onerror="this.outerHTML='<div class=\'w-9 h-9 bg-white rounded-2xl flex items-center justify-center text-xl font-bold text-black\'>M</div>'">
+                    <div>
+                        <h1 class="text-2xl font-semibold tracking-tight text-white">main</h1>
+                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.40.0</p>
+                    </div>
+                </div>
+                <div class="no-drag flex items-center gap-3 text-sm">
+                    <button id="timer-indicator" onclick="openTimerFromIndicator()"
+                        class="timer-indicator hidden" title="Countdown timer"></button>
+                    <div id="weather"
+                        class="flex items-center gap-2 tabular-nums font-mono text-neutral-400 text-sm mr-4 opacity-0 transition-opacity duration-500"
+                        data-tooltip="Loading weather…">
+                        <span id="weather-icon" class="text-neutral-500"></span>
+                        <span id="weather-temp">--°C</span>
+                    </div>
+                    <div id="clock" class="tabular-nums font-mono text-neutral-400 text-sm mr-2 flex items-center">
+                        <span id="clock-time"></span><span id="clock-seconds"></span><span id="clock-ampm"
+                            class="ml-1"></span>
+                    </div>
+                    <button onclick="openSettings()" class="window-btn" title="Settings"><i
+                            class="fas fa-cog text-xs"></i></button>
+                    <button onclick="minimizeWindow()" class="window-btn" title="Minimize"><i
+                            class="fas fa-minus text-xs"></i></button>
+                </div>
+            </div>
+
+            <!-- Quick Launch -->
+            <div class="px-8 pt-8">
+                <div class="flex items-center justify-between mb-5 reveal-item" style="animation-delay:0.08s">
+                    <h2 class="section-label">Quick Launch</h2>
+                    <!-- Enhanced controls (folders, profiles, detect games); populated
+                         by renderer/quick-launch.js only while the Quick Launch Enhanced
+                         mini widget is enabled. -->
+                    <div id="quick-launch-controls" class="quick-launch-controls hidden"></div>
+                </div>
+                <div id="quick-launch-folders" class="quick-launch-folders hidden"></div>
+                <div class="grid grid-cols-6 gap-6" id="apps-grid"></div>
+            </div>
+
+            <!-- Widgets -->
+            <div class="grid grid-cols-3 gap-5 px-8 mt-10" id="widgets-row">
+                <div id="widget-notes"
+                    class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow relative reveal-item"
+                    style="animation-delay:0.24s">
+                    <!-- Basic Quick Notes: a single scratch note bound to localStorage
+                         'main-notes'. Shown unless the Quick Notes Enhanced mini widget
+                         is enabled, which swaps in #notes-enhanced below. -->
+                    <div id="notes-basic">
+                        <h3 class="section-label mb-3">Quick Notes</h3>
+                        <div class="relative w-full h-[7.5rem]" onclick="document.getElementById('notes').focus()">
+                            <div id="placeholder"
+                                class="absolute top-0 left-0 text-xs text-neutral-600 transition-opacity duration-300 select-none z-0">
+                                start typing here...</div>
+                            <textarea id="notes"
+                                class="relative z-[1] w-full h-full bg-transparent resize-none focus:outline-none text-sm text-neutral-300 leading-relaxed"></textarea>
+                        </div>
+                    </div>
+                    <!-- Quick Notes Enhanced UI (tabs / checklist / markdown / history);
+                         populated by renderer/notes-enhanced.js only while enabled. -->
+                    <div id="notes-enhanced" class="notes-enhanced hidden"></div>
+                </div>
+
+                <div id="widget-performance" class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow reveal-item"
+                    style="animation-delay:0.32s">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="section-label">Performance</h3>
+                        <div id="stats-status" class="flex items-center gap-1.5 text-[10px] text-neutral-600 font-mono">
+                            <span class="perf-live-dot hidden" id="stats-live-dot"></span>
+                            <span id="stats-label">—</span>
+                        </div>
+                    </div>
+                    <div class="space-y-5 text-sm">
+                        <div>
+                            <div class="flex justify-between mb-1.5">
+                                <span class="text-neutral-500">CPU</span>
+                                <span id="cpu-val" class="stat-val text-white font-mono text-xs">—</span>
+                            </div>
+                            <div class="h-1 bg-neutral-800 rounded-full overflow-hidden">
+                                <div id="cpu-bar" class="stat-bar h-full rounded-full" style="width:0%"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between mb-1.5">
+                                <span class="text-neutral-500">RAM</span>
+                                <span id="ram-val" class="stat-val text-neutral-300 font-mono text-xs">—</span>
+                            </div>
+                            <div class="h-1 bg-neutral-800 rounded-full overflow-hidden">
+                                <div id="ram-bar" class="stat-bar h-full rounded-full opacity-80" style="width:0%">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="widget-spotify"
+                    class="widget-card glass border border-white/10 rounded-3xl p-5 h-52 glow flex flex-col items-center justify-center text-center relative overflow-hidden reveal-item"
+                    style="animation-delay:0.4s">
+                    <div class="absolute inset-0 bg-gradient-to-b from-white/[0.03] to-transparent pointer-events-none">
+                    </div>
+
+                    <!-- Idle / Not Connected -->
+                    <div id="spotify-idle" class="flex flex-col items-center justify-center z-10">
+                        <div class="spotify-ring mb-3 pulse-glow">
+                            <i class="fab fa-spotify text-2xl text-white/80"></i>
+                        </div>
+                        <h3 class="text-sm font-medium text-white mb-1">Spotify</h3>
+                        <p id="spotify-status-text" class="text-[11px] text-neutral-500">Not connected</p>
+                        <button id="spotify-connect-widget-btn" onclick="connectSpotify()"
+                            class="mt-2 px-3 py-1.5 bg-green-600/20 hover:bg-green-600/30 border border-green-600/50 rounded-lg text-[10px] text-green-400 transition-colors no-drag">Connect</button>
+                    </div>
+
+                    <!-- Loadup / Connecting — skeleton mirror of the active player,
+                         shown while authenticated and waiting for the first track
+                         payload (see showSpotifyLoading in spotify-widget.js). -->
+                    <div id="spotify-loading" class="hidden flex w-full h-full relative z-10">
+                        <!-- Left: lyrics panel skeleton -->
+                        <div class="spotify-skel-lyrics">
+                            <span class="spotify-skel-bar" style="width:70%;animation-delay:0s"></span>
+                            <span class="spotify-skel-bar" style="width:90%;animation-delay:.12s"></span>
+                            <span class="spotify-skel-bar" style="width:55%;animation-delay:.24s"></span>
+                        </div>
+                        <!-- Center: disk + info + controls + progress skeleton -->
+                        <div class="flex-1 flex flex-col items-center justify-center">
+                            <div class="relative w-24 h-24 flex items-center justify-center">
+                                <span class="spotify-skel-disk"></span>
+                                <div class="spotify-skel-trackinfo">
+                                    <span class="spotify-skel-bar" style="width:64px;animation-delay:.1s"></span>
+                                    <span class="spotify-skel-bar" style="width:44px;animation-delay:.2s"></span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2.5 mt-1">
+                                <span class="spotify-skel-dot" style="animation-delay:.15s"></span>
+                                <span class="spotify-skel-dot spotify-skel-dot-lg" style="animation-delay:.25s"></span>
+                                <span class="spotify-skel-dot" style="animation-delay:.35s"></span>
+                            </div>
+                            <div class="w-full px-3 mt-1.5">
+                                <div class="flex justify-between mb-0.5">
+                                    <span class="spotify-skel-bar" style="width:22px;height:8px;animation-delay:.2s"></span>
+                                    <span class="spotify-skel-bar" style="width:22px;height:8px;animation-delay:.3s"></span>
+                                </div>
+                                <span class="spotify-skel-bar spotify-skel-progress" style="animation-delay:.28s"></span>
+                            </div>
+                        </div>
+                        <!-- Right: vertical volume skeleton -->
+                        <div class="flex flex-col items-center justify-center pr-1 py-2">
+                            <span class="spotify-skel-volume" style="animation-delay:.3s"></span>
+                            <span class="spotify-skel-dot mt-1" style="width:8px;height:8px;animation-delay:.4s"></span>
+                        </div>
+                    </div>
+
+                    <!-- Active / Connected -->
+                    <div id="spotify-active" class="hidden flex w-full h-full relative z-10">
+                        <!-- Spotify Enhanced inline strip (Queue / Recent / Playlists),
+                             squeezed into the upper-right beside the vinyl. Only shown
+                             when the Spotify Enhanced mini widget is enabled. -->
+                        <div id="spotify-enhanced-widget" class="spotify-enhanced-widget hidden">
+                            <div class="spotify-ew-drag" id="spotify-ew-drag" title="Drag to move"><span></span><span></span><span></span></div>
+                            <div class="spotify-ew-tabs">
+                                <button type="button" class="spotify-ew-tab" data-ewtab="queue" onclick="spotifyEwSwitch('queue')" title="Queue"><i class="fas fa-list-ol"></i></button>
+                                <button type="button" class="spotify-ew-tab" data-ewtab="recent" onclick="spotifyEwSwitch('recent')" title="Recently played"><i class="fas fa-clock-rotate-left"></i></button>
+                                <button type="button" class="spotify-ew-tab" data-ewtab="playlists" onclick="spotifyEwSwitch('playlists')" title="Playlists"><i class="fas fa-list"></i></button>
+                            </div>
+                            <div id="spotify-ew-content" class="spotify-ew-content"></div>
+                        </div>
+
+                        <!-- Left: Lyrics Panel -->
+                        <div class="spotify-lyrics-panel" id="spotify-lyrics-panel">
+                            <div id="spotify-lyrics-lines"><div id="spotify-lyrics-window"></div></div>
+                            <button id="spotify-lyrics-expand-btn" class="spotify-lyrics-expand-btn no-drag" onclick="openLyricsModal()" title="Full lyrics">
+                                <i class="fas fa-expand text-[7px]"></i>
+                            </button>
+                        </div>
+
+                        <!-- Center: Disk + info -->
+                        <div class="flex-1 flex flex-col items-center justify-center">
+                            <div class="relative w-24 h-24 flex items-center justify-center spotify-disk-glow-wrapper">
+                                <canvas id="spotify-visualizer-canvas" class="spotify-visualizer-canvas"></canvas>
+                                <div id="spotify-beat-glow" class="beat-glow-halo"></div>
+                                <img id="spotify-disk" src="icons/player.png"
+                                    class="w-20 h-20 rounded-full object-cover vinyl-disk"
+                                    style="will-change: transform;"
+                                    onerror="this.style.display='none';this.parentElement.innerHTML+='<div class=\'w-20 h-20 rounded-full bg-neutral-800 flex items-center justify-center vinyl-disk\'><i class=\'fab fa-spotify text-3xl text-neutral-600\'></i></div>';">
+                                <img id="spotify-album-cover" src="" class="spotify-album-cover" style="display: none;">
+                                <div
+                                    class="absolute -top-1 right-0 bg-black/70 backdrop-blur-sm rounded-xl px-2 py-1 max-w-[120px] border border-white/10 z-10 spotify-track-info">
+                                    <p id="spotify-track"
+                                        class="text-[9px] text-white truncate font-medium leading-tight">—</p>
+                                    <p id="spotify-artist" class="text-[8px] text-neutral-400 truncate leading-tight">—
+                                    </p>
+                                </div>
+                            </div>
+                            <!-- Controls -->
+                            <div class="flex items-center gap-2.5 mt-1">
+                                <button id="spotify-prev-btn" onclick="spotifyControl('previous')"
+                                    class="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white transition-colors no-drag spotify-control-btn"
+                                    title=""><i class="fas fa-step-backward text-[9px]"></i></button>
+                                <button id="spotify-play-btn" onclick="spotifyTogglePlay()"
+                                    class="w-7 h-7 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors no-drag spotify-control-btn"
+                                    title=""><span class="morph-play-icon"><span class="morph-bar morph-bar-a"></span><span class="morph-bar morph-bar-b"></span></span></button>
+                                <button id="spotify-next-btn" onclick="spotifyControl('next')"
+                                    class="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white transition-colors no-drag spotify-control-btn"
+                                    title=""><i class="fas fa-step-forward text-[9px]"></i></button>
+                                <button id="spotify-like-btn" onclick="spotifyEnhancedToggleLike()"
+                                    class="hidden w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white transition-colors no-drag spotify-control-btn spotify-like-btn"
+                                    title="Like"><i class="far fa-heart text-[10px]"></i></button>
+                            </div>
+                            <!-- Progress -->
+                            <div class="w-full px-3 mt-1.5">
+                                <div class="flex justify-between text-[8px] text-neutral-500 mb-0.5 font-mono">
+                                    <span id="spotify-time-current">0:00</span>
+                                    <span id="spotify-time-total">0:00</span>
+                                </div>
+                                <div class="h-1 bg-neutral-800 rounded-full overflow-hidden spotify-progress-track">
+                                    <div id="spotify-progress-bar" class="h-full rounded-full spotify-progress-bar"
+                                        style="width:0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Right: Vertical volume -->
+                        <div class="flex flex-col items-center justify-center pr-1 py-2">
+                            <div class="spotify-volume-container spotify-volume-glow">
+                                <input type="range" id="spotify-volume" min="0" max="100" value="50"
+                                    class="spotify-volume-slider-v" oninput="spotifyVolumeSliderInput(this.value)">
+                            </div>
+                            <i id="spotify-vol-icon" class="fas fa-volume-low text-[8px] text-neutral-500 mt-1"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mini Widgets strip — favourites + enabled widgets only; everything
+                 else lives in the Widget Library (renderer/widget-library.js). -->
+            <div class="px-8 mt-5 reveal-item" style="animation-delay:0.46s" id="mini-widgets-section">
+                <div class="flex items-center justify-between mb-2.5">
+                    <h2 class="section-label">Mini Widgets</h2>
+                    <button type="button" onclick="openWidgetLibrary()"
+                        class="mini-widgets-browse-btn no-drag" title="Open the Widget Library">
+                        <i class="fas fa-shapes text-[10px]"></i><span>Browse Widgets</span>
+                    </button>
+                </div>
+                <div id="mini-widgets-strip" class="flex gap-2 overflow-x-auto mini-widgets-strip"></div>
+            </div>
+
+            <!-- FPS Optimizer Modal -->
+            <div id="fps-modal" class="hidden absolute inset-0 z-40 no-drag flex"
+                onclick="if(event.target.id === 'fps-modal') closeFpsOptimizer()">
+                <div class="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-none"></div>
+                <div class="absolute inset-0 flex flex-col pointer-events-auto" id="fps-modal-content">
+                    <!-- Header -->
+                    <div
+                        class="header-drag flex items-center justify-between px-8 py-5 border-b border-white/10 select-none">
+                        <div class="flex items-center gap-3">
+                            <div
+                                class="w-9 h-9 bg-white/10 rounded-2xl flex items-center justify-center text-lg font-bold">
+                                ⚡</div>
+                            <div>
+                                <h1 class="text-2xl font-semibold tracking-tight text-white">FPS Optimizer</h1>
+                                <p class="text-[10px] text-neutral-500 tracking-widest uppercase">Quick Tools</p>
+                            </div>
+                        </div>
+                        <button onclick="closeFpsOptimizer()" class="window-btn text-lg leading-none no-drag"
+                            title="Close">✕</button>
+                    </div>
+
+                    <!-- Main Content -->
+                    <div class="flex-1 flex overflow-hidden" id="fps-content">
+                        <!-- Center Area -->
+                        <div class="flex-1 flex flex-col px-8 py-6 overflow-y-auto">
+                            <div class="space-y-4">
+                                <div>
+                                    <p class="text-xs text-neutral-500 mb-2">Progress</p>
+                                    <div class="h-2 app-progress-track">
+                                        <div id="fps-progress-bar" class="app-progress-fill" style="width: 0%">
+                                        </div>
+                                    </div>
+                                    <p id="fps-progress-text" class="text-xs text-neutral-400 mt-2">Ready</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Side Panel -->
+                        <div class="w-56 border-l border-white/10 bg-gradient-to-b from-black/20 to-black/40 flex flex-col p-6 space-y-2"
+                            id="fps-side-panel">
+                            <div class="mb-4">
+                                <p class="text-xs text-neutral-500 uppercase tracking-widest font-medium">Quick Actions
+                                </p>
+                            </div>
+                            <button onclick="launchFpsAction('optimize')"
+                                class="px-4 py-3.5 bg-white/8 hover:bg-white/15 border border-white/12 rounded-xl text-sm font-medium text-white transition-all no-drag">Optimize</button>
+                            <button onclick="launchFpsAction('discord')"
+                                class="px-4 py-3.5 bg-white/8 hover:bg-white/15 border border-white/12 rounded-xl text-sm font-medium text-white transition-all no-drag">Discord
+                                Only</button>
+                            <button onclick="launchFpsAction('nuke')"
+                                class="px-4 py-3.5 bg-white/8 hover:bg-white/15 border border-white/12 rounded-xl text-sm font-medium text-white transition-all no-drag">Kill
+                                Everything</button>
+                            <button onclick="launchFpsAction('battery')"
+                                class="px-4 py-3.5 bg-white/8 hover:bg-white/15 border border-white/12 rounded-xl text-sm font-medium text-white transition-all no-drag">Battery
+                                Saver</button>
+                            <button onclick="launchFpsAction('revert')"
+                                class="px-4 py-3.5 bg-white/8 hover:bg-white/15 border border-white/12 rounded-xl text-sm font-medium text-white transition-all no-drag">Restore
+                                Defaults</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings (inside window so rounded corners stay) -->
+            <div id="settings-modal" class="hidden absolute inset-0 z-50 no-drag">
+                <div class="absolute inset-0 bg-black/75 backdrop-blur-md"></div>
+                <div class="absolute inset-0 flex items-center justify-center p-5 overflow-y-auto">
+                    <div
+                        class="settings-panel glass relative w-full max-w-[740px] rounded-3xl p-8 border border-white/10 glow modal-enter overflow-y-auto">
+                        <div class="flex justify-between mb-8">
+                            <div>
+                                <h2 class="text-2xl font-semibold">Settings</h2>
+                                <div class="flex items-center gap-2 mt-2">
+                                    <span class="settings-saved-dot" id="settings-saved-dot"></span>
+                                    <p id="settings-save-status" class="text-xs text-neutral-500">All changes saved
+                                        automatically</p>
+                                </div>
+                            </div>
+                            <button onclick="closeSettingsDone()" class="window-btn text-lg leading-none">✕</button>
+                        </div>
+
+                        <div class="settings-search-bar z-20 -mx-8 px-8 pb-4 mb-6">
+                            <div class="relative">
+                                <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 text-sm"></i>
+                                <input id="settings-search" type="text" placeholder="Search settings…"
+                                    oninput="filterSettings(this.value)"
+                                    class="w-full bg-neutral-900 border border-neutral-800 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-neutral-600">
+                            </div>
+                        </div>
+                        <p id="settings-search-empty" class="hidden text-sm text-neutral-500 mb-6">No settings match your search.</p>
+
+                        <div class="settings-group-label"><i class="fas fa-user"></i><span>Account</span></div>
+
+                        <div class="mb-10" id="account-section">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Your license</h3>
+                            <div class="account-card">
+                                <div class="account-head">
+                                    <div class="account-avatar" id="account-avatar"><span id="account-initial">M</span></div>
+                                    <div class="account-id">
+                                        <p class="account-name" id="account-name">Licensed</p>
+                                        <p class="account-mail" id="account-email">—</p>
+                                    </div>
+                                    <span class="account-badge" id="account-status">Active</span>
+                                </div>
+
+                                <label class="account-label">License key</label>
+                                <div class="account-key-row">
+                                    <code class="account-key" id="account-key">MAIN-••••-••••-••••-••••</code>
+                                    <button type="button" class="window-btn no-drag" onclick="copyLicenseKey()" title="Copy license key"><i class="fas fa-copy text-xs"></i></button>
+                                </div>
+                                <p class="account-meta" id="account-meta">—</p>
+
+                                <div class="account-actions">
+                                    <button type="button" class="account-btn no-drag" onclick="openAccountWebsite()">Manage account</button>
+                                    <button type="button" class="account-btn no-drag" id="account-recheck-btn" onclick="recheckLicense()">Re-check</button>
+                                    <button type="button" class="account-btn account-btn-danger no-drag" onclick="logoutAccount()">Log out</button>
+                                </div>
+                                <p class="account-status-msg" id="account-recheck-status"></p>
+                            </div>
+                        </div>
+
+                        <div class="settings-group-label"><i class="fas fa-table-cells-large"></i><span>Layout &amp; Apps</span></div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Pinned Apps <span
+                                    class="text-neutral-600 font-normal">— drag to reorder</span></h3>
+                            <div id="settings-apps" class="grid grid-cols-3 gap-4"></div>
+                        </div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Widgets</h3>
+                            <div class="space-y-3 text-sm">
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <span class="ios-toggle"><input type="checkbox" id="toggle-notes" class="ios-toggle-input" onchange="saveWidgetPrefs()"><span class="ios-toggle-track"></span></span>
+                                    <span>Show Quick Notes</span>
+                                </label>
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <span class="ios-toggle"><input type="checkbox" id="toggle-performance" class="ios-toggle-input" onchange="saveWidgetPrefs()"><span class="ios-toggle-track"></span></span>
+                                    <span>Show Performance</span>
+                                </label>
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <span class="ios-toggle"><input type="checkbox" id="toggle-spotify" class="ios-toggle-input" onchange="saveWidgetPrefs()"><span class="ios-toggle-track"></span></span>
+                                    <span>Show Spotify player</span>
+                                </label>
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <span class="ios-toggle"><input type="checkbox" id="toggle-lyrics" class="ios-toggle-input" onchange="saveLyricsPrefs()"><span class="ios-toggle-track"></span></span>
+                                    <span>Show Lyrics display</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Mini Widgets <span
+                                    class="text-neutral-600 font-normal text-xs">— browse, enable and configure widgets in the Widget Library</span></h3>
+                            <div id="mini-widgets-settings-list" class="space-y-3 text-sm"></div>
+                        </div>
+
+                        <div class="settings-group-label"><i class="fas fa-palette"></i><span>Look &amp; Feel</span></div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Appearance</h3>
+                            <label class="text-sm text-neutral-400 block mb-2">Glow intensity</label>
+                            <select id="glow-intensity" onchange="saveAppearance()"
+                                class="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neutral-500">
+                                <option value="low">Low</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                            </select>
+                            <label class="flex items-center gap-3 cursor-pointer text-sm mt-5">
+                                <span class="ios-toggle"><input type="checkbox" id="parallax-toggle" class="ios-toggle-input" onchange="saveParallaxPref()"><span class="ios-toggle-track"></span></span>
+                                <span>Parallax effect</span>
+                            </label>
+                            <p class="text-xs text-neutral-600 mt-2 leading-relaxed">The background drifts away from
+                                your cursor while the icons and widgets lean gently toward it, giving the window a
+                                subtle sense of depth. Text stays pixel-sharp. Off by default.</p>
+                        </div>
+
+                        <div class="mb-10" id="background-section">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Background <span
+                                    class="text-neutral-600 font-normal text-xs">— animated scenes, your own media, and effects</span></h3>
+
+                            <div id="bg-preset-gallery" class="bg-gallery"></div>
+                            <p class="text-xs text-neutral-600 mt-3 leading-relaxed">Pick a built-in animated scene,
+                                design your own with My Scene, or add your own image, GIF, or looping video. Your
+                                files are copied into the app's data folder, so they keep working even if the
+                                original moves. On the Transparent background, the Blur, Brightness, and
+                                Saturation sliders apply to a live view of whatever is really behind the window
+                                — your desktop, games, other apps — for a true frosted-glass look with rounded
+                                corners. Heads-up: while those effects are on, the app hides itself from
+                                screenshots and screen recordings (that's what makes the live view possible).</p>
+
+                            <div id="bg-diy-options" class="hidden mt-5 space-y-3">
+                                <h4 class="text-xs font-medium text-neutral-400">My Scene — pick your colors</h4>
+                                <div class="flex items-center gap-3 flex-wrap">
+                                    <input type="color" id="bg-diy-c1" class="bg-color-input" value="#22d3ee"
+                                        oninput="saveBgDiy()" title="Color 1">
+                                    <input type="color" id="bg-diy-c2" class="bg-color-input" value="#a78bfa"
+                                        oninput="saveBgDiy()" title="Color 2">
+                                    <input type="color" id="bg-diy-c3" class="bg-color-input" value="#f472b6"
+                                        oninput="saveBgDiy()" title="Color 3">
+                                    <label class="flex items-center gap-3 cursor-pointer text-sm ml-3">
+                                        <span class="ios-toggle"><input type="checkbox" id="bg-diy-blobs" class="ios-toggle-input" onchange="saveBgDiy()" checked><span class="ios-toggle-track"></span></span>
+                                        <span>Drifting color blobs</span>
+                                    </label>
+                                </div>
+                                <p class="text-xs text-neutral-600 leading-relaxed">Your three colors become an animated
+                                    scene — soft light pools plus, optionally, big drifting blobs. Changes apply live.</p>
+                            </div>
+
+                            <div id="bg-media-options" class="hidden mt-5">
+                                <h4 class="text-xs font-medium text-neutral-400 mb-2">Media fit</h4>
+                                <select id="bg-media-fit" onchange="saveBgMediaFit()"
+                                    class="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neutral-500">
+                                    <option value="cover" selected>Fill — crop to cover the window</option>
+                                    <option value="contain">Fit — show everything (letterboxed)</option>
+                                    <option value="fill">Stretch — distort to fill exactly</option>
+                                </select>
+                            </div>
+
+                            <div class="mt-6">
+                                <h4 class="text-xs font-medium text-neutral-400 mb-3">Accent theme</h4>
+                                <div id="bg-theme-row" class="bg-theme-row"></div>
+                                <p class="text-xs text-neutral-600 mt-3 leading-relaxed">Tints the app's glow — the
+                                    window halo, performance bars, sliders, toggles, music progress, and lyrics — to
+                                    match. Auto follows whichever background is active (for your own media it samples
+                                    the picture's dominant color, and on Transparent it watches the screen behind the
+                                    window and keeps re-tinting live), or pick any color with the eyedropper swatch.</p>
+                            </div>
+
+                            <div class="mt-6">
+                                <h4 class="text-xs font-medium text-neutral-400 mb-3">Text color</h4>
+                                <div id="bg-text-row" class="bg-theme-row"></div>
+                                <p class="text-xs text-neutral-600 mt-3 leading-relaxed">Recolors the app's text —
+                                    headings, labels, and values keep their light-to-dim hierarchy in your chosen
+                                    tint. Auto follows the accent theme, and any color you pick is automatically
+                                    brightened enough to stay readable. Colored buttons (like Spotify's green) are
+                                    left alone.</p>
+                            </div>
+
+                            <div class="mt-6 space-y-4">
+                                <h4 class="text-xs font-medium text-neutral-400">Background Effects</h4>
+
+                                <div class="bg-effect-row">
+                                    <span class="bg-effect-label">Blur</span>
+                                    <input type="range" id="bg-blur" min="0" max="40" step="1" value="0"
+                                        class="spotify-disk-speed-slider flex-1" oninput="saveBgControls()">
+                                    <span id="bg-blur-val" class="bg-effect-val">0px</span>
+                                </div>
+
+                                <div class="bg-effect-row">
+                                    <span class="bg-effect-label">Brightness</span>
+                                    <input type="range" id="bg-brightness" min="40" max="140" step="5" value="100"
+                                        class="spotify-disk-speed-slider flex-1" oninput="saveBgControls()">
+                                    <span id="bg-brightness-val" class="bg-effect-val">100%</span>
+                                </div>
+
+                                <div class="bg-effect-row">
+                                    <span class="bg-effect-label">Saturation</span>
+                                    <input type="range" id="bg-saturation" min="0" max="160" step="5" value="100"
+                                        class="spotify-disk-speed-slider flex-1" oninput="saveBgControls()">
+                                    <span id="bg-saturation-val" class="bg-effect-val">100%</span>
+                                </div>
+
+                                <div class="bg-effect-row">
+                                    <span class="bg-effect-label">Animation speed</span>
+                                    <input type="range" id="bg-speed" min="0.25" max="2" step="0.05" value="1"
+                                        class="spotify-disk-speed-slider flex-1" oninput="saveBgControls()">
+                                    <span id="bg-speed-val" class="bg-effect-val">1.0×</span>
+                                </div>
+
+                                <div class="bg-effect-row">
+                                    <span class="bg-effect-label">Panel glass</span>
+                                    <input type="range" id="bg-glass" min="40" max="96" step="1" value="88"
+                                        class="spotify-disk-speed-slider flex-1" oninput="saveBgControls()">
+                                    <span id="bg-glass-val" class="bg-effect-val">88%</span>
+                                </div>
+                                <p class="text-xs text-neutral-600 leading-relaxed">Panel glass sets how solid the
+                                    widget panels are — lower it for frosted, Apple-style glass that lets the
+                                    background glow through behind the blur.</p>
+
+                                <div class="grid grid-cols-2 gap-3 text-sm pt-1">
+                                    <label class="flex items-center gap-3 cursor-pointer">
+                                        <span class="ios-toggle"><input type="checkbox" id="bg-toggle-grain" class="ios-toggle-input" onchange="saveBgControls()"><span class="ios-toggle-track"></span></span>
+                                        <span>Film grain</span>
+                                    </label>
+                                    <label class="flex items-center gap-3 cursor-pointer">
+                                        <span class="ios-toggle"><input type="checkbox" id="bg-toggle-vignette" class="ios-toggle-input" onchange="saveBgControls()"><span class="ios-toggle-track"></span></span>
+                                        <span>Vignette</span>
+                                    </label>
+                                    <label class="flex items-center gap-3 cursor-pointer">
+                                        <span class="ios-toggle"><input type="checkbox" id="bg-toggle-grid" class="ios-toggle-input" onchange="saveBgControls()"><span class="ios-toggle-track"></span></span>
+                                        <span>Grid overlay</span>
+                                    </label>
+                                    <label class="flex items-center gap-3 cursor-pointer">
+                                        <span class="ios-toggle"><input type="checkbox" id="bg-toggle-scanlines" class="ios-toggle-input" onchange="saveBgControls()"><span class="ios-toggle-track"></span></span>
+                                        <span>Scanlines</span>
+                                    </label>
+                                </div>
+
+                                <button type="button" onclick="bgResetAll()"
+                                    class="mt-2 px-4 py-2 border border-neutral-700 rounded-xl hover:bg-neutral-800 text-xs transition-colors no-drag">Reset
+                                    background to default</button>
+                            </div>
+                        </div>
+
+                        <div class="settings-group-label"><i class="fas fa-sliders"></i><span>System</span></div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Behavior</h3>
+                            <label class="flex items-center gap-3 cursor-pointer text-sm mb-4">
+                                <span class="ios-toggle"><input type="checkbox" id="autostart" class="ios-toggle-input" onchange="toggleAutoStart(this.checked)"><span class="ios-toggle-track"></span></span>
+                                <span>Auto start on boot (show window)</span>
+                            </label>
+                            <label id="close-windows-startup-label">
+                                <span class="ios-toggle"><input type="checkbox" id="close-windows-startup" class="ios-toggle-input" onchange="toggleCloseWindowsStartup(this.checked)"><span class="ios-toggle-track"></span></span>
+                                <span>Minimize all other windows on boot — clears the desktop when main opens with Windows (not on manual launches)</span>
+                            </label>
+                            <h4 class="text-xs font-medium text-neutral-400 mb-2">Clock Format</h4>
+                            <div class="flex items-center gap-4 text-sm">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="radio" name="clock-format" value="12" class="accent-white"
+                                        onchange="saveClockFormat()" checked>
+                                    <span class="text-neutral-400 text-xs">12-hour (AM/PM)</span>
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="radio" name="clock-format" value="24" class="accent-white"
+                                        onchange="saveClockFormat()">
+                                    <span class="text-neutral-400 text-xs">24-hour (Military)</span>
+                                </label>
+                            </div>
+
+                            <h4 class="text-xs font-medium text-neutral-400 mb-2 mt-4">Weather Unit</h4>
+                            <div class="flex items-center gap-4 text-sm">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="radio" name="weather-unit" value="C" class="accent-white"
+                                        onchange="saveWeatherUnit()" checked>
+                                    <span class="text-neutral-400 text-xs">Celsius (°C)</span>
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="radio" name="weather-unit" value="F" class="accent-white"
+                                        onchange="saveWeatherUnit()">
+                                    <span class="text-neutral-400 text-xs">Fahrenheit (°F)</span>
+                                </label>
+                            </div>
+
+                            <h4 class="text-xs font-medium text-neutral-400 mb-2 mt-4">Display Monitor</h4>
+                            <select id="display-monitor-select" onchange="saveDisplayMonitor()"
+                                class="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neutral-500">
+                            </select>
+                            <p class="text-xs text-neutral-600 mt-1">Which monitor the window opens on. Applies immediately and is remembered on next launch.</p>
+                        </div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Hotkeys <span
+                                    class="text-neutral-600 font-normal text-xs">— click a key to change</span></h3>
+                            <div class="space-y-3 text-sm">
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Focus launcher</span>
+                                    <button type="button" id="hotkey-focus-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('focus')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Close app</span>
+                                    <button type="button" id="hotkey-close-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('close')"></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-group-label"><i class="fab fa-spotify"></i><span>Spotify</span></div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Spotify Integration</h3>
+
+                            <div class="space-y-3 text-sm">
+                                <div class="flex items-center gap-3">
+                                    <input type="text" id="spotify-client-id"
+                                        placeholder="Spotify Client ID (from developer.spotify.com)"
+                                        class="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-neutral-600">
+                                    <button onclick="saveSpotifyClientId()"
+                                        class="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-xl text-xs transition-colors no-drag">Save</button>
+                                </div>
+                                <p class="text-xs text-neutral-600">Create a free app at <span
+                                        class="text-neutral-400 cursor-pointer hover:text-white underline"
+                                        onclick="openSpotifyDev()">developer.spotify.com</span> and paste the Client ID
+                                    here. Add redirect URI: <code
+                                        class="text-neutral-300 bg-neutral-800 px-1 rounded">main-launcher://spotify-callback</code>
+                                </p>
+
+                                <div class="flex items-center gap-3 mt-2">
+                                    <button id="spotify-connect-btn" onclick="connectSpotify()"
+                                        class="px-4 py-2 bg-green-600/20 hover:bg-green-600/30 border border-green-600/50 rounded-xl text-xs text-green-400 transition-colors no-drag">Connect
+                                        to Spotify</button>
+                                    <button id="spotify-disconnect-btn" onclick="disconnectSpotify()"
+                                        class="hidden px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 rounded-xl text-xs text-red-400 transition-colors no-drag">Disconnect</button>
+                                </div>
+                                <p id="spotify-auth-status" class="text-xs text-neutral-500">Not authenticated</p>
+                            </div>
+
+                            <div class="mt-4 pt-4 border-t border-neutral-800">
+                                <h4 class="text-xs font-medium text-neutral-400 mb-2">Spotify Progress Timer Display
+                                </h4>
+                                <div class="flex items-center gap-4 text-sm">
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="radio" name="spotify-timer-mode" value="total" class="accent-white"
+                                            onchange="saveSpotifyTimerPref()" checked>
+                                        <span class="text-neutral-400 text-xs">Total duration</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="radio" name="spotify-timer-mode" value="remaining"
+                                            class="accent-white" onchange="saveSpotifyTimerPref()">
+                                        <span class="text-neutral-400 text-xs">Time remaining</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Spotify Hotkeys <span
+                                    class="text-neutral-600 font-normal text-xs">— click a key to change</span></h3>
+                            <div class="space-y-3 text-sm">
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Play</span>
+                                    <button type="button" id="hotkey-spotify-play-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyPlay')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Pause</span>
+                                    <button type="button" id="hotkey-spotify-pause-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyPause')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Skip track</span>
+                                    <button type="button" id="hotkey-spotify-next-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyNext')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Previous track</span>
+                                    <button type="button" id="hotkey-spotify-previous-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyPrevious')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Volume up</span>
+                                    <button type="button" id="hotkey-spotify-volume-up-btn" class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyVolumeUp')"></button>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <span class="text-neutral-400">Volume down</span>
+                                    <button type="button" id="hotkey-spotify-volume-down-btn"
+                                        class="hotkey-bind no-drag"
+                                        onclick="startHotkeyBind('spotifyVolumeDown')"></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-10">
+                            <button type="button" onclick="toggleSpotifyExtras()" id="spotify-extras-toggle"
+                                class="w-full flex items-center justify-between gap-3 mb-4 no-drag text-left">
+                                <h3 class="text-sm font-medium text-neutral-300">Spotify Extras <span
+                                        class="text-neutral-600 font-normal text-xs">— small quality-of-life features</span></h3>
+                                <i class="fas fa-chevron-down text-xs text-neutral-500 transition-transform duration-200"
+                                    id="spotify-extras-chevron"></i>
+                            </button>
+
+                            <div id="spotify-extras-content">
+                                <div class="space-y-3 text-sm">
+                                    <h4 class="text-xs font-medium text-neutral-400 mb-2">Sleep Timer</h4>
+                                    <div class="flex items-center gap-3">
+                                        <select id="spotify-sleep-timer-select"
+                                            class="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-neutral-600">
+                                            <option value="10">10 minutes</option>
+                                            <option value="15">15 minutes</option>
+                                            <option value="30" selected>30 minutes</option>
+                                            <option value="45">45 minutes</option>
+                                            <option value="60">60 minutes</option>
+                                            <option value="90">90 minutes</option>
+                                        </select>
+                                        <button type="button" id="spotify-sleep-timer-start-btn"
+                                            onclick="startSpotifySleepTimer()"
+                                            class="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-xl text-xs transition-colors no-drag">Start</button>
+                                        <button type="button" id="spotify-sleep-timer-cancel-btn"
+                                            onclick="cancelSpotifySleepTimer()"
+                                            class="hidden px-3 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 rounded-xl text-xs text-red-400 transition-colors no-drag">Cancel</button>
+                                    </div>
+                                    <p id="spotify-sleep-timer-status" class="text-xs text-neutral-500">Pauses playback
+                                        automatically after the selected time.</p>
+                                </div>
+
+                                <div class="mt-4 pt-4 border-t border-neutral-800">
+                                    <label class="flex items-center gap-3 cursor-pointer text-sm">
+                                        <span class="ios-toggle"><input type="checkbox" id="spotify-autoplay" class="ios-toggle-input" onchange="saveSpotifyPrefs()"><span class="ios-toggle-track"></span></span>
+                                        <span>Auto-play music when Spotify app opens</span>
+                                    </label>
+                                    <div id="spotify-delay-options" class="hidden mt-4 ml-7 space-y-2 text-sm">
+                                        <label class="flex items-center gap-3 cursor-pointer text-neutral-400">
+                                            <input type="radio" name="spotify-delay" value="2800" class="accent-white"
+                                                onchange="saveSpotifyPrefs()" checked>
+                                            <span>Play after 2.8 seconds</span>
+                                        </label>
+                                        <label class="flex items-center gap-3 cursor-pointer text-neutral-400">
+                                            <input type="radio" name="spotify-delay" value="5000" class="accent-white"
+                                                onchange="saveSpotifyPrefs()">
+                                            <span>Play after 5 seconds</span>
+                                        </label>
+                                    </div>
+                                    <p class="text-xs text-neutral-600 mt-2 leading-relaxed">Sends a system play key after
+                                        Spotify launches from Quick Launch.</p>
+                                </div>
+
+                                <div class="mt-4 pt-4 border-t border-neutral-800">
+                                    <h4 class="text-xs font-medium text-neutral-400 mb-2">Vinyl Disk Rotation Speed</h4>
+                                    <div class="flex items-center gap-3">
+                                        <input type="range" id="spotify-disk-speed" min="0.5" max="5.0" step="0.1" value="1.8"
+                                            class="spotify-disk-speed-slider flex-1" oninput="saveDiskSpeed()">
+                                        <span id="spotify-disk-speed-val" class="text-xs text-neutral-400 font-mono w-8 text-right">1.8</span>
+                                    </div>
+                                    <p class="text-xs text-neutral-600 mt-1">Adjust how fast the vinyl disk spins when music is playing.</p>
+                                </div>
+
+                                <div class="mt-4 pt-4 border-t border-neutral-800">
+                                    <label class="flex items-center gap-3 cursor-pointer text-sm">
+                                        <span class="ios-toggle"><input type="checkbox" id="spotify-beat-glow-checkbox" class="ios-toggle-input" onchange="saveSpotifyBeatGlowPref()" checked><span class="ios-toggle-track"></span></span>
+                                        <span>Beat-reactive glow on vinyl disk</span>
+                                    </label>
+                                        <p class="text-xs text-neutral-600 mt-2 leading-relaxed">Pulses the glow behind the disk on beats and loud hits, synced to Spotify playback. If Spotify beat data is unavailable, the app listens to your PC audio output instead.</p>
+                                    <div id="spotify-beat-glow-options" class="mt-4 ml-7">
+                                        <h4 class="text-xs font-medium text-neutral-400 mb-2">Beat Glow Intensity</h4>
+                                        <div class="flex items-center gap-3">
+                                            <input type="range" id="spotify-beat-glow-intensity" min="0.5" max="3" step="0.1" value="1"
+                                                class="spotify-disk-speed-slider flex-1" oninput="saveBeatGlowIntensity()">
+                                            <span id="spotify-beat-glow-intensity-val" class="text-xs text-neutral-400 font-mono w-10 text-right">100%</span>
+                                        </div>
+                                        <p class="text-xs text-neutral-600 mt-1">Crank this up if the pulse is hard to see.</p>
+                                        <p id="spotify-beat-status" class="text-xs text-neutral-500 mt-2 font-mono">Beat sync: waiting for music…</p>
+                                    </div>
+                                </div>
+
+                                <div class="mt-4 pt-4 border-t border-neutral-800">
+                                    <h4 class="text-xs font-medium text-neutral-400 mb-2">Lyrics Timing</h4>
+                                    <div class="flex items-center gap-3">
+                                        <input type="range" id="lyrics-anticipate-delay" min="0" max="2000" step="100" value="700"
+                                            class="spotify-disk-speed-slider flex-1" oninput="saveLyricsAnticipateDelay()">
+                                        <span id="lyrics-anticipate-delay-val" class="text-xs text-neutral-400 font-mono w-10 text-right">0.7s</span>
+                                    </div>
+                                    <p class="text-xs text-neutral-600 mt-1">How far ahead of the actual lyric timestamp each line is shown. Higher feels more anticipatory, lower feels more "on the beat."</p>
+                                </div>
+
+                                <div class="mt-4 pt-4 border-t border-neutral-800">
+                                    <label class="flex items-center gap-3 cursor-pointer text-sm">
+                                        <span class="ios-toggle"><input type="checkbox" id="spotify-visualizer-checkbox" class="ios-toggle-input" onchange="saveVisualizerPref()"><span class="ios-toggle-track"></span></span>
+                                        <span>Audio Visualizer (behind vinyl disk)</span>
+                                    </label>
+                                    <p class="text-xs text-neutral-600 mt-2 leading-relaxed">GPU-accelerated (WebGL) visual that reacts live to your PC's audio output, rendered behind the vinyl disk. Off by default.</p>
+                                    <div id="spotify-visualizer-options" class="hidden mt-4 ml-7 space-y-2 text-sm">
+                                        <label class="flex items-center gap-3 cursor-pointer text-neutral-400">
+                                            <input type="radio" name="spotify-visualizer-mode" value="circular" class="accent-white"
+                                                onchange="saveVisualizerPref()" checked>
+                                            <span>Circular bars</span>
+                                        </label>
+                                        <label class="flex items-center gap-3 cursor-pointer text-neutral-400">
+                                            <input type="radio" name="spotify-visualizer-mode" value="waveform" class="accent-white"
+                                                onchange="saveVisualizerPref()">
+                                            <span>Waveform</span>
+                                        </label>
+                                        <label class="flex items-center gap-3 cursor-pointer text-neutral-400">
+                                            <input type="radio" name="spotify-visualizer-mode" value="aura" class="accent-white"
+                                                onchange="saveVisualizerPref()">
+                                            <span>Aura</span>
+                                        </label>
+                                        <label class="flex items-center gap-3 cursor-pointer text-neutral-400">
+                                            <input type="radio" name="spotify-visualizer-mode" value="particles" class="accent-white"
+                                                onchange="saveVisualizerPref()">
+                                            <span>Particles</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-group-label"><i class="fas fa-database"></i><span>Data &amp; Maintenance</span></div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">FPS Optimizer</h3>
+                            <label class="text-sm text-neutral-400 block mb-2">Display Mode</label>
+                            <select id="fps-display-mode" onchange="saveFpsDisplayMode()"
+                                class="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neutral-500">
+                                <option value="sidepanel" selected>Side Panel (Compact)</option>
+                                <option value="fullwindow">Full Window</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-10">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Backup & Logs</h3>
+                            <div class="flex flex-wrap gap-3">
+                                <button onclick="exportSettings()"
+                                    class="px-5 py-2.5 border border-neutral-700 rounded-xl hover:bg-neutral-800 text-sm transition-colors">Export
+                                    settings</button>
+                                <button onclick="importSettings()"
+                                    class="px-5 py-2.5 border border-neutral-700 rounded-xl hover:bg-neutral-800 text-sm transition-colors">Import
+                                    settings</button>
+                                <button onclick="openLogFolder()"
+                                    class="px-5 py-2.5 border border-neutral-700 rounded-xl hover:bg-neutral-800 text-sm transition-colors">Open
+                                    log folder</button>
+                            </div>
+                            <p class="text-xs text-neutral-600 mt-2">Logs live in AppData — includes launches, errors,
+                                crashes, and session info.</p>
+                        </div>
+
+                        <button onclick="closeSettingsDone()"
+                            class="w-full bg-white text-black py-3.5 rounded-2xl font-medium hover:bg-neutral-200 transition-colors">Done</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lyrics Modal -->
+            <div id="lyrics-modal" class="hidden absolute inset-0 z-45 no-drag flex" onclick="if(event.target.id === 'lyrics-modal') closeLyricsModal()">
+                <div class="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-none"></div>
+                <div id="lyrics-modal-content" class="absolute inset-0 flex flex-col pointer-events-auto">
+                    <!-- Header -->
+                    <div id="lyrics-modal-header" class="header-drag flex items-center justify-between px-8 py-5 border-b border-white/10 select-none">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-music text-xl text-white/80"></i>
+                            <div>
+                                <h1 class="text-2xl font-semibold tracking-tight text-white">Lyrics</h1>
+                                <p id="lyrics-modal-track-info" class="text-[10px] text-neutral-500 tracking-widest">Loading...</p>
+                            </div>
+                        </div>
+                        <button onclick="closeLyricsModal()" class="window-btn text-lg leading-none no-drag" title="Close">✕</button>
+                    </div>
+                    <!-- Body -->
+                    <div id="lyrics-modal-body" class="flex-1 overflow-y-auto">
+                        <div class="lyrics-full-list" id="lyrics-full-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Widget Library Modal — browse/search/favourite Mini Widgets.
+                 z-[55]: above Settings (z-50) so it can be opened from there too. -->
+            <div id="widget-library-modal" class="hidden absolute inset-0 z-[55] no-drag"
+                onclick="if(event.target.id === 'widget-library-modal' || event.target.id === 'widget-library-center') closeWidgetLibrary()">
+                <div class="absolute inset-0 bg-black/75 backdrop-blur-md pointer-events-none"></div>
+                <div id="widget-library-center" class="absolute inset-0 flex items-center justify-center p-5">
+                    <div id="widget-library-panel"
+                        class="widget-library-panel glass relative w-full max-w-[720px] rounded-3xl border border-white/10 glow flex flex-col overflow-hidden">
+                        <div class="flex items-center justify-between px-6 pt-6 pb-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-9 h-9 bg-white/10 rounded-2xl flex items-center justify-center">
+                                    <i class="fas fa-shapes text-sm text-white/80"></i>
+                                </div>
+                                <div>
+                                    <h2 class="text-xl font-semibold tracking-tight text-white leading-tight">Widget Library</h2>
+                                    <p class="text-[10px] text-neutral-500 tracking-widest uppercase"><span
+                                            id="widget-lib-count">0 widgets</span> · browse, search &amp; favourite</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <button id="widget-info-toggle" onclick="toggleWidgetInfo()" class="window-btn text-base leading-none" title="Hide widget descriptions"><i class="far fa-eye"></i></button>
+                                <button onclick="closeWidgetLibrary()" class="window-btn text-lg leading-none" title="Close">✕</button>
+                            </div>
+                        </div>
+                        <div class="px-6 pb-3">
+                            <div class="relative">
+                                <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 text-sm"></i>
+                                <input id="widget-lib-search" type="text" placeholder="Search widgets…  (Ctrl+F)"
+                                    oninput="widgetLibSearchInput(this.value)"
+                                    class="w-full bg-neutral-900 border border-neutral-800 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-neutral-600">
+                            </div>
+                        </div>
+                        <div id="widget-lib-categories" class="flex flex-wrap gap-1.5 px-6 pb-3 widget-lib-cat-bar"></div>
+                        <div class="widget-lib-scroll flex-1 overflow-y-auto px-6 pb-6">
+                            <div id="widget-lib-empty" class="hidden text-center py-12">
+                                <i class="fas fa-magnifying-glass text-xl text-neutral-700 mb-3 inline-block"></i>
+                                <p class="text-sm text-neutral-500">No widgets match your search.</p>
+                                <p class="text-[11px] text-neutral-600 mt-1">Try a different term, or pick another category.</p>
+                            </div>
+                            <div id="widget-lib-grid" class="widget-lib-grid grid grid-cols-2 gap-3"></div>
+                        </div>
+                        <!-- Detail panel — slides over the grid inside the same panel -->
+                        <div id="widget-detail" class="widget-detail hidden"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div
+                class="absolute bottom-5 left-8 right-8 text-[10px] text-neutral-600 flex justify-between tracking-wide reveal-item"
+                style="animation-delay:0.5s">
+                <div id="footer-hotkeys" class="font-mono"></div>
+                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.40.0</div>
+            </div>
+        </div>
+        <!-- Log out confirmation (glass dialog, styled to match the app) -->
+        <div id="logout-modal" class="hidden logout-overlay no-drag"
+            onclick="if(event.target.id === 'logout-modal') closeLogoutModal()">
+            <div class="logout-scrim"></div>
+            <div class="logout-dialog glass glow-strong modal-enter">
+                <div class="logout-icon"><i class="fas fa-arrow-right-from-bracket"></i></div>
+                <h2 class="logout-title">Log out of main?</h2>
+                <p class="logout-text">You'll need to sign in with Google or enter your license key again to unlock the
+                    app on this PC.</p>
+                <div class="logout-actions">
+                    <button type="button" class="logout-btn logout-btn-cancel" onclick="closeLogoutModal()">Cancel</button>
+                    <button type="button" class="logout-btn logout-btn-confirm" onclick="confirmLogout()">
+                        <i class="fas fa-arrow-right-from-bracket"></i> Log out
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="toast"
+            class="hidden absolute bottom-8 left-1/2 -translate-x-1/2 glass border border-white/10 px-6 py-3 rounded-2xl text-sm z-[70] glow pointer-events-none">
+        </div>
+    </div>
+
+    <script src="renderer/core.js"></script>
+    <script src="renderer/fps-optimizer.js"></script>
+    <script src="renderer/hotkeys.js"></script>
+    <script src="renderer/settings.js"></script>
+    <script src="renderer/account.js"></script>
+    <script src="renderer/ui-utils.js"></script>
+    <script src="renderer/background.js"></script>
+    <script src="renderer/parallax.js"></script>
+    <script src="renderer/widgets-settings.js"></script>
+    <script src="renderer/macros.js"></script>
+    <script src="renderer/controller-macros.js"></script>
+    <script src="renderer/clipboard.js"></script>
+    <script src="renderer/spotify-enhanced.js"></script>
+    <script src="renderer/screen-resolution.js"></script>
+    <script src="renderer/bluetooth.js"></script>
+    <script src="renderer/taskbar.js"></script>
+    <script src="renderer/file-search.js"></script>
+    <script src="renderer/claude-limit.js"></script>
+    <script src="renderer/video-editor.js"></script>
+    <script src="renderer/valclips.js"></script>
+    <script src="renderer/crosshair-draw.js"></script>
+    <script src="renderer/crosshair.js"></script>
+    <!-- Must load BEFORE spotify-widget.js: both register capture-phase keydown
+         listeners, and the library's must run first to claim keys while open. -->
+    <script src="renderer/widget-library.js"></script>
+    <script src="renderer/clock-weather.js"></script>
+    <script src="renderer/weather-enhanced.js"></script>
+    <script src="renderer/timer.js"></script>
+    <script src="renderer/notes-enhanced.js"></script>
+    <script src="renderer/quick-launch.js"></script>
+    <script src="renderer/game-mode.js"></script>
+    <script src="renderer/volume-mixer.js"></script>
+    <script src="renderer/discord-rpc.js"></script>
+    <script src="renderer/beat-glow.js"></script>
+    <script src="renderer/visualizer.js"></script>
+    <script src="renderer/spotify-widget.js"></script>
+    <script src="renderer/lyrics.js"></script>
+</body>
+
+
+
