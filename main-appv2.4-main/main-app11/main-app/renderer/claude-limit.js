@@ -8,11 +8,27 @@
         // The scheduler runs whether or not the panel is open (it's the whole point),
         // so it's kicked off at script load from persisted state — the panel just
         // configures and visualises it.
+        //
+        // Built for unattended / overnight use, so it leans on reliability features:
+        //   • keep-awake      — holds a power-save blocker while armed so the machine
+        //                       doesn't sleep through the reset (main process).
+        //   • retry-on-fail   — if the target can't be focused at fire time it retries
+        //                       a few times with backoff before giving up.
+        //   • repeat mode     — for rolling "N-hour limit" windows it re-arms itself
+        //                       for the next reset, up to a safety cap, so a long
+        //                       autonomous run keeps continuing on its own.
+        //   • history + OS toast — you can see (and get notified) that an overnight
+        //                       continue actually fired, even with the app in the tray.
 
         const CL_DEFAULT_PROMPT = 'My usage limit should have reset now — please continue exactly where we left off.';
+        const CL_MAX_HISTORY = 8;
 
         function clDefaults() {
-            return { targetProcess: '', targetTitle: '', prompt: CL_DEFAULT_PROMPT, pressEnter: true, bufferSec: 20, autoWatch: false, autoArm: false };
+            return {
+                targetProcess: '', targetTitle: '', prompt: CL_DEFAULT_PROMPT, pressEnter: true,
+                bufferSec: 20, autoWatch: false, autoWindow: false, autoCc: false, autoArm: false,
+                repeat: false, maxContinues: 12, keepAwake: true, notify: true
+            };
         }
 
         function clGetConfig() {
@@ -30,12 +46,29 @@
             if (a) localStorage.setItem('claudeLimitArm', JSON.stringify(a));
             else localStorage.removeItem('claudeLimitArm');
         }
+        function clGetHistory() {
+            const h = safeParseJSON(localStorage.getItem('claudeLimitHistory'), []);
+            return Array.isArray(h) ? h : [];
+        }
+        function clPushHistory(entry) {
+            const h = clGetHistory();
+            h.unshift({ t: Date.now(), ...entry });
+            localStorage.setItem('claudeLimitHistory', JSON.stringify(h.slice(0, CL_MAX_HISTORY)));
+        }
+        function clClearHistory() {
+            localStorage.removeItem('claudeLimitHistory');
+            clPaintHistory();
+            showToast('Auto-continue history cleared');
+        }
 
-        let clWindows = [];            // last-listed windows
-        let clPendingResetAt = null;   // parsed-but-not-yet-armed reset Date (ms)
+        let clWindows = [];              // last-listed windows
+        let clPendingResetAt = null;     // parsed-but-not-yet-armed reset Date (ms)
+        let clPendingInterval = null;    // rolling-window length (ms) when known, for repeat mode
         let clSchedTimer = null;
         let clFiring = false;
         let clWatchHooked = false;
+        let clTargetMissing = false;     // last window-health probe couldn't find the target
+        let clHealthTick = 0;
 
         function isClaudeLimitEnabled() {
             const prefs = safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {});
@@ -43,7 +76,9 @@
         }
 
         // ── Reset-time parsing ──────────────────────────────────────────────────
-        // Turns a copied limit message (or a manual phrase) into an absolute time.
+        // Turns a copied limit message (or a manual phrase) into an absolute time,
+        // and — when the message describes a rolling window — the window length too,
+        // so repeat mode knows how far ahead to re-arm.
         function clDurationToMs(str) {
             let ms = 0;
             const re = /(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/g;
@@ -69,8 +104,8 @@
             return d;
         }
 
-        // Returns a Date (ms) or null.
-        function clParseResetTime(text) {
+        // Returns { at:number(ms), interval:number|null, source:string } or null.
+        function clParseReset(text) {
             if (!text) return null;
             const t = String(text).toLowerCase().replace(/\s+/g, ' ');
             const now = Date.now();
@@ -79,12 +114,15 @@
             const rel = t.match(/\bin\s+((?:\d+(?:\.\d+)?\s*(?:hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b[\s,and]*)+)/);
             if (rel) {
                 const ms = clDurationToMs(rel[1]);
-                if (ms > 0) return new Date(now + ms);
+                if (ms > 0) return { at: now + ms, interval: ms, source: 'in ' + rel[1].trim() };
             }
 
-            // 2. Rolling "N-hour limit" window → reset ~N hours from now.
+            // 2. Rolling "N-hour limit" window → reset ~N hours from now, repeats every N hours.
             const nhour = t.match(/(\d+)\s*-\s*hour\s+limit/);
-            if (nhour) return new Date(now + parseInt(nhour[1], 10) * 3600000);
+            if (nhour) {
+                const ms = parseInt(nhour[1], 10) * 3600000;
+                return { at: now + ms, interval: ms, source: nhour[1] + '-hour rolling limit' };
+            }
 
             // 3. Explicit clock time, ideally near a reset/again cue:
             //    "resets at 3:00 pm", "available again at 15:30", "back at 9am"
@@ -93,7 +131,7 @@
                 const h = parseInt(cued[1], 10);
                 const min = cued[2] ? parseInt(cued[2], 10) : 0;
                 const ap = cued[3] ? (cued[3][0] === 'a' ? 'am' : 'pm') : null;
-                if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return clNextClock(h, min, ap);
+                if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return { at: clNextClock(h, min, ap).getTime(), interval: null, source: 'clock time' };
             }
 
             // 4. A bare clock time anywhere: "3:47 am" / "15:30"
@@ -102,13 +140,13 @@
                 const h = parseInt(bare[1], 10);
                 const min = parseInt(bare[2], 10);
                 const ap = bare[3] ? (bare[3][0] === 'a' ? 'am' : 'pm') : null;
-                if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return clNextClock(h, min, ap);
+                if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return { at: clNextClock(h, min, ap).getTime(), interval: null, source: 'clock time' };
             }
 
             // 5. Last resort — let the engine try a full date/time it recognises.
             const cleaned = text.replace(/.*reset[s]?\s*(on|at)?\s*/i, '').trim();
             const parsed = Date.parse(cleaned);
-            if (!isNaN(parsed) && parsed > now) return new Date(parsed);
+            if (!isNaN(parsed) && parsed > now) return { at: parsed, interval: null, source: 'date' };
 
             return null;
         }
@@ -127,6 +165,43 @@
             if (m > 0) return `${m}m ${sec}s`;
             return `${sec}s`;
         }
+        function clFmtInterval(ms) {
+            const h = ms / 3600000;
+            if (h >= 1 && Number.isInteger(h)) return `${h}h`;
+            if (h >= 1) return `${h.toFixed(1)}h`;
+            return `${Math.round(ms / 60000)}m`;
+        }
+
+        // ── Keep-awake ──────────────────────────────────────────────────────────
+        // Hold a power-save blocker (main process) whenever a continue is armed and
+        // the user wants it, so the machine doesn't sleep through the reset.
+        function clSyncKeepAwake() {
+            if (!window.electronAPI?.claudeLimitSetKeepAwake) return;
+            const cfg = clGetConfig();
+            const want = !!(clGetArm() && cfg.keepAwake);
+            window.electronAPI.claudeLimitSetKeepAwake(want);
+        }
+
+        // ── In-window auto-detect ───────────────────────────────────────────────
+        // Poll the picked window for a limit banner, but only while it makes sense:
+        // widget on, a target chosen, auto-detect enabled, and nothing armed yet
+        // (once we have a reset time and are counting down there's nothing to find).
+        function clSyncWindowWatch() {
+            if (!window.electronAPI?.claudeLimitSetWindowWatch) return;
+            const cfg = clGetConfig();
+            const want = !!(isClaudeLimitEnabled() && cfg.autoWindow && cfg.targetProcess && !clGetArm());
+            window.electronAPI.claudeLimitSetWindowWatch(want, cfg.targetProcess || '', cfg.targetTitle || '');
+        }
+
+        // Watch Claude Code's own session transcripts for the 429 rate_limit event.
+        // No target window needed to *detect* (it's read from disk); a target is
+        // only needed to later *continue*.
+        function clSyncCcWatch() {
+            if (!window.electronAPI?.claudeLimitSetCcWatch) return;
+            const cfg = clGetConfig();
+            const want = !!(isClaudeLimitEnabled() && cfg.autoCc && !clGetArm());
+            window.electronAPI.claudeLimitSetCcWatch(want);
+        }
 
         // ── Scheduler (runs regardless of panel visibility) ─────────────────────
         function clStartScheduler() {
@@ -142,7 +217,11 @@
             if (!arm) { clStopScheduler(); clPaintStatus(); return; }
             const remaining = arm.at - Date.now();
             if (remaining <= 0) { clFire(); return; }
-            clPaintCountdown(remaining, arm.at);
+            clPaintCountdown(remaining, arm);
+            // Cheap safety net: while armed and the panel is open, confirm every ~30s
+            // that the target window is still around, so a vanished window is flagged
+            // long before fire time instead of failing silently at 3am.
+            if (document.getElementById('cl-status') && (++clHealthTick % 30 === 0)) clHealthCheck();
         }
 
         async function clResolveHwnd() {
@@ -150,6 +229,9 @@
             const res = await window.electronAPI.claudeLimitListWindows();
             const wins = res?.windows || [];
             clWindows = wins;
+            return clPickHwnd(wins);
+        }
+        function clPickHwnd(wins) {
             const cfg = clGetConfig();
             const p = (cfg.targetProcess || '').toLowerCase();
             const ttl = cfg.targetTitle || '';
@@ -163,38 +245,105 @@
             return pick ? pick.hwnd : null;
         }
 
+        async function clHealthCheck() {
+            if (!window.electronAPI?.claudeLimitListWindows) return;
+            try {
+                const res = await window.electronAPI.claudeLimitListWindows();
+                clWindows = res?.windows || [];
+                const missing = !clPickHwnd(clWindows);
+                if (missing !== clTargetMissing) { clTargetMissing = missing; clPaintStatus(); }
+            } catch (e) { /* ignore probe failures */ }
+        }
+
+        // Focus + paste, retrying a few times with backoff. Overnight the target can
+        // momentarily refuse focus (fullscreen app, lock screen just cleared, …), so
+        // one failed attempt shouldn't sink the whole continue.
+        async function clSendWithRetry(prompt, pressEnter, tries = 4) {
+            let lastErr = 'no window';
+            for (let i = 0; i < tries; i++) {
+                const hwnd = await clResolveHwnd();
+                if (hwnd) {
+                    try {
+                        const res = await window.electronAPI.claudeLimitSend(hwnd, prompt, pressEnter);
+                        if (res?.ok) return { ok: true };
+                        lastErr = res?.error || 'send failed';
+                    } catch (e) { lastErr = 'send error'; }
+                } else {
+                    lastErr = 'target window not found';
+                }
+                if (i < tries - 1) await new Promise((r) => setTimeout(r, 1200 * (i + 1)));
+            }
+            return { ok: false, error: lastErr };
+        }
+
         async function clFire() {
             if (clFiring) return;
             clFiring = true;
+            const arm = clGetArm();
             const cfg = clGetConfig();
+            let ok = false;
+            let note = '';
             try {
-                const hwnd = await clResolveHwnd();
-                if (!hwnd) {
-                    showToast('Auto-continue: couldn\'t find the target window', true);
-                } else {
-                    const res = await window.electronAPI.claudeLimitSend(hwnd, cfg.prompt, cfg.pressEnter);
-                    showToast(res?.ok ? 'Limit reset — continued the conversation' : 'Auto-continue: send failed', !res?.ok);
+                const res = await clSendWithRetry(cfg.prompt, cfg.pressEnter);
+                ok = !!res.ok;
+                note = ok ? '' : (res.error || 'failed');
+                const title = cfg.targetTitle || cfg.targetProcess || 'target';
+                if (ok) showToast('Limit reset — continued the conversation');
+                else showToast(`Auto-continue: ${note}`, true);
+                clPushHistory({ ok, title, note });
+                if (cfg.notify && window.electronAPI?.claudeLimitNotify) {
+                    window.electronAPI.claudeLimitNotify(
+                        ok ? 'Claude continued' : 'Auto-continue failed',
+                        ok ? `Sent your continue prompt to ${title}.` : `Couldn't continue in ${title} — ${note}.`
+                    );
                 }
             } catch (e) {
                 showToast('Auto-continue failed', true);
+                clPushHistory({ ok: false, title: cfg.targetTitle || '', note: 'error' });
             } finally {
-                clSetArm(null);
-                clStopScheduler();
                 clFiring = false;
+                // Repeat mode: for a known rolling window, re-arm for the next reset
+                // (measured from the reset we just passed, so there's no per-cycle drift),
+                // up to the safety cap.
+                const count = (arm?.count || 1);
+                const total = (arm?.total || cfg.maxContinues || 0);
+                const interval = arm?.interval || 0;
+                if (ok && cfg.repeat && interval > 0 && count < total) {
+                    const nextReset = (arm.resetAt || Date.now()) + interval;
+                    clSetArm({ at: nextReset + Math.max(0, (cfg.bufferSec || 0) * 1000), resetAt: nextReset, interval, count: count + 1, total, armedAt: Date.now() });
+                    clStartScheduler();
+                    showToast(`Continue ${count} of ${total} — next at ${clFmtClock(nextReset)}`);
+                } else {
+                    clSetArm(null);
+                    clStopScheduler();
+                    if (ok && cfg.repeat && interval > 0 && count >= total) showToast(`Reached the ${total}-continue safety cap — stopping`);
+                }
+                clSyncKeepAwake();
+                clSyncWindowWatch(); // if we disarmed (not repeating), resume auto-detect
+                clSyncCcWatch();
                 clPaintStatus();
+                clPaintHistory();
             }
         }
 
-        function clArmAt(resetMs) {
+        function clArmAt(resetMs, interval) {
             const cfg = clGetConfig();
             const fireAt = resetMs + Math.max(0, (cfg.bufferSec || 0) * 1000);
-            clSetArm({ at: fireAt, resetAt: resetMs });
+            const total = (cfg.repeat && interval > 0) ? Math.max(1, cfg.maxContinues || 1) : 1;
+            clSetArm({ at: fireAt, resetAt: resetMs, interval: interval || null, count: 1, total, armedAt: Date.now() });
+            clTargetMissing = false;
             clStartScheduler();
+            clSyncKeepAwake();
+            clSyncWindowWatch(); // armed → nothing to detect, pause the window poll
+            clSyncCcWatch();     // and the Claude Code poll
             clPaintStatus();
         }
         function clDisarm() {
             clSetArm(null);
             clStopScheduler();
+            clSyncKeepAwake();
+            clSyncWindowWatch(); // idle again → resume auto-detect if it was on
+            clSyncCcWatch();
             clPaintStatus();
             showToast('Auto-continue disarmed');
         }
@@ -209,8 +358,10 @@
                 return;
             }
 
-            if (!clWatchHooked && window.electronAPI.onClaudeLimitClipboardHit) {
-                window.electronAPI.onClaudeLimitClipboardHit(clOnClipboardHit);
+            if (!clWatchHooked) {
+                if (window.electronAPI.onClaudeLimitClipboardHit) window.electronAPI.onClaudeLimitClipboardHit(clOnClipboardHit);
+                if (window.electronAPI.onClaudeLimitWindowHit) window.electronAPI.onClaudeLimitWindowHit(clOnWindowHit);
+                if (window.electronAPI.onClaudeLimitCcHit) window.electronAPI.onClaudeLimitCcHit(clOnCcHit);
                 clWatchHooked = true;
             }
 
@@ -234,6 +385,20 @@
 
                     <div class="cl-section">
                         <p class="cl-label">3 · When does the limit reset?</p>
+                        <div class="cl-detect">
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <button type="button" class="cl-btn cl-btn-primary no-drag" onclick="clDetectFromCc()"><i class="fas fa-bolt mr-1"></i>Detect from Claude Code</button>
+                                <label class="cl-check"><input type="checkbox" id="cl-cc" ${cfg.autoCc ? 'checked' : ''} onchange="clOnCcWatchToggle(this.checked)"><span>Auto-detect Claude Code</span></label>
+                                <span class="cl-tag">most reliable</span>
+                            </div>
+                            <p class="cl-hint mt-1">Reads the exact reset time from Claude Code / Nimbalyst's own session log — the same 429 event Claude Code records. No copying, works even unfocused.</p>
+                            <div class="flex items-center gap-1.5 flex-wrap mt-2 pt-2 cl-detect-div">
+                                <button type="button" class="cl-btn no-drag" onclick="clDetectFromWindow()"><i class="fas fa-magnifying-glass mr-1"></i>Detect in window</button>
+                                <label class="cl-check"><input type="checkbox" id="cl-window" ${cfg.autoWindow ? 'checked' : ''} onchange="clOnWindowWatchToggle(this.checked)"><span>Auto-detect in window</span></label>
+                            </div>
+                            <p class="cl-hint mt-1">For claude.ai in a browser or other apps — reads the on-screen banner from the window you picked above.</p>
+                        </div>
+                        <p class="cl-or">or paste / set it manually</p>
                         <textarea id="cl-msg" class="cl-textarea no-drag" rows="2" placeholder="Paste the limit message here (e.g. “resets at 3:00 PM” or “5-hour limit”)…" spellcheck="false"></textarea>
                         <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
                             <button type="button" class="cl-btn no-drag" onclick="clParseFromBox()"><i class="fas fa-wand-magic-sparkles mr-1"></i>Read reset time</button>
@@ -250,7 +415,27 @@
                         <label class="cl-check mt-2"><input type="checkbox" id="cl-autoarm" ${cfg.autoArm ? 'checked' : ''} onchange="clOnAutoArmToggle(this.checked)"><span>Arm automatically when a limit is detected</span></label>
                     </div>
 
+                    <details class="cl-adv" ${cfg.repeat ? 'open' : ''}>
+                        <summary class="cl-label cl-adv-sum">4 · Reliability &amp; unattended</summary>
+                        <div class="cl-adv-body">
+                            <label class="cl-check"><input type="checkbox" id="cl-repeat" ${cfg.repeat ? 'checked' : ''} onchange="clOnRepeatToggle(this.checked)"><span>Keep continuing on each reset <span class="cl-hint">(rolling limits)</span></span></label>
+                            <div class="cl-field ${cfg.repeat ? '' : 'cl-field-off'}" id="cl-repeat-field">
+                                <span class="cl-hint">stop after</span>
+                                <input type="number" id="cl-maxcont" class="cl-input cl-input-num no-drag" min="1" max="99" value="${cfg.maxContinues}" onchange="clOnMaxContinues(this.value)">
+                                <span class="cl-hint">continues</span>
+                            </div>
+                            <div class="cl-field">
+                                <span class="cl-hint">continue</span>
+                                <input type="number" id="cl-buffer" class="cl-input cl-input-num no-drag" min="0" max="600" value="${cfg.bufferSec}" onchange="clOnBuffer(this.value)">
+                                <span class="cl-hint">sec after the reset</span>
+                            </div>
+                            <label class="cl-check"><input type="checkbox" id="cl-keepawake" ${cfg.keepAwake ? 'checked' : ''} onchange="clOnKeepAwake(this.checked)"><span>Keep the PC awake while armed</span></label>
+                            <label class="cl-check"><input type="checkbox" id="cl-notify" ${cfg.notify ? 'checked' : ''} onchange="clOnNotify(this.checked)"><span>Show a desktop notification when it fires</span></label>
+                        </div>
+                    </details>
+
                     <div id="cl-status" class="cl-status">${clStatusHtml()}</div>
+                    <div id="cl-history" class="cl-history">${clHistoryHtml()}</div>
                 </div>`;
 
             clRenderWindowOptions();
@@ -262,21 +447,34 @@
             const cfg = clGetConfig();
             if (arm) {
                 const remaining = arm.at - Date.now();
+                const span = Math.max(1, arm.at - (arm.armedAt || (arm.at - remaining)));
+                const pct = Math.min(100, Math.max(0, ((span - remaining) / span) * 100));
+                const repeatLine = (arm.total > 1)
+                    ? ` · continue ${arm.count} of ${arm.total}${arm.interval ? `, every ${clFmtInterval(arm.interval)}` : ''}`
+                    : '';
+                const missing = clTargetMissing
+                    ? `<p class="cl-warn"><i class="fas fa-triangle-exclamation mr-1"></i>Target window isn't open right now — reopen it before the reset.</p>`
+                    : '';
                 return `<div class="cl-armed">
                         <div class="cl-armed-row">
                             <span class="cl-armed-dot"></span>
                             <div class="min-w-0 flex-1">
                                 <p class="cl-armed-title">Continues in <span id="cl-count">${esc(clFmtRemaining(remaining))}</span></p>
-                                <p class="cl-armed-sub">at ${esc(clFmtClock(arm.at))}${cfg.bufferSec ? ` · ${cfg.bufferSec}s after reset` : ''}</p>
+                                <p class="cl-armed-sub">at ${esc(clFmtClock(arm.at))}${cfg.bufferSec ? ` · ${cfg.bufferSec}s after reset` : ''}${repeatLine}</p>
                             </div>
                             <button type="button" class="cl-btn cl-btn-danger no-drag" onclick="clDisarm()">Disarm</button>
                         </div>
+                        <div class="cl-progress"><div class="cl-progress-fill" id="cl-bar" style="width:${pct.toFixed(1)}%"></div></div>
+                        ${missing}
                         <button type="button" class="cl-btn no-drag mt-2" onclick="clContinueNow()"><i class="fas fa-paper-plane mr-1"></i>Continue now (test)</button>
                     </div>`;
             }
             const ready = clPendingResetAt && cfg.prompt && cfg.targetProcess;
+            const repeatHint = (cfg.repeat && clPendingInterval)
+                ? ` — will repeat every ${clFmtInterval(clPendingInterval)}`
+                : (cfg.repeat && !clPendingInterval && clPendingResetAt ? ' — one-off (no rolling window detected)' : '');
             const resetLine = clPendingResetAt
-                ? `<p class="cl-armed-sub mb-2">Detected reset: <b class="text-neutral-200">${esc(clFmtClock(clPendingResetAt))}</b> (${esc(clFmtRemaining(clPendingResetAt - Date.now()))})</p>`
+                ? `<p class="cl-armed-sub mb-2">Detected reset: <b class="text-neutral-200">${esc(clFmtClock(clPendingResetAt))}</b> (${esc(clFmtRemaining(clPendingResetAt - Date.now()))})${esc(repeatHint)}</p>`
                 : `<p class="cl-hint mb-2">No reset time yet — read it from the message, clipboard, or set one.</p>`;
             return `<div class="cl-idle">
                     ${resetLine}
@@ -288,14 +486,36 @@
                 </div>`;
         }
 
+        function clHistoryHtml() {
+            const h = clGetHistory();
+            if (!h.length) return '';
+            const rows = h.map((e) => {
+                const when = clFmtClock(e.t);
+                const icon = e.ok ? '<i class="fas fa-circle-check cl-h-ok"></i>' : '<i class="fas fa-circle-xmark cl-h-fail"></i>';
+                const txt = e.ok ? `Continued ${esc(e.title || '')}` : `Failed — ${esc(e.note || 'error')}`;
+                return `<div class="cl-h-row">${icon}<span class="cl-h-txt">${txt}</span><span class="cl-h-when">${esc(when)}</span></div>`;
+            }).join('');
+            return `<div class="cl-h-head"><span class="cl-label">Recent</span><button type="button" class="cl-h-clear no-drag" onclick="clClearHistory()">clear</button></div>${rows}`;
+        }
+
         function clPaintStatus() {
             const el = document.getElementById('cl-status');
             if (el) el.innerHTML = clStatusHtml();
         }
-        function clPaintCountdown(remaining, at) {
+        function clPaintHistory() {
+            const el = document.getElementById('cl-history');
+            if (el) el.innerHTML = clHistoryHtml();
+        }
+        function clPaintCountdown(remaining, arm) {
             const c = document.getElementById('cl-count');
-            if (c) c.textContent = clFmtRemaining(remaining);
-            else clPaintStatus(); // status block not showing the countdown yet — rebuild it
+            if (!c) { clPaintStatus(); return; } // status block not showing the countdown yet — rebuild it
+            c.textContent = clFmtRemaining(remaining);
+            const bar = document.getElementById('cl-bar');
+            if (bar && arm) {
+                const span = Math.max(1, arm.at - (arm.armedAt || (arm.at - remaining)));
+                const pct = Math.min(100, Math.max(0, ((span - remaining) / span) * 100));
+                bar.style.width = pct.toFixed(1) + '%';
+            }
         }
 
         function clRenderWindowOptions() {
@@ -333,12 +553,32 @@
             cfg.targetProcess = w.process || '';
             cfg.targetTitle = w.title || '';
             clSaveConfig(cfg);
+            clTargetMissing = false;
+            clSyncWindowWatch(); // point the auto-detect poll at the newly picked window
             clPaintStatus();
         }
 
         function clOnPromptInput(v) { const cfg = clGetConfig(); cfg.prompt = v; clSaveConfig(cfg); }
         function clOnEnterToggle(v) { const cfg = clGetConfig(); cfg.pressEnter = !!v; clSaveConfig(cfg); }
         function clOnAutoArmToggle(v) { const cfg = clGetConfig(); cfg.autoArm = !!v; clSaveConfig(cfg); }
+
+        function clOnRepeatToggle(v) {
+            const cfg = clGetConfig(); cfg.repeat = !!v; clSaveConfig(cfg);
+            const field = document.getElementById('cl-repeat-field');
+            if (field) field.classList.toggle('cl-field-off', !v);
+            clPaintStatus(); // idle hint reflects repeat state
+        }
+        function clOnMaxContinues(v) {
+            const n = parseInt(v, 10);
+            const cfg = clGetConfig(); cfg.maxContinues = (!isNaN(n) && n >= 1) ? Math.min(99, n) : 12; clSaveConfig(cfg);
+        }
+        function clOnBuffer(v) {
+            const n = parseInt(v, 10);
+            const cfg = clGetConfig(); cfg.bufferSec = (!isNaN(n) && n >= 0) ? Math.min(600, n) : 20; clSaveConfig(cfg);
+            clPaintStatus();
+        }
+        function clOnKeepAwake(v) { const cfg = clGetConfig(); cfg.keepAwake = !!v; clSaveConfig(cfg); clSyncKeepAwake(); }
+        function clOnNotify(v) { const cfg = clGetConfig(); cfg.notify = !!v; clSaveConfig(cfg); }
 
         function clOnWatchToggle(v) {
             const cfg = clGetConfig();
@@ -348,18 +588,66 @@
             showToast(v ? 'Watching clipboard for limit messages' : 'Clipboard watch off');
         }
 
-        function clSetPendingReset(ms, quiet) {
-            if (!ms || ms <= Date.now()) { if (!quiet) showToast('Couldn\'t read a future reset time', true); return false; }
+        function clOnWindowWatchToggle(v) {
+            const cfg = clGetConfig();
+            cfg.autoWindow = !!v;
+            clSaveConfig(cfg);
+            clSyncWindowWatch();
+            if (v && !cfg.targetProcess) showToast('Pick a target window above so it knows where to look', true);
+            else showToast(v ? 'Auto-detecting the limit inside the window' : 'Window auto-detect off');
+        }
+
+        function clOnCcWatchToggle(v) {
+            const cfg = clGetConfig();
+            cfg.autoCc = !!v;
+            clSaveConfig(cfg);
+            clSyncCcWatch();
+            showToast(v ? 'Auto-detecting limits from Claude Code' : 'Claude Code auto-detect off');
+        }
+
+        async function clDetectFromCc() {
+            if (!window.electronAPI?.claudeLimitReadCcLimit) { showToast('Claude Code detection is unavailable', true); return; }
+            showToast('Checking Claude Code session log…');
+            const res = await window.electronAPI.claudeLimitReadCcLimit();
+            if (!res?.ok) { showToast('Couldn\'t read the Claude Code log', true); return; }
+            if (!res.found) { showToast('No recent Claude Code limit found', true); return; }
+            const box = document.getElementById('cl-msg');
+            if (box) box.value = String(res.text).slice(0, 2000);
+            const p = clParseReset(res.text);
+            if (p) clSetPendingReset(p.at, { interval: p.interval, source: p.source });
+            else showToast('Found a limit event but couldn\'t read the reset time', true);
+        }
+
+        async function clDetectFromWindow() {
+            const cfg = clGetConfig();
+            if (!cfg.targetProcess) { showToast('Pick a target window above first', true); return; }
+            if (!window.electronAPI?.claudeLimitReadWindowText) { showToast('Window detection is unavailable', true); return; }
+            showToast('Reading the window…');
+            const res = await window.electronAPI.claudeLimitReadWindowText(cfg.targetProcess, cfg.targetTitle);
+            if (!res?.ok) { showToast(res?.error === 'window not open' ? 'Target window isn\'t open' : 'Couldn\'t read that window', true); return; }
+            if (!res.found) { showToast('No usage-limit banner found in that window', true); return; }
+            const box = document.getElementById('cl-msg');
+            if (box) box.value = String(res.text).slice(0, 2000);
+            const p = clParseReset(res.text);
+            if (p) clSetPendingReset(p.at, { interval: p.interval, source: p.source });
+            else showToast('Found a limit banner but couldn\'t read the reset time', true);
+        }
+
+        function clSetPendingReset(ms, opts) {
+            opts = opts || {};
+            if (!ms || ms <= Date.now()) { if (!opts.quiet) showToast('Couldn\'t read a future reset time', true); return false; }
             clPendingResetAt = ms;
+            clPendingInterval = opts.interval || null;
             clPaintStatus();
-            if (!quiet) showToast(`Reset time: ${clFmtClock(ms)}`);
+            if (!opts.quiet) showToast(`Reset time: ${clFmtClock(ms)}${opts.source ? ` (${opts.source})` : ''}`);
             return true;
         }
 
         function clParseFromBox() {
             const box = document.getElementById('cl-msg');
-            const parsed = clParseResetTime(box ? box.value : '');
-            clSetPendingReset(parsed ? parsed.getTime() : null);
+            const p = clParseReset(box ? box.value : '');
+            if (p) clSetPendingReset(p.at, { interval: p.interval, source: p.source });
+            else clSetPendingReset(null);
         }
 
         async function clDetectFromClipboard() {
@@ -367,8 +655,9 @@
             const res = await window.electronAPI.claudeLimitReadClipboard();
             const box = document.getElementById('cl-msg');
             if (box && res?.text) box.value = res.text.slice(0, 2000);
-            const parsed = clParseResetTime(res?.text || '');
-            clSetPendingReset(parsed ? parsed.getTime() : null);
+            const p = clParseReset(res?.text || '');
+            if (p) clSetPendingReset(p.at, { interval: p.interval, source: p.source });
+            else clSetPendingReset(null);
         }
 
         function clSetManualTime() {
@@ -376,21 +665,23 @@
             if (!el || !el.value) { showToast('Enter a time first', true); return; }
             const [h, m] = el.value.split(':').map((x) => parseInt(x, 10));
             if (isNaN(h) || isNaN(m)) { showToast('Invalid time', true); return; }
-            clSetPendingReset(clNextClock(h, m, null).getTime());
+            clSetPendingReset(clNextClock(h, m, null).getTime(), { source: 'manual time' });
         }
         function clSetManualMinutes() {
             const el = document.getElementById('cl-mins');
             const mins = parseInt(el ? el.value : '', 10);
             if (isNaN(mins) || mins <= 0) { showToast('Enter minutes first', true); return; }
-            clSetPendingReset(Date.now() + mins * 60000);
+            // A manual countdown is inherently a fixed interval, so repeat mode can use it.
+            clSetPendingReset(Date.now() + mins * 60000, { interval: mins * 60000, source: `in ${mins} min` });
         }
 
         function clArmNow() {
             const cfg = clGetConfig();
             if (!clPendingResetAt) { showToast('Set a reset time first', true); return; }
             if (!cfg.targetProcess) { showToast('Pick a target window first', true); return; }
-            clArmAt(clPendingResetAt);
-            showToast(`Armed — continues at ${clFmtClock(clGetArm().at)}`);
+            clArmAt(clPendingResetAt, clPendingInterval);
+            const arm = clGetArm();
+            showToast(`Armed — continues at ${clFmtClock(arm.at)}${arm.total > 1 ? `, up to ${arm.total}×` : ''}`);
         }
 
         async function clContinueNow() {
@@ -403,22 +694,32 @@
             showToast(res?.ok ? 'Sent' : 'Send failed', !res?.ok);
         }
 
-        // Fired by the main-process clipboard watcher when a limit message is copied.
-        function clOnClipboardHit(data) {
-            if (!data?.text) return;
+        // Shared path for a limit detected automatically — from the clipboard watcher
+        // or the in-window poller. Sets the pending reset and, if auto-arm is on and
+        // we're configured, arms straight away.
+        function clHandleDetection(text, via) {
+            if (!text) return;
             const box = document.getElementById('cl-msg');
-            if (box) box.value = data.text.slice(0, 2000);
-            const parsed = clParseResetTime(data.text);
-            if (!parsed) return;
+            if (box) box.value = String(text).slice(0, 2000);
+            const p = clParseReset(text);
+            if (!p) return;
             const cfg = clGetConfig();
-            clSetPendingReset(parsed.getTime(), true);
+            clSetPendingReset(p.at, { interval: p.interval, source: p.source, quiet: true });
+            const tag = via ? ` (${via})` : '';
             if (cfg.autoArm && cfg.targetProcess && cfg.prompt) {
-                clArmAt(parsed.getTime());
-                showToast(`Limit detected — armed, continues at ${clFmtClock(clGetArm().at)}`);
+                clArmAt(p.at, p.interval);
+                showToast(`Limit detected${tag} — armed, continues at ${clFmtClock(clGetArm().at)}`);
             } else {
-                showToast(`Limit detected — resets ${clFmtClock(parsed.getTime())}`);
+                showToast(`Limit detected${tag} — resets ${clFmtClock(p.at)}`);
             }
         }
+
+        // Fired by the main-process clipboard watcher when a limit message is copied.
+        function clOnClipboardHit(data) { if (data?.text) clHandleDetection(data.text, 'clipboard'); }
+        // Fired by the in-window poller when a limit banner appears in the target.
+        function clOnWindowHit(data) { if (data?.text) clHandleDetection(data.text, 'window'); }
+        // Fired by the Claude Code transcript poller on a fresh 429 rate_limit event.
+        function clOnCcHit(data) { if (data?.text) clHandleDetection(data.text, 'Claude Code'); }
 
         // Called from applyMiniWidgetPrefs when the widget is toggled, and from boot.
         // Starts/stops the clipboard watch and resumes any armed schedule so firing
@@ -427,17 +728,23 @@
             if (!enabled) {
                 clStopScheduler();
                 if (window.electronAPI?.claudeLimitSetWatch) window.electronAPI.claudeLimitSetWatch(false);
+                if (window.electronAPI?.claudeLimitSetWindowWatch) window.electronAPI.claudeLimitSetWindowWatch(false, '', '');
+                if (window.electronAPI?.claudeLimitSetCcWatch) window.electronAPI.claudeLimitSetCcWatch(false);
+                if (window.electronAPI?.claudeLimitSetKeepAwake) window.electronAPI.claudeLimitSetKeepAwake(false);
                 return;
             }
             const cfg = clGetConfig();
             if (cfg.autoWatch && window.electronAPI?.claudeLimitSetWatch) {
                 window.electronAPI.claudeLimitSetWatch(true);
             }
+            clSyncWindowWatch();
+            clSyncCcWatch();
             const arm = clGetArm();
             if (!arm) return;
             const remaining = arm.at - Date.now();
             if (remaining > 0) {
                 clStartScheduler();
+                clSyncKeepAwake();
             } else if (remaining > -10 * 60000) {
                 // Missed by <10 min (app was closed/asleep right at reset) — continue now.
                 clFire();

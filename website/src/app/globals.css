@@ -28,10 +28,18 @@
 
 html {
   background: #080808;
-  /* Anchor jumps (#features, etc.) land below the fixed navbar instead of
-     under it; smooth-scroll is disabled again in the reduced-motion block. */
+  /* Clip horizontal overflow with `clip`, not `hidden`. `overflow-x: hidden`
+     (on <body> OR <html>) creates a scroll container that leaves the viewport
+     un-scrollable — breaking every hash link, scrollIntoView, and
+     scroll-padding-top. `clip` clips the x-axis WITHOUT establishing a scroll
+     container, so the viewport keeps scrolling and anchoring normally. */
+  overflow-x: clip;
+  /* Anchor jumps (#features, etc.) land just below the fixed navbar (~72px tall)
+     with a small gap. This is the ONLY nav offset — sections must NOT also add
+     scroll-mt, or the two stack and the target lands far too low. Smooth-scroll
+     is disabled again in the reduced-motion block. */
   scroll-behavior: smooth;
-  scroll-padding-top: 6rem;
+  scroll-padding-top: 5.5rem;
 }
 
 body {
@@ -40,16 +48,27 @@ body {
   background: #080808;
   margin: 0;
   min-height: 100vh;
-  /* Never let the body scroll sideways — wide elements scroll in their own box. */
-  overflow-x: hidden;
+  /* Horizontal clip lives on <html>, not here — see the note there. */
 }
 
 /* ── Surfaces ────────────────────────────────────────────────────────── */
 
 .glass {
   background: rgba(8, 8, 8, var(--glass-alpha, 0.88));
-  backdrop-filter: blur(48px);
-  -webkit-backdrop-filter: blur(48px);
+  /* A 48px backdrop-blur on every glass surface is the single biggest scroll
+     cost — the fixed navbar and each card re-blur the content scrolling under
+     them every frame. 24px reads virtually identical over the near-black
+     canvas but roughly quarters the per-frame GPU work. */
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+/* The hero mock is rendered at native size then scaled down, so its glass cards
+   don't need a large blur radius — a small one is indistinguishable once scaled
+   and much cheaper while the window floats/animates. */
+.app-mock .glass {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .glow {
@@ -282,19 +301,59 @@ body {
   animation: fadeIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-/* Quick Launch tile — accent border/glow lift on hover (app's .app-icon). */
-.launch-tile {
-  transition:
-    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
-    border-color 0.35s ease,
+/* Quick Launch icon — copied verbatim from the app (styles/main.css).
+   The whole .app-icon springs up on hover; the accent glow lives on the rounded
+   .icon-tile (so it's a rounded glow, never a square one around the label), and
+   a light sheen sweeps across the tile once per hover. */
+.app-icon {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+.app-icon .icon-tile {
+  position: relative;
+  transition: background-color 0.4s ease, border-color 0.35s ease,
     box-shadow 0.35s ease;
 }
 
-.launch-tile:hover {
+.app-icon:hover {
   transform: scale(1.12) translateY(-4px);
+}
+
+.app-icon:hover .icon-tile {
   border-color: rgba(var(--accent), 0.35);
   box-shadow: 0 0 30px rgba(var(--accent), 0.15),
     inset 0 0 20px rgba(var(--accent), 0.04);
+}
+
+.app-icon:active {
+  transform: scale(1.04) translateY(-2px);
+}
+
+/* Sheen band — sits off-tile at rest (clipped by the tile's overflow:hidden),
+   sweeps across once each time the cursor enters. */
+.icon-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 32%,
+    rgba(255, 255, 255, 0.09) 50%,
+    transparent 68%
+  );
+  transform: translateX(-130%);
+  pointer-events: none;
+}
+
+.app-icon:hover .icon-tile::after {
+  animation: iconSheen 0.65s ease;
+}
+
+@keyframes iconSheen {
+  to {
+    transform: translateX(130%);
+  }
 }
 
 .vinyl-disk {
@@ -348,6 +407,18 @@ body {
   }
 }
 
+/* When the hero mock scrolls off-screen (JS adds these), freeze every animation
+   inside it plus its idle float so it stops repainting while the visitor reads
+   the rest of the page — the fix for scroll jank past the fold. */
+.hero-float.is-paused {
+  animation-play-state: paused;
+}
+
+.app-mock.mock-paused *,
+.app-mock.mock-paused {
+  animation-play-state: paused !important;
+}
+
 /* Mini-widget chip in the strip (app's .mini-widget-chip). */
 .mock-chip {
   display: inline-flex;
@@ -371,6 +442,400 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   Spotify widget — lifted verbatim from the app (styles/main.css). Lyrics
+   strip · spinning vinyl · morphing play button · progress · vertical volume.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Card + hover, matching the app's .widget-card. reveal-item = the app's
+   load-in fade (same as .mock-item here). */
+.reveal-item {
+  opacity: 0;
+  animation: fadeIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.widget-card {
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.widget-card:hover {
+  border-color: rgba(var(--accent), 0.18);
+  box-shadow: 0 0 30px rgba(var(--accent), 0.06);
+}
+
+/* Performance live dot (app's .perf-live-dot). */
+.perf-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  box-shadow: 0 0 8px rgba(var(--accent), 0.6);
+  animation: livePulse 2.5s ease-in-out infinite;
+}
+
+/* Vinyl disk — the real app artwork (player.png), same shadow/filter as the
+   app's .vinyl-disk. */
+.mock-vinyl {
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.06);
+  filter: drop-shadow(0 0 3px rgba(var(--accent), 0.08))
+    drop-shadow(0 0 6px rgba(var(--accent), 0.04));
+}
+
+/* Small album-cover thumbnail tucked at the disk's corner (app's
+   .spotify-album-cover, here a gradient stand-in). */
+.spotify-album-cover {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  /* Black-and-white album cover for the example track. */
+  background: linear-gradient(135deg, #e6e6e6 0%, #8a8a8a 45%, #171717 100%);
+  filter: grayscale(1) contrast(1.05);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6), 0 0 12px rgba(255, 255, 255, 0.08);
+  z-index: 20;
+}
+
+.spotify-disk-glow-wrapper {
+  z-index: 10;
+}
+
+.spotify-disk-glow-wrapper::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--accent), 0.08) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: -1;
+  filter: blur(8px);
+}
+
+/* Beat-reactive glow behind the disk (app's .beat-glow-halo; the app drives it
+   from audio, we pulse it on a loop). */
+.beat-glow-halo {
+  position: absolute;
+  width: 5rem;
+  height: 5rem;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(var(--accent), 0.4) 0%,
+    rgba(var(--accent), 0.1) 42%,
+    transparent 72%
+  );
+  pointer-events: none;
+  z-index: 0;
+  animation: beatPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes beatPulse {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.12);
+  }
+}
+
+.spotify-track-info {
+  transition: opacity 0.15s ease;
+}
+
+.spotify-control-btn {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+    color 0.2s ease, background 0.2s ease;
+}
+
+.spotify-control-btn:hover {
+  transform: scale(1.15);
+}
+
+/* Play/pause morph icon (app's exact clip-path morph). */
+.morph-play-icon {
+  position: relative;
+  width: 11px;
+  height: 11px;
+  display: inline-block;
+}
+
+.morph-bar {
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  transition: clip-path 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.morph-bar-a {
+  clip-path: polygon(20% 15%, 24% 15%, 24% 85%, 20% 85%);
+}
+
+.morph-bar-b {
+  clip-path: polygon(20% 15%, 85% 50%, 85% 50%, 20% 85%);
+}
+
+.is-playing .morph-bar-a {
+  clip-path: polygon(20% 15%, 38% 15%, 38% 85%, 20% 85%);
+}
+
+.is-playing .morph-bar-b {
+  clip-path: polygon(58% 15%, 78% 15%, 78% 85%, 58% 85%);
+}
+
+/* Progress bar (app's .spotify-progress-*). */
+.spotify-progress-track {
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+.spotify-progress-bar {
+  transition: width 0.25s linear;
+  background: linear-gradient(90deg, var(--accent-solid), rgba(var(--accent), 0.85));
+  box-shadow: 0 0 6px rgba(var(--accent), 0.4), 0 0 12px rgba(var(--accent), 0.2);
+}
+
+/* Vertical volume slider (app's .spotify-volume-*). */
+.spotify-volume-container {
+  position: relative;
+  width: 24px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spotify-volume-slider-v {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  width: 80px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  outline: none;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  left: -28px;
+  top: 38px;
+  cursor: pointer;
+}
+
+.spotify-volume-slider-v::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(var(--accent), 0.6), 0 0 12px rgba(var(--accent), 0.3);
+}
+
+.spotify-volume-glow {
+  filter: drop-shadow(0 0 4px rgba(var(--accent), 0.3));
+}
+
+/* Lyrics strip inside the Spotify card (app's .spotify-lyrics-*). */
+.spotify-lyrics-panel {
+  flex-shrink: 0;
+  width: 28%;
+  min-width: 75px;
+  max-width: 260px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 8px 3px;
+  overflow: hidden;
+}
+
+.lyrics-window {
+  position: relative;
+  width: 100%;
+  height: 218px;
+  overflow: hidden;
+  flex: 1;
+  /* Soft fade at the edges so lines melt in/out instead of popping against a
+     hard border. The top fade only covers the headroom ABOVE the current line
+     (so the current line stays crisp) — where the scrolled-past line exits —
+     and the bottom fades where upcoming lines enter. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 12%,
+    #000 60%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 12%,
+    #000 60%,
+    transparent 100%
+  );
+}
+
+.lyrics-slot {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: max-content;
+  /* Cap at the strip width so lines wrap inside the panel instead of bleeding
+     over the vinyl (the app sets --lyrics-max-width to the live panel width;
+     here the strip is narrow, so 100% keeps text contained). */
+  max-width: 100%;
+  padding: 6px 4px;
+  text-align: center;
+  white-space: normal;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: #fff;
+  opacity: 0.3;
+  font-family: var(--font-display), -apple-system, "Segoe UI", sans-serif;
+  letter-spacing: -0.3px;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease;
+  will-change: transform, opacity;
+}
+
+.lyrics-slot-current {
+  text-shadow: 0 0 8px rgba(var(--accent), 0.9), 0 0 20px rgba(var(--accent), 0.6);
+}
+
+/* Trailing "(...)" backing vocals render as a smaller second line beneath the
+   main lyric, inheriting the glow when this slot is the current line. */
+.lyrics-main-text {
+  display: block;
+  text-align: center;
+}
+
+.lyrics-paren-text {
+  display: block;
+  text-align: center;
+  font-size: 75%;
+  opacity: 0.78;
+}
+
+/* Wide layout (Spotify is the only widget) — roomier strip + readable lines,
+   the way the real app shows lyrics when the music widget is front-and-centre. */
+.spotify-lyrics-panel--wide {
+  width: 34%;
+  max-width: 300px;
+  padding: 8px 12px;
+}
+
+.spotify-lyrics-panel--wide .lyrics-slot {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+/* Audio-visualiser particles scattered around the disk (app's "particles"
+   mode). Small white squares that twinkle in time with playback. */
+.spotify-viz {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 210px;
+  height: 170px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.viz-dot {
+  position: absolute;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.85);
+  transform: translate(-50%, -50%);
+  animation: vizTwinkle 1.6s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+@keyframes vizTwinkle {
+  0%,
+  100% {
+    opacity: 0.12;
+    transform: translate(-50%, -50%) scale(0.7);
+  }
+  50% {
+    opacity: 0.85;
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+}
+
+/* ── "Customize this preview" toolbar ────────────────────────────────── */
+
+.preview-toolbar {
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  color: #8a8a8a;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: border-color 0.25s ease, background 0.25s ease, color 0.25s ease,
+    box-shadow 0.25s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.preview-toggle:hover {
+  color: #e5e5e5;
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.preview-toggle__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  transition: background 0.25s ease, box-shadow 0.25s ease;
+}
+
+.preview-toggle--on {
+  color: #fff;
+  border-color: rgba(var(--accent), 0.45);
+  background: rgba(var(--accent), 0.12);
+  box-shadow: 0 0 18px rgba(var(--accent), 0.12),
+    inset 0 0 0 1px rgba(var(--accent), 0.1);
+}
+
+.preview-toggle--on .preview-toggle__dot {
+  background: var(--accent-solid);
+  box-shadow: 0 0 8px rgba(var(--accent), 0.7);
+}
+
+.preview-toggle--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.preview-toggle--disabled:hover {
+  transform: none;
+  color: #8a8a8a;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    Background Studio layer stack (fixed, behind all content)
    Mirrors main-app11/main-app/styles/{main,backgrounds}.css
    ═══════════════════════════════════════════════════════════════════════ */
@@ -381,6 +846,12 @@ body {
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
+  /* Promote to its own compositor layer and contain the film-grain blend, so
+     the always-running background animation repaints in isolation instead of
+     invalidating the scrolling page content above it. */
+  transform: translateZ(0);
+  isolation: isolate;
+  contain: layout paint style;
 }
 
 .bg-scene {
@@ -695,7 +1166,151 @@ body {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   404 scene (NotFoundScene) — interactive "lost widget" page
+   Cursor parallax is driven by JS-set vars (--nf-mx / --nf-my, range -1..1;
+   --nf-gx / --nf-gy, cursor % for the glow). Everything degrades to a still,
+   readable layout under prefers-reduced-motion (see the block below).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.nf-scene {
+  --nf-mx: 0;
+  --nf-my: 0;
+  --nf-gx: 50%;
+  --nf-gy: 38%;
+}
+
+/* Spotlight that tracks the cursor, tinted with the live accent. */
+.nf-spotlight {
+  position: absolute;
+  inset: -10%;
+  pointer-events: none;
+  background: radial-gradient(
+    440px circle at var(--nf-gx) var(--nf-gy),
+    rgba(var(--accent), 0.16),
+    rgba(var(--accent), 0.05) 34%,
+    transparent 60%
+  );
+  transition: background-position 0.2s ease;
+  z-index: 0;
+}
+
+/* Glitchy 404 — three stacked copies. The base sits on top; two chromatic
+   ghosts (accent + magenta) jitter behind it and pop on hover. */
+.nf-glitch {
+  position: relative;
+  display: inline-block;
+  transform: translate3d(
+    calc(var(--nf-mx) * 14px),
+    calc(var(--nf-my) * 14px),
+    0
+  );
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.nf-glitch__layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.nf-glitch__layer--a {
+  color: rgba(var(--accent), 0.9);
+  animation: nfGlitchA 3.2s steps(2, jump-none) infinite;
+}
+
+.nf-glitch__layer--b {
+  color: rgba(255, 60, 120, 0.75);
+  animation: nfGlitchB 2.6s steps(2, jump-none) infinite;
+}
+
+.nf-glitch:hover .nf-glitch__layer--a {
+  animation-duration: 0.55s;
+}
+.nf-glitch:hover .nf-glitch__layer--b {
+  animation-duration: 0.4s;
+}
+
+/* Thin scanline sweeping down the numerals. */
+.nf-glitch::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    rgba(255, 255, 255, 0) 45%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0) 55%
+  );
+  background-size: 100% 8px;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  animation: nfScan 5s linear infinite;
+}
+
+@keyframes nfGlitchA {
+  0%, 92%, 100% { clip-path: inset(0 0 0 0); transform: translate(0, 0); }
+  93% { clip-path: inset(12% 0 58% 0); transform: translate(-3px, 0); }
+  96% { clip-path: inset(64% 0 8% 0); transform: translate(3px, 0); }
+}
+
+@keyframes nfGlitchB {
+  0%, 90%, 100% { clip-path: inset(0 0 0 0); transform: translate(0, 0); }
+  91% { clip-path: inset(70% 0 6% 0); transform: translate(3px, 0); }
+  94% { clip-path: inset(20% 0 50% 0); transform: translate(-4px, 0); }
+}
+
+@keyframes nfScan {
+  from { background-position: 0 -60px; }
+  to { background-position: 0 120px; }
+}
+
+/* Drifting "lost widget" ghost chips behind the number. Per-chip direction and
+   duration come from inline --nf-dx / --nf-dy / --nf-dur / --nf-rot vars. */
+.nf-ghost {
+  animation: nfDrift var(--nf-dur, 14s) ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes nfDrift {
+  from { transform: translate(0, 0) rotate(0deg); }
+  to {
+    transform: translate(var(--nf-dx, 20px), var(--nf-dy, -18px))
+      rotate(var(--nf-rot, 4deg));
+  }
+}
+
+/* Blinking terminal caret. */
+.nf-caret {
+  display: inline-block;
+  width: 0.55ch;
+  height: 1em;
+  margin-left: 1px;
+  translate: 0 2px;
+  background: var(--accent-solid);
+  box-shadow: 0 0 8px rgba(var(--accent), 0.6);
+  animation: nfCaret 1.05s steps(1) infinite;
+}
+
+@keyframes nfCaret {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .nf-glitch,
+  .nf-glitch__layer--a,
+  .nf-glitch__layer--b,
+  .nf-glitch::after,
+  .nf-ghost,
+  .nf-caret,
+  .nf-spotlight {
+    animation: none !important;
+    transform: none !important;
+  }
+  .nf-glitch__layer {
+    opacity: 0;
+  }
   .bg-blob,
   .grid-overlay,
   .grain,
@@ -712,8 +1327,18 @@ body {
   }
   .hero-float,
   .animate-spin-slow,
-  .animate-pulse {
+  .animate-pulse,
+  .beat-glow-halo,
+  .perf-live-dot,
+  .viz-dot,
+  .reveal-item {
     animation: none !important;
+  }
+  .reveal-item {
+    opacity: 1;
+  }
+  .lyrics-slot {
+    transition: none !important;
   }
   html {
     scroll-behavior: auto !important;

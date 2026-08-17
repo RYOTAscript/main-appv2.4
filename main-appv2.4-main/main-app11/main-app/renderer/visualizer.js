@@ -27,6 +27,7 @@
         let vizAuraUniformBass = null;
         let vizAuraUniformMid = null;
         let vizAuraUniformTreble = null;
+        let vizAuraUniformFade = null;
         let vizAuraTime = 0;
 
         let vizAudio = { stream: null, context: null, analyser: null, freqData: null, timeData: null, starting: false };
@@ -41,6 +42,21 @@
         let vizLastFrameAt = 0;
         let vizParticles = [];
         let vizParticleSpawnAcc = 0;
+
+        // Master intensity (0..1) that every mode multiplies into its amplitude and
+        // opacity. Instead of cutting the visual dead when the song stops or switches,
+        // vizFadeTarget flips to 0 and the render loop ramps vizFade down over
+        // VIZ_FADE_OUT_SEC so the bars/waveform/halo/particles shrink and dim away,
+        // only tearing capture + the RAF down once it actually reaches zero. Ramp-in is
+        // quicker so a starting/next track feels responsive rather than laggy.
+        let vizFade = 0;
+        let vizFadeTarget = 0;
+        const VIZ_FADE_IN_SEC = 0.35;
+        const VIZ_FADE_OUT_SEC = 1.1;
+        // On a track switch we briefly force the fade toward 0 (a dip) then release it so
+        // it swells back up with the next song. vizLastTrackId detects the switch.
+        let vizDipActive = false;
+        let vizLastTrackId = null;
 
         function getVizCanvas() {
             if (!vizCanvas) vizCanvas = document.getElementById('spotify-visualizer-canvas');
@@ -133,6 +149,7 @@
                 uniform float uBass;
                 uniform float uMid;
                 uniform float uTreble;
+                uniform float uFade;
 
                 void main() {
                     float radius = length(vPos);
@@ -152,7 +169,7 @@
                     float halo = exp(-(d * d) / (haloThickness * haloThickness) * 4.0) * 0.35;
 
                     float brightness = clamp(glow + halo, 0.0, 1.0);
-                    float alpha = brightness * (0.5 + uBass * 0.4);
+                    float alpha = brightness * (0.5 + uBass * 0.4) * uFade;
 
                     gl_FragColor = vec4(1.0, 1.0, 1.0, alpha);
                 }
@@ -176,6 +193,7 @@
             vizAuraUniformBass = gl.getUniformLocation(program, 'uBass');
             vizAuraUniformMid = gl.getUniformLocation(program, 'uMid');
             vizAuraUniformTreble = gl.getUniformLocation(program, 'uTreble');
+            vizAuraUniformFade = gl.getUniformLocation(program, 'uFade');
 
             vizAuraQuadBuffer = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, vizAuraQuadBuffer);
@@ -320,6 +338,7 @@
                 } else {
                     amp = 0.15 + 0.1 * Math.sin(Date.now() / 400 + i);
                 }
+                amp *= vizFade; // shrink toward the disk + dim as the fade ramps down
                 const outerR = innerR + amp * maxExtra;
                 const x0 = Math.cos(angle0), y0 = Math.sin(angle0);
                 const x1 = Math.cos(angle1), y1 = Math.sin(angle1);
@@ -351,9 +370,9 @@
                 let v;
                 if (analyser) v = (vizAudio.timeData[i] - 128) / 128;
                 else v = Math.sin(i / 6 + Date.now() / 300) * 0.15;
-                const r = Math.max(0.08, innerR + v * ampScale);
+                const r = Math.max(0.08, innerR + v * ampScale * vizFade);
                 positions.push(Math.cos(angle) * r, Math.sin(angle) * r);
-                colors.push(1, 1, 1, 0.55);
+                colors.push(1, 1, 1, 0.55 * vizFade);
             }
             vizClear();
             vizDraw(new Float32Array(positions), new Float32Array(colors), vizGl.LINE_LOOP);
@@ -398,9 +417,11 @@
             const gl = vizGl;
             if (!gl || !vizAuraProgram) return;
             vizAuraTime += dt;
-            const bass = getVizBassEnergy();
-            const mid = getVizMidEnergy();
-            const treble = getVizTrebleEnergy();
+            // Scale the energies by the fade so the ring's warp/breathing settles as it
+            // dies down; uFade below then fades the halo's opacity out on top of that.
+            const bass = getVizBassEnergy() * vizFade;
+            const mid = getVizMidEnergy() * vizFade;
+            const treble = getVizTrebleEnergy() * vizFade;
             vizClear();
             gl.useProgram(vizAuraProgram);
             gl.bindBuffer(gl.ARRAY_BUFFER, vizAuraQuadBuffer);
@@ -410,11 +431,14 @@
             gl.uniform1f(vizAuraUniformBass, bass);
             gl.uniform1f(vizAuraUniformMid, mid);
             gl.uniform1f(vizAuraUniformTreble, treble);
+            gl.uniform1f(vizAuraUniformFade, vizFade);
             gl.drawArrays(gl.TRIANGLES, 0, 6);
         }
 
         function renderVizParticles(dt) {
-            const energy = getVizBassEnergy();
+            // Spawn rate scales with the fade so, once it starts dying down, fewer (then
+            // no) new particles appear while the ones already in flight drift out and die.
+            const energy = getVizBassEnergy() * vizFade;
             vizParticleSpawnAcc += energy * dt * 40;
             while (vizParticleSpawnAcc >= 1 && vizParticles.length < 90) {
                 vizParticleSpawnAcc -= 1;
@@ -440,7 +464,7 @@
                     continue;
                 }
                 positions.push(p.x, p.y);
-                colors.push(1, 1, 1, Math.max(0, p.life) * 0.8);
+                colors.push(1, 1, 1, Math.max(0, p.life) * 0.8 * vizFade);
             }
             vizClear();
             if (positions.length) vizDraw(new Float32Array(positions), new Float32Array(colors), vizGl.POINTS);
@@ -453,6 +477,27 @@
             resizeVizCanvasIfNeeded();
             const dt = vizLastFrameAt ? Math.min(0.05, (ts - vizLastFrameAt) / 1000) : 0.016;
             vizLastFrameAt = ts;
+
+            // Ease the master fade toward its target (1 while active, 0 once stopped),
+            // ramping in quickly but dying down slowly. A track-switch dip overrides the
+            // target down to 0 until the visual has died away, then releases so it swells
+            // back up with the new song. Once a real fade-out (playback stopped, not a
+            // dip) has fully completed, tear the pipeline down — this is where capture +
+            // the RAF actually stop, not the moment playback ended.
+            const effectiveTarget = vizDipActive ? 0 : vizFadeTarget;
+            const fadeDur = effectiveTarget > vizFade ? VIZ_FADE_IN_SEC : VIZ_FADE_OUT_SEC;
+            const fadeStep = dt / fadeDur;
+            if (effectiveTarget > vizFade) vizFade = Math.min(effectiveTarget, vizFade + fadeStep);
+            else vizFade = Math.max(effectiveTarget, vizFade - fadeStep);
+            if (vizFade <= 0.001) {
+                if (vizDipActive) {
+                    vizDipActive = false; // dip bottomed out — let it swell back to target
+                } else if (vizFadeTarget === 0) {
+                    teardownViz();
+                    return;
+                }
+            }
+
             const mode = getVisualizerMode();
             if (mode === 'waveform') renderVizWaveform();
             else if (mode === 'aura') renderVizAura(dt);
@@ -466,28 +511,64 @@
         function updateVisualizerActiveState() {
             const canvas = getVizCanvas();
             const active = isVisualizerEnabled() && vizIsPlaying;
-            if (canvas) canvas.classList.toggle('visualizer-active', active);
 
             if (active) {
+                vizFadeTarget = 1;
+                if (canvas) canvas.classList.add('visualizer-active');
                 if (!vizGl) initVizGL();
                 ensureVizAudioAnalyser();
                 if (!vizRafId) vizRafId = requestAnimationFrame(vizFrame);
             } else {
-                stopVizAudioAnalyser();
-                vizParticles = [];
-                vizParticleSpawnAcc = 0;
-                vizAuraTime = 0;
-                vizLastFrameAt = 0;
-                if (vizRafId) {
-                    cancelAnimationFrame(vizRafId);
-                    vizRafId = null;
-                }
-                vizClear();
+                // Don't cut the visual dead. Aim the fade at 0 and keep the render loop
+                // running so the current mode animates its way down; vizFrame tears the
+                // pipeline down once vizFade reaches zero. The CSS .visualizer-active
+                // opacity stays on through the fade (teardownViz removes it) so the
+                // canvas doesn't blank out from under the dying animation.
+                vizFadeTarget = 0;
+                // If the loop isn't running there's nothing to animate the fade — tear
+                // down straight away (also handles the enabled-off / GL-failed cases).
+                if (!vizRafId) teardownViz();
             }
+        }
+
+        // Full stop: drop the loopback capture, reset per-mode state, cancel the RAF and
+        // clear the canvas. Only called once a fade-out has completed (or when there's no
+        // loop to fade), never the instant playback stops.
+        function teardownViz() {
+            const canvas = getVizCanvas();
+            if (canvas) canvas.classList.remove('visualizer-active');
+            stopVizAudioAnalyser();
+            vizParticles = [];
+            vizParticleSpawnAcc = 0;
+            vizAuraTime = 0;
+            vizLastFrameAt = 0;
+            vizFade = 0;
+            vizFadeTarget = 0;
+            vizDipActive = false;
+            if (vizRafId) {
+                cancelAnimationFrame(vizRafId);
+                vizRafId = null;
+            }
+            vizClear();
         }
 
         function updateVisualizerFromPlayback(data) {
             vizIsPlaying = !!(data && data.is_playing);
+
+            // When the track switches (but playback continues), dip the visual down and
+            // let it swell back with the new song instead of running seamlessly across
+            // the boundary — same "die down, don't cut" feel as a stop, but it recovers.
+            const trackId = (data && data.track && data.track.id) || null;
+            if (trackId !== vizLastTrackId) {
+                // Only dip on an actual change between two real tracks while it's already
+                // showing — not the first track appearing or playback going empty (those
+                // are handled by the normal fade in/out via updateVisualizerActiveState).
+                if (vizLastTrackId && trackId && vizIsPlaying && vizFade > 0.05) {
+                    vizDipActive = true;
+                }
+                vizLastTrackId = trackId;
+            }
+
             updateVisualizerActiveState();
         }
 

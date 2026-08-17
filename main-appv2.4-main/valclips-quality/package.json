@@ -5,7 +5,8 @@
   "description": "Maximum-effort TikTok quality tool for ~20-second Valorant edits",
   "main": "out/main/index.js",
   "author": "RYOTAscript",
-  "license": "MIT",
+  "license": "UNLICENSED",
+  "private": true,
   "scripts": {
     "start": "electron-vite dev",
     "dev": "electron-vite dev",
@@ -18,6 +19,8 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.5.3",
     "electron": "^41.7.1",

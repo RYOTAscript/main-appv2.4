@@ -33,12 +33,22 @@ export default function TermsPage() {
         recurring.
       </p>
 
-      <h2>4. Refunds</h2>
+      <h2>4. Refunds &amp; your right of withdrawal</h2>
       <p>
-        Because main is a digital product delivered instantly, sales are
-        generally final. That said, if the app doesn&apos;t work for you and we
-        can&apos;t sort it out, email us within <strong>14 days</strong> of
-        purchase and we&apos;ll refund you and deactivate the license. No drama.
+        main is a digital product that is delivered and usable{" "}
+        <strong>immediately</strong> after purchase. Where you have a statutory
+        right of withdrawal (for example, the 14-day right for consumers in the
+        UK/EU), you expressly agree that we begin supplying the digital content
+        immediately, and you acknowledge that you therefore{" "}
+        <strong>lose that right of withdrawal</strong> once the download and your
+        license key have been made available to you. You confirm this at
+        checkout before payment.
+      </p>
+      <p>
+        Beyond that, we still want you happy: if the app doesn&apos;t work for
+        you and we can&apos;t sort it out, email us within{" "}
+        <strong>14 days</strong> of purchase and we&apos;ll refund you and
+        deactivate the license. No drama.
       </p>
 
       <h2>5. Acceptable use</h2>
@@ -55,6 +65,10 @@ export default function TermsPage() {
         main is provided <strong>“as is”</strong>, without warranties of any
         kind. To the maximum extent permitted by law, we aren&apos;t liable for
         any indirect or consequential damages arising from your use of the app.
+        Nothing in these terms excludes, restricts or modifies any consumer
+        guarantee, right or remedy you have under the{" "}
+        <strong>Australian Consumer Law</strong> or any other law that cannot
+        legally be excluded.
       </p>
 
       <h2>7. Changes</h2>
@@ -64,10 +78,34 @@ export default function TermsPage() {
         means you accept the revised terms.
       </p>
 
-      <h2>8. Contact</h2>
+      <h2>8. Governing law &amp; who you&apos;re dealing with</h2>
       <p>
-        Questions? Reach out via the support link in the footer. main is made by
-        ryota and isn&apos;t affiliated with Spotify, Discord, or Microsoft.
+        main is operated by ryota, an independent developer based in Australia.
+        These terms are governed by the laws of <strong>Australia</strong>, and
+        you agree to the non-exclusive jurisdiction of the Australian courts —
+        without depriving you of any mandatory consumer protection in your own
+        country of residence. Full seller details are on our{" "}
+        <a href="/legal">Legal Notice</a> page.
+      </p>
+
+      <h2>9. Trademarks &amp; third-party software</h2>
+      <p>
+        main is an independent product and is not affiliated with, endorsed by,
+        or sponsored by Microsoft, Spotify, Discord, Riot Games (Valorant),
+        TikTok / ByteDance, Valve (Steam), or Epic Games. All product names,
+        logos and trademarks are the property of their respective owners and are
+        used for identification purposes only. main bundles third-party
+        open-source software (including FFmpeg, licensed under the GPL v3) — see
+        the THIRD-PARTY-NOTICES file included with the app for the full licenses
+        and source offers.
+      </p>
+
+      <h2>10. Contact</h2>
+      <p>
+        Questions? Reach out via the support link in the footer, or email{" "}
+        <a href="mailto:mainappsupport@gmail.com">mainappsupport@gmail.com</a>.
+        main is made by ryota — see the <a href="/legal">Legal Notice</a> for
+        seller details.
       </p>
     </LegalPage>
   );

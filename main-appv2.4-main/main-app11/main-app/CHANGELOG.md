@@ -5,6 +5,44 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.48.1] — 2026-08-14
+
+### Added
+
+- **First-run onboarding.** A brand-new profile used to open to an empty dashboard —
+  every mini widget was off by default (`isMiniWidgetEnabled` reads `!!prefs[id]`, and
+  first-run prefs are empty). The very first launch now seeds a small, curated set of
+  safe, zero-config starter widgets — **Quick Launch, Quick Notes, Countdown Timer,
+  Volume Mixer, Weather** — both enabled *and* pinned to the dashboard strip (which shows
+  favourites only), so a new user lands on a populated launcher. See
+  `seedFirstRunMiniWidgets()` in `renderer/core.js`.
+- **One-time welcome.** After a fresh seed (and only then), a longer-dwell toast fires
+  once the startup reveal cascade settles, pointing new users to the Widget Library for
+  the rest of the catalogue.
+
+### Changed
+
+- **`showToast(message, isError, durationMs)`** now takes an optional dwell duration
+  (default 2200 ms, unchanged) so longer messages like the first-run welcome get time to
+  be read.
+
+### Notes
+
+- Onboarding is strictly one-time and upgrade-safe: it is guarded by a
+  `miniWidgetOnboarded` flag *and* an "prefs is empty" check. Toggling any widget writes a
+  `false` key, so any returning user has non-empty prefs and is never re-seeded or altered.
+- Nothing that mutates the OS, records input, or draws an on-screen overlay is enabled by
+  default.
+
+### Files
+
+- `renderer/core.js` — `seedFirstRunMiniWidgets()` + `FIRST_RUN_MINI_WIDGETS`; version label.
+- `renderer/spotify-widget.js` — seed call at boot + one-time welcome toast.
+- `renderer/ui-utils.js` — optional `durationMs` on `showToast`.
+- `main.js`, `package.json`, website `package.json` + `src/lib/site.ts` — version bump.
+
+---
+
 ## [3.47.1] — 2026-08-11
 
 ### Changed

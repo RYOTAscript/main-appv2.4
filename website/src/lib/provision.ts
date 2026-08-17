@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { generateLicenseKey } from "@/lib/license";
+import { sendLicenseEmail } from "@/lib/email";
 
 /**
  * Record a payment and provision the user's license — idempotently.
@@ -22,12 +23,14 @@ export async function provisionLicense(input: {
   });
   if (existing) return;
 
-  await prisma.$transaction(async (tx) => {
+  // The transaction returns the new key + recipient email only when THIS call
+  // mints a brand-new license, so we email the key exactly once.
+  const newlyIssued = await prisma.$transaction(async (tx) => {
     // Re-check inside the transaction to guard against concurrent callers.
     const dupe = await tx.purchase.findUnique({
       where: { externalId: input.externalId },
     });
-    if (dupe) return;
+    if (dupe) return null;
 
     await tx.purchase.create({
       data: {
@@ -45,16 +48,29 @@ export async function provisionLicense(input: {
     const current = await tx.license.findUnique({
       where: { userId: input.userId },
     });
-    if (!current) {
-      let key = generateLicenseKey();
-      for (let i = 0; i < 5; i++) {
-        const clash = await tx.license.findUnique({ where: { key } });
-        if (!clash) break;
-        key = generateLicenseKey();
-      }
-      await tx.license.create({
-        data: { userId: input.userId, key, active: true },
-      });
+    if (current) return null;
+
+    let key = generateLicenseKey();
+    for (let i = 0; i < 5; i++) {
+      const clash = await tx.license.findUnique({ where: { key } });
+      if (!clash) break;
+      key = generateLicenseKey();
     }
+    await tx.license.create({
+      data: { userId: input.userId, key, active: true },
+    });
+    const user = await tx.user.findUnique({
+      where: { id: input.userId },
+      select: { email: true },
+    });
+    return { key, email: user?.email ?? null };
   });
+
+  // Fire the receipt/key email outside the transaction. Best-effort — a mail
+  // failure must never roll back a paid, provisioned license.
+  if (newlyIssued && newlyIssued.email) {
+    await sendLicenseEmail(newlyIssued.email, newlyIssued.key).catch((err) => {
+      console.error("[provision] license email failed", err);
+    });
+  }
 }

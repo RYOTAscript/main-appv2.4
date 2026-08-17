@@ -26,7 +26,7 @@ echo "   built: $EXE"
 echo "▶ 2/4  Uploading to Vercel Blob…"
 TOKEN="$(grep -E '^BLOB_READ_WRITE_TOKEN=' "$WEBSITE_DIR/.env.local" | head -1 | sed 's/^BLOB_READ_WRITE_TOKEN=//; s/^"//; s/"$//')"
 [ -n "$TOKEN" ] || { echo "✖ BLOB_READ_WRITE_TOKEN not found in .env.local"; exit 1; }
-OUT="$(cd "$WEBSITE_DIR" && npx --yes vercel blob put "$EXE" --access public --force --rw-token "$TOKEN" 2>&1)"
+OUT="$(cd "$WEBSITE_DIR" && npx --yes vercel blob put "$EXE" --access public --allow-overwrite --rw-token "$TOKEN" 2>&1)"
 URL="$(printf '%s' "$OUT" | grep -oE 'https://[^ ]+\.exe' | head -1)"
 [ -n "$URL" ] || { echo "✖ Upload failed:"; echo "$OUT"; exit 1; }
 echo "   uploaded: $URL"

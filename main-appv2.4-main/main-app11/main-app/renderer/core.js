@@ -1,4 +1,4 @@
-        const APP_VERSION = 'v3.40.0';
+        const APP_VERSION = 'v3.48.1';
         const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M', crosshair: 'Control+Shift+X' };
 
         // Registry of "Mini Widgets" -- small, self-contained utilities. This is the
@@ -142,13 +142,13 @@
                 id: 'claudeLimit',
                 label: 'Claude Limit Auto-Continue',
                 icon: 'fa-robot',
-                description: 'Waits out a Claude usage limit and auto-continues the chat when it resets.',
-                longDescription: 'When you hit a usage limit in Claude (claude.ai), Cursor, Nimbalyst or any chat app, this reads when the limit resets, counts down, and at reset time focuses the chat window you picked and sends a prompt for you — so the conversation continues on its own. Detect the reset time by pasting the limit message, reading it straight from your clipboard, or leaving the clipboard watcher on; or just set a time or a countdown yourself. Pick the exact window to continue in, write the continue prompt, and arm it. It resumes only AFTER the limit resets — it never bypasses a limit, it just does the "come back later and continue" step for you.',
+                description: 'Detects a Claude usage limit from Claude Code\'s own session log and auto-continues the chat when it resets.',
+                longDescription: 'When you hit a usage limit in Claude (claude.ai), Claude Code, Cursor, Nimbalyst or any chat app, this reads when the limit resets, counts down, and at reset time focuses the chat window you picked and sends a prompt for you — so the conversation continues on its own. Most reliably it detects the limit the way Claude Code / Nimbalyst do — by reading the exact 429 reset time from Claude Code\'s own session transcript (~/.claude), no copying and works even when the window isn\'t focused. It can also read the on-screen banner from a window via Windows UI Automation, read the reset time from a pasted message or your clipboard, or just take a time or a countdown you set. Turn on Auto-detect and it watches for the limit for you. Built for unattended, overnight runs: it keeps the PC awake while armed so it never sleeps through the reset, retries the paste a few times if the window won\'t focus, and can desktop-notify you the moment it fires. For rolling "N-hour limit" windows, turn on Keep continuing and it re-arms itself for each reset — up to a safety cap you set — so a long autonomous session keeps going on its own; a recent-fires log shows exactly what happened while you were away. It resumes only AFTER the limit resets — it never bypasses a limit, it just does the "come back later and continue" step for you.',
                 category: 'Productivity',
-                keywords: ['claude', 'limit', 'usage', 'credit', 'rate limit', 'reset', 'continue', 'auto', 'cursor', 'nimbalyst', 'wait', 'resume', 'countdown', 'quota', 'anthropic'],
-                version: '1.0.0',
+                keywords: ['claude', 'limit', 'usage', 'credit', 'rate limit', 'reset', 'continue', 'auto', 'cursor', 'nimbalyst', 'claude code', 'wait', 'resume', 'countdown', 'quota', 'anthropic', 'overnight', 'unattended', 'repeat', 'keep awake', 'notification', 'history', 'detect', 'auto-detect', 'banner', 'transcript', '429'],
+                version: '2.2.0',
                 author: 'ryota',
-                features: ['Detects the reset time from the limit message or clipboard', 'Counts down and auto-continues at reset', 'Sends your prompt into Cursor / Nimbalyst / Claude web / any window', 'Manual time or countdown option', 'Clipboard watcher for hands-off detection', 'Resumes after reset — never bypasses a limit'],
+                features: ['Detects the exact reset time from Claude Code\'s own session log (429 event)', 'Or auto-detects the limit banner inside a window — no copying', 'Also reads the reset time from a pasted message or clipboard', 'Counts down and auto-continues at reset', 'Repeat mode re-arms for each rolling reset (with a safety cap)', 'Keeps the PC awake while armed so it never sleeps through the reset', 'Retries the paste if the window won\'t focus', 'Desktop notification + recent-fires history log', 'Sends your prompt into Cursor / Nimbalyst / Claude web / any window', 'Resumes after reset — never bypasses a limit'],
                 panelId: 'claude-limit-panel',
                 panelRenderer: 'renderClaudeLimitPanel'
             },
@@ -307,6 +307,48 @@
                 features: ['Custom details, state & images', 'Up to two link buttons', 'Elapsed-time clock', 'Live preview card', 'Connects to your Discord desktop app'],
                 panelId: 'discord-rpc-panel',
                 panelRenderer: 'renderDiscordRpcPanel'
+            },
+            {
+                id: 'appInstaller',
+                label: 'App Installer',
+                icon: 'fa-box-open',
+                description: 'Tick a bunch of popular apps and install them all silently in one go.',
+                longDescription: 'A one-click bulk app installer. Tick the apps you want from a category grid — browsers, messaging, media, imaging, documents, runtimes, security, compression, dev tools and more — then hit one button and they install one after another, silently, with no clicking Next through wizards. Save your picks as a preset (and export it to a file), so after a PC reset you just load the preset and press Get. It uses Windows\' own package manager (winget) under the hood, so every app is downloaded straight from its real publisher and always at the latest version; apps you already have are detected and skipped. A live progress list shows each install as it happens.',
+                category: 'Utilities',
+                keywords: ['install', 'installer', 'apps', 'winget', 'bulk', 'setup', 'fresh', 'pc', 'silent', 'batch', 'package', 'new computer', 'reinstall', 'preset'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Category grid of popular apps — tick what you want', 'One-click silent install of everything selected', 'Powered by winget — real publishers, latest versions', 'Detects & skips apps you already have', 'Live per-app install progress', 'Great for setting up a fresh Windows install'],
+                panelId: 'app-installer-panel',
+                panelRenderer: 'renderAppInstallerPanel'
+            },
+            {
+                id: 'debloat',
+                label: 'Windows Debloat',
+                icon: 'fa-broom',
+                description: 'Uninstall preinstalled Windows bloatware and flip reversible privacy & UX tweaks.',
+                longDescription: 'A clean-up tool for a fresh (or cluttered) Windows install. The Remove Apps tab scans which preinstalled Microsoft Store apps are actually on your PC — Xbox, News, Weather, Solitaire, Clipchamp, the Office hub and more — and lets you tick the ones you don\'t want and uninstall them all in one go, with a live progress list. The Tweaks tab is a set of reversible switches for the annoyances: show file extensions, bring back the Windows 10 right-click menu, hide the taskbar Widgets/Chat/search buttons, disable Bing web results in Start, and turn off suggested content and ads. Everything works through Windows\' own built-in tools, only ever touches what you tick, and applies to your user account only — no elevation needed. Every tweak is a genuine on/off you can undo from the panel, and app removals show exactly what happened to each one. Apps you might actually use are flagged before you remove them.',
+                category: 'System',
+                keywords: ['debloat', 'bloatware', 'uninstall', 'remove', 'appx', 'privacy', 'tweaks', 'clean', 'telemetry', 'ads', 'xbox', 'cortana', 'taskbar', 'context menu', 'fresh install', 'optimize', 'declutter'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Scans and lists only the bloat apps actually installed', 'One-click bulk uninstall with live per-app progress', 'Reversible privacy & UX tweaks (real on/off toggles)', 'Show file extensions, classic Win10 right-click menu', 'Hide taskbar Widgets / Chat / search, disable Bing in Start', 'Turn off suggested content & ads', 'Per-user scope — no admin, nothing system-wide', 'Flags apps you might actually want before removing them'],
+                panelId: 'debloat-panel',
+                panelRenderer: 'renderDebloatPanel'
+            },
+            {
+                id: 'fpsOptimizer',
+                label: 'FPS Optimizer',
+                icon: 'fa-gauge-high',
+                description: 'One-stop game booster: free RAM, kill background apps, and apply power/network tweaks.',
+                longDescription: 'A complete in-launcher game booster — the former standalone FPS Optimizer, now a mini widget that matches the rest of the app. Boost tab: one-click Optimize (Ultimate Performance, game CPU priority, standby-RAM purge, temp cleanup, Superfetch off, DNS flush, network + Game Mode tweaks), plus Discord-Only and Kill-Everything cleanups that terminate background apps to free resources while protecting Windows and the launcher itself. Power tab: switch between Ultimate / High / Balanced plans, set game CPU scheduling, and enable HAGS. Memory tab: release standby RAM, clear temp files, toggle Superfetch. Network tab: flush DNS, low-latency tweak, and reset. Battery tab: a one-tap power-saver mode for laptops. Restore tab: undo the tweaks and return Windows to its defaults after gaming. Every action shows live progress and reports which steps succeeded.',
+                category: 'Gaming',
+                keywords: ['fps', 'optimizer', 'boost', 'game', 'gaming', 'performance', 'ram', 'memory', 'kill', 'background', 'power', 'ultimate', 'network', 'latency', 'dns', 'superfetch', 'hags', 'battery', 'temp', 'clean', 'lag', 'stutter'],
+                version: '3.0.0',
+                author: 'ryota',
+                features: ['One-click Optimize (power, CPU, RAM, temp, network, Game Mode)', 'Kill background apps — Discord-only or nuke — without touching Windows/the launcher', 'Power plans: Ultimate / High / Balanced + game CPU priority + HAGS', 'Memory: release standby RAM, clear temp, toggle Superfetch', 'Network: flush DNS, low-latency tweak, reset', 'Battery Saver mode for laptops', 'Restore everything to Windows defaults', 'Live per-step progress'],
+                panelId: 'fps-optimizer-panel',
+                panelRenderer: 'renderFpsOptimizerPanel'
             }
         ];
 
@@ -331,6 +373,63 @@
             } catch (e) {
                 console.warn('Corrupted localStorage value, using default', e);
                 return fallback;
+            }
+        }
+
+        // ── First-run onboarding ──────────────────────────────────────────────
+        // A brand-new profile has no widget prefs, so the dashboard opens empty
+        // ("No widgets enabled yet") — a poor first impression. On the very first
+        // launch we seed a small, curated set of safe, zero-config widgets:
+        // enabled AND pinned to the dashboard strip, so a new user lands on a
+        // populated launcher and can discover the rest via the Widget Library.
+        //
+        // Deliberately conservative — only widgets that are useful immediately with
+        // no account, no permission prompt, and no system-wide side effect (nothing
+        // that mutates the OS, records input, or draws an on-screen overlay).
+        //
+        // Runs once, guarded by the `miniWidgetOnboarded` flag. It never touches a
+        // returning user: toggling any widget writes a `false` key (see
+        // widget-library.js setMiniWidgetEnabled), so anyone who has ever opened the
+        // library has a non-empty `miniWidgetPrefs` and is skipped even before the
+        // flag existed (upgrade-safe).
+        const FIRST_RUN_MINI_WIDGETS = [
+            'launchEnhanced',   // Quick Launch — jump to your apps
+            'notesEnhanced',    // Quick Notes — jot things down
+            'timer',            // Countdown Timer
+            'volumeMixer',      // Per-app volume
+            'weatherEnhanced',  // Auto-located weather + forecast
+        ];
+
+        // Returns true only when it just seeded a genuinely fresh profile — the
+        // caller uses that to show a one-time welcome. Returns false for returning
+        // users and on any subsequent launch.
+        function seedFirstRunMiniWidgets() {
+            try {
+                if (localStorage.getItem('miniWidgetOnboarded')) return false;
+
+                const prefs = safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {});
+                // Empty prefs == genuine first run (never a user who disabled things).
+                const freshProfile = Object.keys(prefs).length === 0;
+                if (freshProfile) {
+                    const valid = FIRST_RUN_MINI_WIDGETS.filter(id => MINI_WIDGETS.some(w => w.id === id));
+                    const seeded = {};
+                    valid.forEach(id => { seeded[id] = true; });
+                    localStorage.setItem('miniWidgetPrefs', JSON.stringify(seeded));
+
+                    // The dashboard strip shows favourites only — pin the same set so
+                    // it isn't empty on first open. Only if the user has none yet.
+                    const favs = safeParseJSON(localStorage.getItem('miniWidgetFavs'), []);
+                    if (!Array.isArray(favs) || favs.length === 0) {
+                        localStorage.setItem('miniWidgetFavs', JSON.stringify(valid));
+                    }
+                }
+
+                localStorage.setItem('miniWidgetOnboarded', '1');
+                return freshProfile;
+            } catch (e) {
+                // Onboarding is best-effort — never let it block boot.
+                console.warn('First-run widget seeding skipped', e);
+                return false;
             }
         }
 

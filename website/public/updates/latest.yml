@@ -1,0 +1,8 @@
+version: 3.48.3
+files:
+  - url: https://tkoozjkpskvlj2st.public.blob.vercel-storage.com/downloads/main-Setup-3.48.3.exe
+    sha512: Y4Y5bPTocPBLCrUgsixg0fXmcY25ON2ybHu3h0hfllFj77is0LCR/RIP9Msz/xVYXsSwI1oVzbtHItIML7d/jw==
+    size: 130648066
+path: https://tkoozjkpskvlj2st.public.blob.vercel-storage.com/downloads/main-Setup-3.48.3.exe
+sha512: Y4Y5bPTocPBLCrUgsixg0fXmcY25ON2ybHu3h0hfllFj77is0LCR/RIP9Msz/xVYXsSwI1oVzbtHItIML7d/jw==
+releaseDate: '2026-08-16T11:14:09.432Z'

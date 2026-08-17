@@ -66,12 +66,34 @@ model VerificationToken {
 // ── Commerce models ────────────────────────────────────────────────────────
 // One active lifetime license per user, provisioned by the Stripe webhook.
 model License {
-  id         String   @id @default(cuid())
-  key        String   @unique // MAIN-XXXX-XXXX-XXXX-XXXX
-  userId     String   @unique
-  active     Boolean  @default(true)
-  issuedAt   DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String       @id @default(cuid())
+  key         String       @unique // MAIN-XXXX-XXXX-XXXX-XXXX
+  userId      String       @unique
+  active      Boolean      @default(true)
+  issuedAt    DateTime     @default(now())
+  // Last time the user did a device (HWID) reset. Used to enforce a cooldown so
+  // resets can't be looped to stack machines past the device limit within the
+  // offline grace window. Null = never reset.
+  lastResetAt DateTime?
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activations Activation[]
+}
+
+// One row per (license, machine) pair. Records which physical machines a key
+// has been activated on so the verify endpoint can enforce a per-key device
+// limit (LICENSE_DEVICE_LIMIT) and reclaim long-idle slots. `machineId` is an
+// opaque hardware fingerprint hash sent by the desktop app — never PII.
+model Activation {
+  id        String   @id @default(cuid())
+  licenseId String
+  machineId String
+  name      String? // human-readable device label (the PC's hostname), for the UI
+  firstSeen DateTime @default(now())
+  lastSeen  DateTime @default(now())
+  license   License  @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@unique([licenseId, machineId])
+  @@index([licenseId])
 }
 
 // One row per completed payment. Keyed by the processor's order id

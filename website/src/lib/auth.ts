@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
+import { isAdminEmail } from "@/lib/adminEmails";
 
 /**
  * NextAuth config. Google is the only provider (no email/password). The Prisma
@@ -32,6 +33,7 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         session.user.id = (token.uid as string) ?? (token.sub as string);
+        session.user.isAdmin = isAdminEmail(session.user.email);
       }
       return session;
     },

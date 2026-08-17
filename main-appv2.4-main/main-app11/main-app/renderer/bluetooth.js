@@ -16,6 +16,7 @@
         const bluetoothBusy = {};                // address -> true while an action runs
         let bluetoothScanning = false;
         let bluetoothRadioBusy = false;
+        let bluetoothLoading = false;            // a full (re)load is in flight
         let bluetoothRefreshTimer = null;
         let bluetoothSearch = '';                // name filter text
         const bluetoothReconnectTried = {};      // address -> last auto-reconnect attempt ts
@@ -110,6 +111,12 @@
 
         // Full (re)load with a visible loading state — used on open / toggle / manual
         // refresh. Uses `status` so it also picks up the radio power state in one call.
+        // The status call is PowerShell + WinRT backed and can take several seconds on
+        // a cold start, so we must never leave the panel blank while it runs: if we
+        // already have devices we keep showing them (with a subtle refreshing hint in
+        // the toolbar); otherwise we show a loading placeholder. The panel div is
+        // recreated empty every time the library detail reopens, which is exactly when
+        // this used to flash blank.
         async function renderBluetoothPanel() {
             const panel = document.getElementById('bluetooth-panel');
             if (!panel) return;
@@ -118,22 +125,47 @@
                 panel.innerHTML = `<p class="text-xs text-neutral-600 mt-3">Bluetooth control is unavailable.</p>`;
                 return;
             }
-            if (!bluetoothData.devices.length) {
-                panel.innerHTML = `<p class="text-xs text-neutral-600 mt-3"><i class="fas fa-circle-notch fa-spin mr-1.5"></i>Loading Bluetooth devices…</p>`;
+            bluetoothLoading = true;
+            if (bluetoothData.devices.length) {
+                bluetoothPaint();                       // keep known devices visible, mark as refreshing
+            } else {
+                panel.innerHTML = bluetoothLoadingSkeleton();
             }
-            const res = window.electronAPI.bluetoothStatus
-                ? await window.electronAPI.bluetoothStatus()
-                : await window.electronAPI.bluetoothList();
+            let res;
+            try {
+                res = window.electronAPI.bluetoothStatus
+                    ? await window.electronAPI.bluetoothStatus()
+                    : await window.electronAPI.bluetoothList();
+            } finally {
+                bluetoothLoading = false;
+            }
             if (!isBluetoothEnabled()) { panel.innerHTML = ''; return; }
             if (res?.ok) {
                 bluetoothData = { devices: res.devices || [] };
                 if ('radio' in res) bluetoothRadio = res.radio || null;
-            } else if (!res) {
+            } else if (!res && !bluetoothData.devices.length) {
                 panel.innerHTML = `<p class="text-xs text-neutral-600 mt-3">Couldn't reach the Bluetooth radio. Is Bluetooth turned on?
                     <button type="button" class="hotkey-bind no-drag ml-2" onclick="renderBluetoothPanel()">Retry</button></p>`;
                 return;
             }
             bluetoothPaint();
+        }
+
+        // Loading placeholder shown on a cold open (no cached devices yet). A spinner
+        // line plus a few shimmering rows so a slow status call reads as "loading",
+        // not "broken" or "empty".
+        function bluetoothLoadingSkeleton() {
+            const row = `<div class="bt-device bt-skeleton flex items-center gap-2.5 border border-white/10 rounded-xl p-2.5">
+                <span class="bt-icon"><span class="bt-skel bt-skel-dot"></span></span>
+                <div class="min-w-0 flex-1 space-y-1.5">
+                    <span class="bt-skel bt-skel-bar" style="width:55%"></span>
+                    <span class="bt-skel bt-skel-bar" style="width:32%"></span>
+                </div>
+            </div>`;
+            return `<div class="flex items-center gap-2 text-xs text-neutral-400 mt-3 mb-2">
+                    <i class="fas fa-circle-notch fa-spin"></i><span>Loading Bluetooth devices…</span>
+                </div>
+                <div class="space-y-2">${row}${row}${row}</div>`;
         }
 
         // Type → friendly label + Font Awesome icon. The name-based guess wins when
@@ -287,7 +319,7 @@
                 <div class="flex items-center gap-1.5">
                     <button type="button" class="hotkey-bind no-drag ${isBluetoothAutoReconnect() ? 'bt-toggle-on' : ''}" onclick="bluetoothToggleAutoReconnect()"
                         title="Auto-reconnect favourite devices when they drop"><i class="fas fa-arrows-rotate mr-1"></i>Auto</button>
-                    <button type="button" class="hotkey-bind no-drag" onclick="renderBluetoothPanel()" title="Refresh"><i class="fas fa-rotate-right"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" onclick="renderBluetoothPanel()" ${bluetoothLoading ? 'disabled' : ''} title="${bluetoothLoading ? 'Refreshing…' : 'Refresh'}"><i class="fas ${bluetoothLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate-right'}"></i></button>
                     <button type="button" class="hotkey-bind no-drag" onclick="bluetoothScan()" ${bluetoothScanning ? 'disabled' : ''}>
                         ${bluetoothScanning ? '<i class="fas fa-circle-notch fa-spin mr-1"></i>Scanning…' : '<i class="fas fa-magnifying-glass mr-1"></i>Scan'}</button>
                 </div>

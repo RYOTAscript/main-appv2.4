@@ -26,7 +26,7 @@ const HELP = [
     icon: "fa-bug",
     title: "Something broke",
     body: "Hit a bug or a widget acting up? Send us the details and we'll get on it.",
-    href: "mailto:support@main.app?subject=main%20bug%20report",
+    href: "mailto:mainappsupport@gmail.com?subject=main%20bug%20report",
     cta: "Report a bug",
   },
 ];
@@ -131,13 +131,13 @@ export default function SupportPage() {
             </p>
           </div>
           <Button
-            href="mailto:support@main.app?subject=main%20support"
+            href="mailto:mainappsupport@gmail.com?subject=main%20support"
             variant="primary"
             size="lg"
             className="flex-shrink-0"
           >
             <i className="fa-solid fa-envelope text-sm" />
-            support@main.app
+            mainappsupport@gmail.com
           </Button>
         </div>
       </ScrollReveal>

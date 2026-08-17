@@ -41,11 +41,11 @@
             <!-- Header -->
             <div class="header-drag flex items-center justify-between px-8 py-5 border-b border-white/10 select-none reveal-item">
                 <div class="flex items-center gap-3">
-                    <img src="icons/main.ico" class="w-9 h-9 rounded-2xl object-contain"
+                    <img src="icons/logo.png" class="w-9 h-9 rounded-2xl object-cover"
                         onerror="this.outerHTML='<div class=\'w-9 h-9 bg-white rounded-2xl flex items-center justify-center text-xl font-bold text-black\'>M</div>'">
                     <div>
                         <h1 class="text-2xl font-semibold tracking-tight text-white">main</h1>
-                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.40.0</p>
+                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.48.0</p>
                     </div>
                 </div>
                 <div class="no-drag flex items-center gap-3 text-sm">
@@ -285,73 +285,13 @@
                 <div id="mini-widgets-strip" class="flex gap-2 overflow-x-auto mini-widgets-strip"></div>
             </div>
 
-            <!-- FPS Optimizer Modal -->
-            <div id="fps-modal" class="hidden absolute inset-0 z-40 no-drag flex"
-                onclick="if(event.target.id === 'fps-modal') closeFpsOptimizer()">
-                <div class="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-none"></div>
-                <div class="absolute inset-0 flex flex-col pointer-events-auto" id="fps-modal-content">
-                    <!-- Header -->
-                    <div
-                        class="header-drag flex items-center justify-between px-8 py-5 border-b border-white/10 select-none">
-                        <div class="flex items-center gap-3">
-                            <div
-                                class="w-9 h-9 bg-white/10 rounded-2xl flex items-center justify-center text-lg font-bold">
-                                ⚡</div>
-                            <div>
-                                <h1 class="text-2xl font-semibold tracking-tight text-white">FPS Optimizer</h1>
-                                <p class="text-[10px] text-neutral-500 tracking-widest uppercase">Quick Tools</p>
-                            </div>
-                        </div>
-                        <button onclick="closeFpsOptimizer()" class="window-btn text-lg leading-none no-drag"
-                            title="Close">✕</button>
-                    </div>
-
-                    <!-- Main Content -->
-                    <div class="flex-1 flex overflow-hidden" id="fps-content">
-                        <!-- Center Area -->
-                        <div class="flex-1 flex flex-col px-8 py-6 overflow-y-auto">
-                            <div class="space-y-4">
-                                <div>
-                                    <p class="text-xs text-neutral-500 mb-2">Progress</p>
-                                    <div class="h-2 app-progress-track">
-                                        <div id="fps-progress-bar" class="app-progress-fill" style="width: 0%">
-                                        </div>
-                                    </div>
-                                    <p id="fps-progress-text" class="text-xs text-neutral-400 mt-2">Ready</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Side Panel -->
-                        <div class="w-56 border-l border-white/10 bg-gradient-to-b from-black/20 to-black/40 flex flex-col p-6 space-y-2"
-                            id="fps-side-panel">
-                            <div class="mb-4">
-                                <p class="text-xs text-neutral-500 uppercase tracking-widest font-medium">Quick Actions
-                                </p>
-                            </div>
-                            <button onclick="launchFpsAction('optimize')"
-                                class="px-4 py-3.5 bg-white/8 hover:bg-white/15 border border-white/12 rounded-xl text-sm font-medium text-white transition-all no-drag">Optimize</button>
-                            <button onclick="launchFpsAction('discord')"
-                                class="px-4 py-3.5 bg-white/8 hover:bg-white/15 border border-white/12 rounded-xl text-sm font-medium text-white transition-all no-drag">Discord
-                                Only</button>
-                            <button onclick="launchFpsAction('nuke')"
-                                class="px-4 py-3.5 bg-white/8 hover:bg-white/15 border border-white/12 rounded-xl text-sm font-medium text-white transition-all no-drag">Kill
-                                Everything</button>
-                            <button onclick="launchFpsAction('battery')"
-                                class="px-4 py-3.5 bg-white/8 hover:bg-white/15 border border-white/12 rounded-xl text-sm font-medium text-white transition-all no-drag">Battery
-                                Saver</button>
-                            <button onclick="launchFpsAction('revert')"
-                                class="px-4 py-3.5 bg-white/8 hover:bg-white/15 border border-white/12 rounded-xl text-sm font-medium text-white transition-all no-drag">Restore
-                                Defaults</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <!-- FPS Optimizer is now a Widget Library mini widget (renderer/fps-optimizer.js). -->
 
             <!-- Settings (inside window so rounded corners stay) -->
             <div id="settings-modal" class="hidden absolute inset-0 z-50 no-drag">
                 <div class="absolute inset-0 bg-black/75 backdrop-blur-md"></div>
-                <div class="absolute inset-0 flex items-center justify-center p-5 overflow-y-auto">
+                <div class="absolute inset-0 flex items-center justify-center p-5 overflow-y-auto"
+                    onclick="if (event.target === this) closeSettingsDone()">
                     <div
                         class="settings-panel glass relative w-full max-w-[740px] rounded-3xl p-8 border border-white/10 glow modal-enter overflow-y-auto">
                         <div class="flex justify-between mb-8">
@@ -403,6 +343,35 @@
                                     <button type="button" class="account-btn account-btn-danger no-drag" onclick="logoutAccount()">Log out</button>
                                 </div>
                                 <p class="account-status-msg" id="account-recheck-status"></p>
+                            </div>
+                        </div>
+
+                        <div class="settings-group-label"><i class="fas fa-cloud-arrow-down"></i><span>Updates</span></div>
+
+                        <div class="mb-10" id="updates-section">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">App updates</h3>
+                            <div class="account-card">
+                                <div class="account-head">
+                                    <div class="account-avatar"><i class="fas fa-rocket text-sm"></i></div>
+                                    <div class="account-id">
+                                        <p class="account-name">main <span id="updates-version" class="text-neutral-500 font-normal">v—</span></p>
+                                        <p class="account-mail" id="updates-status">Checking for updates…</p>
+                                    </div>
+                                    <span class="account-badge" id="updates-badge">—</span>
+                                </div>
+
+                                <div id="updates-progress-wrap" class="hidden" style="margin-top:16px">
+                                    <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.08);overflow:hidden">
+                                        <div id="updates-progress-bar" style="height:100%;width:0%;background:var(--accent-solid,#7c5cff);transition:width .25s ease"></div>
+                                    </div>
+                                    <p id="updates-progress-text" class="account-meta" style="margin-top:8px">Downloading… 0%</p>
+                                </div>
+
+                                <div class="account-actions">
+                                    <button type="button" class="account-btn no-drag" id="updates-check-btn" onclick="checkForUpdates()">Check for updates</button>
+                                    <button type="button" class="account-btn no-drag hidden" id="updates-install-btn" onclick="installUpdate()">Restart &amp; install</button>
+                                </div>
+                                <p class="account-status-msg" id="updates-msg"></p>
                             </div>
                         </div>
 
@@ -635,6 +604,9 @@
                                 class="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neutral-500">
                             </select>
                             <p class="text-xs text-neutral-600 mt-1">Which monitor the window opens on. Applies immediately and is remembered on next launch.</p>
+
+                            <h4 class="text-xs font-medium text-neutral-400 mb-2 mt-4">Window Zoom</h4>
+                            <p class="text-xs text-neutral-600 mt-1">Zoom the launcher content with Ctrl + / Ctrl − while it's focused. Ctrl 0 resets to 100%. Your choice is remembered on next launch.</p>
                         </div>
 
                         <div class="mb-10">
@@ -868,16 +840,6 @@
                         <div class="settings-group-label"><i class="fas fa-database"></i><span>Data &amp; Maintenance</span></div>
 
                         <div class="mb-10">
-                            <h3 class="text-sm font-medium mb-4 text-neutral-300">FPS Optimizer</h3>
-                            <label class="text-sm text-neutral-400 block mb-2">Display Mode</label>
-                            <select id="fps-display-mode" onchange="saveFpsDisplayMode()"
-                                class="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neutral-500">
-                                <option value="sidepanel" selected>Side Panel (Compact)</option>
-                                <option value="fullwindow">Full Window</option>
-                            </select>
-                        </div>
-
-                        <div class="mb-10">
                             <h3 class="text-sm font-medium mb-4 text-neutral-300">Backup & Logs</h3>
                             <div class="flex flex-wrap gap-3">
                                 <button onclick="exportSettings()"
@@ -973,7 +935,7 @@
                 class="absolute bottom-5 left-8 right-8 text-[10px] text-neutral-600 flex justify-between tracking-wide reveal-item"
                 style="animation-delay:0.5s">
                 <div id="footer-hotkeys" class="font-mono"></div>
-                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.40.0</div>
+                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.48.0</div>
             </div>
         </div>
         <!-- Log out confirmation (glass dialog, styled to match the app) -->
@@ -1004,6 +966,7 @@
     <script src="renderer/hotkeys.js"></script>
     <script src="renderer/settings.js"></script>
     <script src="renderer/account.js"></script>
+    <script src="renderer/updates.js"></script>
     <script src="renderer/ui-utils.js"></script>
     <script src="renderer/background.js"></script>
     <script src="renderer/parallax.js"></script>
@@ -1016,6 +979,8 @@
     <script src="renderer/bluetooth.js"></script>
     <script src="renderer/taskbar.js"></script>
     <script src="renderer/file-search.js"></script>
+    <script src="renderer/app-installer.js"></script>
+    <script src="renderer/debloat.js"></script>
     <script src="renderer/claude-limit.js"></script>
     <script src="renderer/video-editor.js"></script>
     <script src="renderer/valclips.js"></script>

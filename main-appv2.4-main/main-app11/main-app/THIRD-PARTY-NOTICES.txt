@@ -1,0 +1,87 @@
+================================================================================
+main — Third-Party Software Notices and Licenses
+================================================================================
+
+"main" is a proprietary product. It includes and/or depends on the third-party
+open-source components listed below. Each is the property of its respective
+authors and is provided under its own license. This file is distributed with
+the application to satisfy those licenses' notice and source-offer requirements.
+
+Last updated: 2026-08. Contact for any request below: mainappsupport@gmail.com
+
+
+--------------------------------------------------------------------------------
+1. FFmpeg  —  GNU General Public License, version 3 (GPLv3)
+--------------------------------------------------------------------------------
+
+main bundles the FFmpeg command-line tools, which it invokes as a separate
+process (it does not statically or dynamically link FFmpeg into the
+application). FFmpeg is used by features such as the Video Editor and clip
+tooling.
+
+  Bundled build : FFmpeg 6.1.1 "essentials" static Windows build (gyan.dev),
+                  as distributed by the npm package `ffmpeg-static` (v5.3.0).
+  License       : GNU GPL v3 (see the full text shipped alongside the FFmpeg
+                  binary as `ffmpeg.exe.LICENSE`, in the application's
+                  resources under
+                  `resources/app.asar.unpacked/node_modules/ffmpeg-static/`).
+  Upstream      : https://ffmpeg.org
+  Binary source : https://www.gyan.dev/ffmpeg/builds/  and
+                  https://github.com/eugeneware/ffmpeg-static (release b6.1.1)
+
+  WRITTEN OFFER FOR SOURCE CODE (GPLv3 §6):
+  The complete corresponding source code for the bundled FFmpeg build is the
+  FFmpeg source at commit e38092ef93 (https://github.com/FFmpeg/FFmpeg). For any
+  three-year period from the date you received this software, you may also
+  obtain the corresponding source code, on a physical medium at no more than our
+  cost of distribution, by emailing mainappsupport@gmail.com.
+
+  FFmpeg is free software; you can redistribute it and/or modify it under the
+  terms of the GNU General Public License as published by the Free Software
+  Foundation; either version 3 of the License, or (at your option) any later
+  version. There is NO WARRANTY, to the extent permitted by law.
+
+
+--------------------------------------------------------------------------------
+2. Electron  —  MIT License (bundling Chromium and Node.js)
+--------------------------------------------------------------------------------
+
+main is built on Electron. Electron is Copyright (c) Electron contributors and
+Copyright (c) 2013-2020 GitHub Inc., licensed under the MIT License. Electron
+in turn incorporates Chromium (BSD-3-Clause and others) and Node.js (MIT and
+others). Full license texts are available at:
+
+  Electron  : https://github.com/electron/electron/blob/main/LICENSE
+  Chromium  : https://chromium.googlesource.com/chromium/src/+/refs/heads/main/LICENSE
+  Node.js   : https://github.com/nodejs/node/blob/main/LICENSE
+
+  MIT License (Electron / Node.js):
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the above copyright notice and this permission
+  notice being included in all copies. THE SOFTWARE IS PROVIDED "AS IS",
+  WITHOUT WARRANTY OF ANY KIND.
+
+
+--------------------------------------------------------------------------------
+3. Font Awesome Free  —  Icons (CC BY 4.0), Fonts (SIL OFL 1.1), Code (MIT)
+--------------------------------------------------------------------------------
+
+main uses Font Awesome Free for its icons.
+  https://fontawesome.com  —  https://fontawesome.com/license/free
+
+
+--------------------------------------------------------------------------------
+4. Other npm dependencies
+--------------------------------------------------------------------------------
+
+main also includes other open-source npm packages (e.g. `ffmpeg-static`,
+GPL-3.0-or-later; `electron-updater`, MIT). Their licenses are included in each
+package's folder under `node_modules/` in the source distribution, and can be
+obtained from the npm registry (https://www.npmjs.com) by package name.
+
+For any question about the licenses above, or to request source code for any
+GPL-covered component, contact mainappsupport@gmail.com.

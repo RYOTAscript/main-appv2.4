@@ -25,7 +25,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onDisplayChanged: (callback) => ipcRenderer.on('display-changed', () => callback()),
 
   launchApp: (path, options) => ipcRenderer.invoke('launch-app', path, options),
-  launchFPSOptimizer: () => ipcRenderer.invoke('launch-fps-optimizer'),
   setAutoStart: (enabled) => ipcRenderer.invoke('set-autostart', enabled),
   getAutoStart: () => ipcRenderer.invoke('get-autostart'),
   getSystemStats: () => ipcRenderer.invoke('get-system-stats'),
@@ -45,12 +44,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   licenseOpenAccount: () => ipcRenderer.invoke('license:open-account'),
   licenseLogout: () => ipcRenderer.invoke('license:logout'),
 
+  // Updates (auto-updater)
+  updatesGetState: () => ipcRenderer.invoke('updates:get-state'),
+  updatesCheck: () => ipcRenderer.invoke('updates:check'),
+  updatesInstall: () => ipcRenderer.invoke('updates:install'),
+  onUpdatesState: (cb) => {
+    const listener = (_e, s) => { try { cb(s); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('updates:state', listener);
+    return () => ipcRenderer.removeListener('updates:state', listener);
+  },
+
   // FPS Optimizer
   fpsOptimizeOnly: () => ipcRenderer.invoke('fps-optimize-only'),
   fpsDiscordOnly: () => ipcRenderer.invoke('fps-discord-only'),
   fpsNuke: () => ipcRenderer.invoke('fps-nuke'),
   fpsBatterySaver: () => ipcRenderer.invoke('fps-battery'),
   fpsRevertOptimizations: () => ipcRenderer.invoke('fps-revert-optimizations'),
+  fpsAction: (key) => ipcRenderer.invoke('fps-action', key),
   onFpsProgress: (cb) => ipcRenderer.on('fps-progress', (e, data) => cb(data)),
   removeFpsProgressListener: () => ipcRenderer.removeAllListeners('fps-progress'),
 
@@ -188,8 +198,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   claudeLimitSend: (hwnd, prompt, pressEnter) => ipcRenderer.invoke('claude-limit:send', hwnd, prompt, pressEnter),
   claudeLimitReadClipboard: () => ipcRenderer.invoke('claude-limit:read-clipboard'),
   claudeLimitSetWatch: (enabled) => ipcRenderer.invoke('claude-limit:set-watch', enabled),
+  claudeLimitSetKeepAwake: (enabled) => ipcRenderer.invoke('claude-limit:set-keep-awake', enabled),
+  claudeLimitNotify: (title, body) => ipcRenderer.invoke('claude-limit:notify', title, body),
+  claudeLimitReadWindowText: (process, title) => ipcRenderer.invoke('claude-limit:read-window-text', process, title),
+  claudeLimitSetWindowWatch: (enabled, process, title) => ipcRenderer.invoke('claude-limit:set-window-watch', enabled, process, title),
+  claudeLimitReadCcLimit: () => ipcRenderer.invoke('claude-limit:read-cc-limit'),
+  claudeLimitSetCcWatch: (enabled) => ipcRenderer.invoke('claude-limit:set-cc-watch', enabled),
   onClaudeLimitClipboardHit: (callback) => ipcRenderer.on('claude-limit:clipboard-hit', (_event, data) => callback(data)),
   removeClaudeLimitClipboardHitListener: () => ipcRenderer.removeAllListeners('claude-limit:clipboard-hit'),
+  onClaudeLimitWindowHit: (callback) => ipcRenderer.on('claude-limit:window-hit', (_event, data) => callback(data)),
+  removeClaudeLimitWindowHitListener: () => ipcRenderer.removeAllListeners('claude-limit:window-hit'),
+  onClaudeLimitCcHit: (callback) => ipcRenderer.on('claude-limit:cc-hit', (_event, data) => callback(data)),
+  removeClaudeLimitCcHitListener: () => ipcRenderer.removeAllListeners('claude-limit:cc-hit'),
 
   // Mini Widgets: Clipboard
   clipboardGet: () => ipcRenderer.invoke('clipboard-get'),
@@ -257,5 +277,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   valclipsOpenSettingsFile: () => ipcRenderer.invoke('valclips:open-settings-file'),
   onValclipsJobs: (callback) => ipcRenderer.on('valclips:jobs', (_event, data) => callback(data)),
   onValclipsFfmpegState: (callback) => ipcRenderer.on('valclips:ffmpeg-state', (_event, data) => callback(data)),
+
+  // Mini Widgets: App Installer (Ninite-style bulk installer, winget-backed)
+  appInstallerCatalog: () => ipcRenderer.invoke('app-installer:catalog'),
+  appInstallerStatus: () => ipcRenderer.invoke('app-installer:status'),
+  appInstallerInstall: (ids) => ipcRenderer.invoke('app-installer:install', ids),
+  appInstallerCancel: () => ipcRenderer.invoke('app-installer:cancel'),
+  appInstallerInstalled: () => ipcRenderer.invoke('app-installer:installed'),
+  appInstallerExportPresets: (json) => ipcRenderer.invoke('app-installer:export-presets', json),
+  appInstallerImportPresets: () => ipcRenderer.invoke('app-installer:import-presets'),
+  appInstallerOpenWingetStore: () => ipcRenderer.invoke('app-installer:open-winget-store'),
+  onAppInstallerProgress: (callback) => ipcRenderer.on('app-installer:progress', (_event, data) => callback(data)),
+
+  // Mini Widgets: Windows Debloat (per-user AppX removal + reversible HKCU tweaks)
+  debloatCatalog: () => ipcRenderer.invoke('debloat:catalog'),
+  debloatStatus: () => ipcRenderer.invoke('debloat:status'),
+  debloatScanInstalled: () => ipcRenderer.invoke('debloat:scan-installed'),
+  debloatRemove: (names) => ipcRenderer.invoke('debloat:remove', names),
+  debloatCancel: () => ipcRenderer.invoke('debloat:cancel'),
+  debloatReadTweaks: () => ipcRenderer.invoke('debloat:read-tweaks'),
+  debloatSetTweak: (id, on) => ipcRenderer.invoke('debloat:set-tweak', { id, on }),
+  debloatRestartExplorer: () => ipcRenderer.invoke('debloat:restart-explorer'),
+  debloatRestorePoint: () => ipcRenderer.invoke('debloat:restore-point'),
+  onDebloatProgress: (callback) => ipcRenderer.on('debloat:progress', (_event, data) => callback(data)),
 
 });

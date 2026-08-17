@@ -58,7 +58,7 @@ function FeatureCard({ feature }: { feature: Feature }) {
 
 export function Features() {
   return (
-    <section id="features" className="relative mx-auto max-w-6xl px-6 py-24 scroll-mt-24">
+    <section id="features" className="relative mx-auto max-w-6xl px-6 pb-24 pt-12">
       <ScrollReveal className="mb-12 text-center">
         <SectionLabel className="mb-4">Features</SectionLabel>
         <h2 className="display-type mx-auto max-w-2xl text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl">

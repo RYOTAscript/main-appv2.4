@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, globalShortcut, Menu, Tray, session, desktopCapturer, crashReporter } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, globalShortcut, Menu, Tray, session, desktopCapturer, crashReporter, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -35,10 +35,50 @@ const volumeMixer = require('./main/volumeMixer');
 const discordRpc = require('./main/discordRpc');
 const gameMode = require('./main/gameMode');
 const quickLaunch = require('./main/quickLaunch');
+const appInstaller = require('./main/appInstaller');
+const debloat = require('./main/debloat');
 const license = require('./main/license');
+const autoUpdate = require('./main/autoUpdate');
 
+// Present as "main" everywhere Windows surfaces the app identity. setAppUserModelId
+// ties the running windows to the installer's shortcut so pinning to the taskbar
+// groups under one "main" icon and relaunches main.exe (must match build.appId).
+// setName overrides the package.json `name` ("main-app") so notification source,
+// jump-list category, and any app.name-derived label read as "main" too — no
+// "Electron"/"main-app" leaking to the user.
+app.setName('main');
 app.setAppUserModelId('com.launcher.app');
-const APP_VERSION = 'v3.40.0';
+// Derive from package.json so it never drifts from the real build version.
+const APP_VERSION = 'v' + app.getVersion();
+
+// Ship as a self-contained product, not an obviously-Electron app. In packaged
+// builds strip the default application menu — it's invisible on our frameless
+// window anyway, but it's what wires up the developer shortcuts (Ctrl+Shift+I
+// DevTools, reload, etc.) and the boilerplate "Electron" Help menu. Removing it
+// leaves no Electron chrome for a shipped user to stumble into. Kept in dev
+// (`electron .`) so DevTools stays available while testing.
+if (app.isPackaged) {
+  Menu.setApplicationMenu(null);
+}
+
+// Load the app icon once as a nativeImage. Passing this (rather than a bare path
+// string) to the BrowserWindow `icon` option and then calling win.setIcon() with
+// it after the window exists is what makes the icon stick to the Windows taskbar
+// in dev (`electron .`) — with just the constructor path string the taskbar falls
+// back to the generic Electron icon.
+//
+// Use the .ico, NOT logo.png: main.ico is a proper multi-resolution Windows icon
+// (16/32/48/256), so the taskbar picks the right size. logo.png here is the full
+// 1254×1254 source — handing an image that large to setIcon() makes Windows fail
+// to scale it and fall back to the generic Electron icon, which is exactly the
+// bug this avoids. The PNG is only a fallback if the .ico is missing.
+const APP_ICON = (() => {
+  const icoPath = path.join(__dirname, 'icons', 'main.ico');
+  const pngPath = path.join(__dirname, 'icons', 'logo.png');
+  let img = nativeImage.createFromPath(fs.existsSync(icoPath) ? icoPath : pngPath);
+  if (img.isEmpty()) img = nativeImage.createFromPath(pngPath); // .ico unreadable → try PNG
+  return img;
+})();
 
 // Point every per-user path (userData, and therefore crashDumps) at our own
 // folder BEFORE anything reads them. This has to happen before crashReporter.start()
@@ -218,6 +258,25 @@ if (!gotSingleInstanceLock) {
     focusHotkey = null;
   }
 
+  // Anti-inspection: in packaged builds, deny DevTools entirely and swallow the
+  // usual open-devtools / view-source key combos. DevTools would let someone
+  // poke at the renderer, the IPC surface and app internals; there's no reason a
+  // shipped build needs it. Dev runs (npm start) keep DevTools so we can debug.
+  function hardenWindow(win) {
+    if (!app.isPackaged || !win) return;
+    const wc = win.webContents;
+    wc.on('devtools-opened', () => { try { wc.closeDevTools(); } catch (e) { /* ignore */ } });
+    wc.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return;
+      const k = (input.key || '').toLowerCase();
+      const isDevtoolsCombo =
+        k === 'f12' ||
+        (input.control && input.shift && (k === 'i' || k === 'j' || k === 'c')) ||
+        (input.control && k === 'u'); // view-source
+      if (isDevtoolsCombo) event.preventDefault();
+    });
+  }
+
   function createWindow() {
     const windowWidth = 920;
     const windowHeight = 640;
@@ -233,15 +292,43 @@ if (!gotSingleInstanceLock) {
       roundedCorners: true,
       hasShadow: true,
       backgroundColor: '#00000000',
-      icon: path.join(__dirname, 'icons', 'main.ico'),
+      icon: APP_ICON,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
+        devTools: !app.isPackaged,
         preload: path.join(__dirname, 'preload.js')
       }
     });
+    hardenWindow(mainWindow);
+
+    // Re-assert the taskbar icon after the window exists. The constructor option
+    // alone doesn't reliably reach the taskbar in dev; this WM_SETICON pass makes
+    // the real app icon show instead of the generic Electron one.
+    try { if (!APP_ICON.isEmpty()) mainWindow.setIcon(APP_ICON); } catch (e) { /* non-fatal */ }
 
     logger.attachWindow(mainWindow);
+
+    // ── Content zoom (Ctrl +/- and Ctrl+0) ──
+    // The window is a fixed-size glass panel, so the usual "just resize it" zoom
+    // doesn't apply — instead we scale the renderer content with webContents zoom.
+    // There's no application menu (frameless custom UI), so the standard menu-driven
+    // zoom accelerators don't exist; wire them explicitly here. Ctrl+0 resets to 100%.
+    // The chosen factor is persisted and re-applied on load (see did-finish-load).
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return;
+      const key = input.key;
+      if (key === '+' || key === '=') {
+        event.preventDefault();
+        displaySettings.nudgeZoom(mainWindow, userDataPath, displaySettings.ZOOM_STEP, logger);
+      } else if (key === '-' || key === '_') {
+        event.preventDefault();
+        displaySettings.nudgeZoom(mainWindow, userDataPath, -displaySettings.ZOOM_STEP, logger);
+      } else if (key === '0') {
+        event.preventDefault();
+        displaySettings.applyZoom(mainWindow, userDataPath, 1, logger);
+      }
+    });
 
     // ── Self-healing renderer ──
     // The renderer can occasionally die (intermittent STATUS_STACK_BUFFER_OVERRUN —
@@ -292,6 +379,10 @@ if (!gotSingleInstanceLock) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainAppPID = mainWindow.webContents.getOSProcessId();
         logger.debug('Main app renderer PID captured', { mainAppPID });
+        // Re-assert the saved zoom on every load. Chromium resets the zoom factor
+        // to 1 for a fresh document, so a persisted zoom (or a crash auto-reload)
+        // must re-apply it here rather than only once at startup.
+        displaySettings.applyZoom(mainWindow, userDataPath, displaySettings.getZoomFactor(userDataPath, logger), logger);
       }
     });
     logger.success('Main window created');
@@ -350,13 +441,16 @@ if (!gotSingleInstanceLock) {
       roundedCorners: true,
       hasShadow: true,
       backgroundColor: '#00000000',
-      icon: path.join(__dirname, 'icons', 'main.ico'),
+      icon: APP_ICON,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
+        devTools: !app.isPackaged,
         preload: path.join(__dirname, 'license-gate-preload.js')
       }
     });
+    hardenWindow(gateWindow);
+    try { if (!APP_ICON.isEmpty()) gateWindow.setIcon(APP_ICON); } catch (e) { /* non-fatal */ }
     logger.attachWindow(gateWindow);
     gateWindow.loadFile('license-gate.html');
     gateWindow.on('closed', () => { gateWindow = null; });
@@ -372,6 +466,8 @@ if (!gotSingleInstanceLock) {
     if (gateWindow && !gateWindow.isDestroyed()) {
       try { gateWindow.close(); } catch (e) { /* ignore */ }
     }
+    // Check for app updates in the background (packaged builds only; no-ops in dev).
+    try { autoUpdate.initAutoUpdate(logger); } catch (e) { logger.warn('Auto-update init failed', e); }
   }
 
   function startApp() {
@@ -418,6 +514,8 @@ if (!gotSingleInstanceLock) {
     crosshairModule = crosshair.init(ctx);
     backgrounds.init(ctx);
     quickLaunch.init(ctx);
+    appInstaller.init(ctx);
+    debloat.init(ctx);
     volumeMixerModule = volumeMixer.init(ctx);
     discordRpc.init(ctx);
     gameModeModule = gameMode.init(ctx);

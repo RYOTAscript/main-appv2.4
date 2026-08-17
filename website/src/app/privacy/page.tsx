@@ -68,10 +68,11 @@ export default function PrivacyPage() {
 
       <h2>Your choices</h2>
       <p>
-        You can sign out at any time, and you can ask us to delete your account
-        and associated data via the support link in the footer. Deleting your
-        account removes your profile, license, and purchase records from our
-        database.
+        You can sign out at any time, and you can delete your account yourself
+        from your{" "}
+        <a href="/account">Account page</a> (&ldquo;Danger zone&rdquo;) — or ask
+        us via the support link in the footer. Deleting your account permanently
+        removes your profile, license, and purchase records from our database.
       </p>
 
       <h2>Changes</h2>

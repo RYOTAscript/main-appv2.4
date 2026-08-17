@@ -3,11 +3,17 @@
             { name: "Spotify", path: "C:\\Users\\ivanq\\AppData\\Roaming\\Spotify\\Spotify.exe", icon: "spotify.ico" },
             { name: "Discord", path: "C:\\Users\\ivanq\\AppData\\Local\\Discord\\Update.exe", icon: "discord.ico" },
             { name: "Valorant", path: "C:\\Riot Games\\Riot Client\\RiotClientServices.exe", icon: "valorant.ico" },
-            { name: "Chrome", path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", icon: "chrome.ico" },
-            { name: "FPS Optimizer", path: "fps-optimizer", icon: "fps-optimizer.ico" }
+            { name: "Chrome", path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", icon: "chrome.ico" }
         ];
 
         let pinnedApps = safeParseJSON(localStorage.getItem('pinnedApps'), DEFAULT_APPS);
+        // Migration: FPS Optimizer used to be a special pinned "app" (path
+        // "fps-optimizer") that opened a modal. It's now a Widget Library mini
+        // widget, so drop that pseudo-pin from anyone's saved launcher.
+        if (Array.isArray(pinnedApps) && pinnedApps.some(a => a && a.path === 'fps-optimizer')) {
+            pinnedApps = pinnedApps.filter(a => !(a && a.path === 'fps-optimizer'));
+            try { localStorage.setItem('pinnedApps', JSON.stringify(pinnedApps)); } catch (e) { /* non-fatal */ }
+        }
         let draggedIndex = null;
         let lastCpu = null;
         let lastRam = null;

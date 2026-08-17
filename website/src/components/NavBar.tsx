@@ -57,6 +57,50 @@ export function NavBar() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  // Cold deep-links (someone opens /#pricing directly): the browser's initial
+  // hash jump fires before fonts/the app-window mock finish laying out, so it
+  // lands in the wrong place — and the target section's scroll-reveal children
+  // are still faded out. After mount, reveal the target and re-scroll to it
+  // once layout has settled.
+  useEffect(() => {
+    const id = window.location.hash.replace(/^#/, "");
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    const settle = window.setTimeout(() => {
+      el.querySelectorAll(".reveal, .reveal-pop").forEach((child) =>
+        child.classList.add("is-visible"),
+      );
+      el.scrollIntoView({ behavior: "auto", block: "start" });
+      setActive(id);
+    }, 350);
+    return () => window.clearTimeout(settle);
+  }, []);
+
+  // Scroll to a section ourselves rather than relying on Next's hash handling,
+  // which doesn't reliably scroll for same-page `/#id` links. scrollIntoView
+  // honours the CSS scroll-padding-top (the nav offset) and smooth behaviour, so
+  // the heading lands cleanly just below the navbar. We also nudge the section's
+  // scroll-reveal children to appear immediately so we never arrive on a section
+  // whose content is still faded out.
+  const handleNavClick = (
+    e: React.MouseEvent<HTMLAnchorElement>,
+    id: string,
+  ) => {
+    // Only intercept when the section exists on the current page (the home page).
+    const el = document.getElementById(id);
+    if (!el) return; // e.g. on /account — let the link navigate to "/#id".
+    e.preventDefault();
+    setOpen(false);
+    setActive(id);
+    el.querySelectorAll(".reveal, .reveal-pop").forEach((child) =>
+      child.classList.add("is-visible"),
+    );
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Keep the URL in sync without a second scroll jump.
+    history.replaceState(null, "", `#${id}`);
+  };
+
   return (
     <header className="fixed inset-x-0 top-0 z-50 px-4 pt-4">
       <nav
@@ -87,6 +131,7 @@ export function NavBar() {
               <Link
                 key={link.href}
                 href={link.href}
+                onClick={(e) => handleNavClick(e, link.id)}
                 aria-current={isActive ? "true" : undefined}
                 className={cn(
                   "nav-underline rounded-lg px-3 py-2 text-sm transition-colors",
@@ -134,7 +179,7 @@ export function NavBar() {
             <Link
               key={link.href}
               href={link.href}
-              onClick={() => setOpen(false)}
+              onClick={(e) => handleNavClick(e, link.id)}
               aria-current={active === link.id ? "true" : undefined}
               className={cn(
                 "rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-white/5 hover:text-white",

@@ -316,18 +316,6 @@
             return localStorage.getItem('spotifyVisualizerMode') || 'circular';
         }
 
-        function saveFpsDisplayMode() {
-            const mode = document.getElementById('fps-display-mode').value;
-            localStorage.setItem('fpsDisplayMode', mode);
-            scheduleSettingsSave();
-        }
-
-        function loadFpsDisplayMode() {
-            const mode = localStorage.getItem('fpsDisplayMode') || 'sidepanel';
-            const select = document.getElementById('fps-display-mode');
-            if (select) select.value = mode;
-        }
-
         function saveClockFormat() {
             const selected = document.querySelector('input[name="clock-format"]:checked');
             if (selected) localStorage.setItem('clockFormat', selected.value);
@@ -377,4 +365,5 @@
             await window.electronAPI.setSelectedDisplay(Number(select.value));
             scheduleSettingsSave();
         }
+
 

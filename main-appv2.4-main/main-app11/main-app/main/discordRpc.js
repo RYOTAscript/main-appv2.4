@@ -1,5 +1,6 @@
 const { ipcMain } = require('electron');
 const net = require('net');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -88,6 +89,12 @@ function init(ctx) {
   let activityStart = null;   // ms epoch used for the elapsed timestamp
   let lastPushAt = 0;
   let pushPending = false;
+  // The bold top line of a Discord Rich Presence card is the *application's*
+  // registered name (from the Application ID) — it isn't part of the activity we
+  // send and the user can't edit it. We fetch it once from Discord's public app
+  // endpoint purely so the live preview matches what others actually see.
+  let appName = '';
+  let appNameFetchedFor = '';
 
   function loadConfig() {
     try {
@@ -116,9 +123,41 @@ function init(ctx) {
         connected,
         hasClientId: !!config.clientId,
         error: lastError,
+        appName,
         ...(extra || {})
       });
     }
+  }
+
+  // Look up the application's public name so the preview shows the same bold
+  // top line Discord renders. Best-effort: any failure just leaves it blank.
+  function fetchAppName() {
+    const id = config.clientId;
+    if (!id) { appName = ''; appNameFetchedFor = ''; return; }
+    if (appNameFetchedFor === id) return; // already tried this id
+    appNameFetchedFor = id;
+    try {
+      const req = https.get({
+        hostname: 'discord.com',
+        path: `/api/v9/applications/${id}/rpc`,
+        headers: { 'User-Agent': 'main-launcher' }
+      }, (res) => {
+        if (res.statusCode !== 200) { res.resume(); return; }
+        let body = '';
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => {
+          try {
+            const j = JSON.parse(body);
+            if (j && typeof j.name === 'string' && j.name) {
+              appName = j.name;
+              pushStatus();
+            }
+          } catch (e) { /* ignore malformed */ }
+        });
+      });
+      req.on('error', () => { /* offline / blocked — preview just omits the name */ });
+      req.setTimeout(8000, () => req.destroy());
+    } catch (e) { /* ignore */ }
   }
 
   // ── Wire helpers ──
@@ -344,6 +383,7 @@ function init(ctx) {
       connected,
       hasClientId: !!config.clientId,
       error: lastError,
+      appName,
       config: { ...config }
     };
   }
@@ -366,6 +406,9 @@ function init(ctx) {
     // Preserve the enabled flag — it's owned by the toggle, not the config form.
     config = sanitizeConfig({ ...next, enabled: prevEnabled });
     saveConfig();
+    // A changed Application ID means a different app name — refetch for the preview.
+    if (config.clientId !== prevClientId) { appName = ''; appNameFetchedFor = ''; }
+    fetchAppName();
     if (config.enabled) {
       // Changing the client id means a new app identity → full reconnect.
       if (config.clientId !== prevClientId || !connected) {
@@ -392,6 +435,7 @@ function init(ctx) {
     cleanupSocket();
   }
 
+  fetchAppName();
   if (config.enabled) start();
 
   return {

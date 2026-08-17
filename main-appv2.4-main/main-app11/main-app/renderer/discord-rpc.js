@@ -32,8 +32,12 @@
                     discordRpcState.enabled = data.enabled;
                     discordRpcState.hasClientId = data.hasClientId;
                     discordRpcState.error = data.error;
+                    if (data.appName !== undefined) discordRpcState.appName = data.appName;
                 }
                 discordRpcRenderStatusBadge();
+                // A newly-fetched app name changes the preview's bold top line.
+                const prev = document.getElementById('discord-rpc-preview');
+                if (prev) prev.innerHTML = discordRpcPreviewHtml();
             });
         }
 
@@ -153,6 +157,8 @@
                     <div>
                         <p class="text-[11px] uppercase tracking-wider text-neutral-500 mb-2">Live preview</p>
                         <div id="discord-rpc-preview">${discordRpcPreviewHtml()}</div>
+                        <p class="text-[10px] text-neutral-600 mt-1">The bold top line is your Discord app’s own name (pulled from the Application ID) — it can’t be edited here. To change it, rename the app at
+                            <button type="button" class="underline hover:text-neutral-400" onclick="discordRpcOpenPortal()">discord.com/developers</button>. Everything below it (details, state, images, buttons) is yours to edit.</p>
                     </div>
 
                     <div class="flex items-center gap-2">
@@ -199,21 +205,36 @@
             const hasLarge = !!c.largeImageKey;
             const hasSmall = !!c.smallImageKey;
             const elapsed = c.showTimestamp ? discordRpcElapsedText() : '';
+            // A key can be an uploaded Art Asset name OR a direct image URL. For a
+            // URL we can render the real image so the preview matches the card;
+            // for an asset name we can't resolve it, so we show a placeholder icon.
+            const isUrl = (s) => /^https?:\/\//i.test(s || '');
             const large = hasLarge
-                ? `<div class="drpc-prev-large" title="${esc(c.largeImageText)}"><i class="fas fa-image"></i></div>`
+                ? (isUrl(c.largeImageKey)
+                    ? `<div class="drpc-prev-large" title="${esc(c.largeImageText)}"><img src="${esc(c.largeImageKey)}" alt="" class="drpc-prev-img"></div>`
+                    : `<div class="drpc-prev-large" title="${esc(c.largeImageText)}"><i class="fas fa-image"></i></div>`)
                 : `<div class="drpc-prev-large drpc-prev-empty"><i class="fas fa-image"></i></div>`;
             const small = hasSmall
-                ? `<div class="drpc-prev-small" title="${esc(c.smallImageText)}"><i class="fas fa-circle-user"></i></div>` : '';
-            const lines = [];
+                ? (isUrl(c.smallImageKey)
+                    ? `<div class="drpc-prev-small" title="${esc(c.smallImageText)}"><img src="${esc(c.smallImageKey)}" alt="" class="drpc-prev-img"></div>`
+                    : `<div class="drpc-prev-small" title="${esc(c.smallImageText)}"><i class="fas fa-circle-user"></i></div>`)
+                : '';
+            // The bold top line is the Discord application's own name (fetched from
+            // the Application ID). It isn't editable and isn't part of the activity.
+            const appName = (discordRpcState && discordRpcState.appName) || '';
+            const lines = [
+                appName
+                    ? `<p class="drpc-prev-name">${esc(appName)}</p>`
+                    : `<p class="drpc-prev-name drpc-prev-empty-name">Your app’s name</p>`
+            ];
             if (c.details) lines.push(`<p class="drpc-prev-details">${esc(c.details)}</p>`);
             if (c.state) lines.push(`<p class="drpc-prev-state">${esc(c.state)}</p>`);
-            if (elapsed) lines.push(`<p class="drpc-prev-time">${esc(elapsed)}</p>`);
-            if (!lines.length) lines.push(`<p class="drpc-prev-state text-neutral-600">Nothing set yet — fill in Details or State.</p>`);
+            if (elapsed) lines.push(`<p class="drpc-prev-time"><i class="fas fa-gamepad drpc-prev-time-icon"></i><span class="drpc-prev-time-val">${esc(elapsed)}</span></p>`);
             const btns = c.buttons.filter(b => b.label && b.url).map(b =>
                 `<div class="drpc-prev-btn">${esc(b.label)}</div>`).join('');
             return `
                 <div class="drpc-prev-card">
-                    <p class="drpc-prev-header">Playing a game</p>
+                    <p class="drpc-prev-header">Playing</p>
                     <div class="drpc-prev-body">
                         <div class="drpc-prev-art">${large}${small}</div>
                         <div class="drpc-prev-text">${lines.join('')}</div>
@@ -228,7 +249,8 @@
             if (!discordRpcPreviewClock) discordRpcPreviewClock = { start: Date.now(), timer: null };
             const secs = Math.floor((Date.now() - discordRpcPreviewClock.start) / 1000);
             const m = Math.floor(secs / 60), s = secs % 60;
-            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')} elapsed`;
+            // Match Discord's card: "M:SS" (no leading zero on minutes, no label).
+            return `${m}:${String(s).padStart(2, '0')}`;
         }
 
         function startDiscordRpcPreviewClock() {
@@ -239,7 +261,7 @@
             discordRpcPreviewClock.timer = setInterval(() => {
                 const prev = document.getElementById('discord-rpc-preview');
                 if (!prev) { stopDiscordRpcPreviewClock(); return; }
-                const timeEl = prev.querySelector('.drpc-prev-time');
+                const timeEl = prev.querySelector('.drpc-prev-time-val');
                 if (timeEl) timeEl.textContent = discordRpcElapsedText();
             }, 1000);
         }

@@ -110,7 +110,7 @@ export default function OgImage() {
               background: "rgba(255,255,255,0.05)",
             }}
           >
-            19 mini widgets
+            22 mini widgets
           </span>
         </div>
       </div>

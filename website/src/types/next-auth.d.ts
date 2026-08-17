@@ -5,6 +5,8 @@ declare module "next-auth" {
   interface Session {
     user: {
       id: string;
+      /** True when this account is on the ADMIN_EMAILS allowlist. */
+      isAdmin?: boolean;
     } & DefaultSession["user"];
   }
 }

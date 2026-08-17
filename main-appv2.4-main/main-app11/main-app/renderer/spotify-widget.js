@@ -628,6 +628,11 @@
         }
 
         window.onload = () => {
+            // First-run: seed a curated set of starter mini widgets (enabled +
+            // pinned) BEFORE any prefs are read/applied below, so a brand-new user
+            // lands on a populated dashboard instead of an empty one. No-ops on
+            // every subsequent launch. See seedFirstRunMiniWidgets() in core.js.
+            const justOnboarded = typeof seedFirstRunMiniWidgets === 'function' && seedFirstRunMiniWidgets();
             renderApps();
             updateClock();
             applyWidgetPrefs(true); // skip animation on first load -- nothing should flash/animate in or out
@@ -647,6 +652,20 @@
             // Game Mode: wire the game-launch event stream at startup so profiles
             // apply even when the Widget Library panel is closed.
             if (typeof initGameMode === 'function') initGameMode();
+
+            // One-time first-run welcome: fired only when this launch seeded a
+            // fresh profile. Delayed so it lands after the startup reveal cascade
+            // settles rather than competing with it, and given a longer dwell so
+            // there's time to read the two-part message.
+            if (justOnboarded && typeof showToast === 'function') {
+                const remaining = (typeof MINI_WIDGETS !== 'undefined' && typeof FIRST_RUN_MINI_WIDGETS !== 'undefined')
+                    ? Math.max(0, MINI_WIDGETS.length - FIRST_RUN_MINI_WIDGETS.length)
+                    : 0;
+                const more = remaining ? ` Browse the Widget Library for ${remaining} more.` : '';
+                setTimeout(() => {
+                    showToast(`Welcome to main — we set up a few starter widgets to get you going.${more}`, false, 6500);
+                }, 1400);
+            }
 
             const notes = document.getElementById('notes');
             const placeholder = document.getElementById('placeholder');

@@ -1,0 +1,38 @@
+# main
+
+> An always-on glass-morphism Windows overlay for gaming and power users. Spotify with synced lyrics, live performance monitoring, one-click FPS tweaks, quick launch, and 19 mini widgets. One-time $5 lifetime license — no subscription.
+
+main runs from the system tray as a lightweight, always-on overlay on Windows 10 and 11 (64-bit). It's built by an indie developer (ryota) and sold as a single one-time purchase via PayPal; a unique license key is provisioned to the buyer's account instantly and is tied to their Google sign-in (not a device), so it survives reinstalls and new PCs.
+
+## Core features
+
+- Spotify integration via secure PKCE OAuth (your password never touches main) with live, time-synced lyrics from lrclib.net
+- Real-time system performance monitoring — CPU, RAM, and FPS
+- One-click FPS optimization engine that applies safe Windows system tweaks
+- Quick Notes with persistent local storage
+- App launcher for custom executables with custom icons
+- Weather widget (wttr.in + geolocation)
+- System-wide global hotkeys for media control
+- A Widget Library of 19 mini widgets, all included in the base price
+- Fully animated glass-morphism UI, runs in the background from the system tray
+
+## Pages
+
+- [Home](https://main-website-eosin-beta.vercel.app/): Overview, features, widget library, and pricing
+- [Support & FAQ](https://main-website-eosin-beta.vercel.app/support): Install, licensing, refunds, Spotify setup, and a contact email (mainappsupport@gmail.com)
+- [Terms of Service](https://main-website-eosin-beta.vercel.app/terms): Purchase and usage terms
+- [Privacy Policy](https://main-website-eosin-beta.vercel.app/privacy): What data is stored and how (no ad networks or third-party analytics)
+
+## Purchasing & licensing
+
+- Price: one-time $5 USD, lifetime license — no subscription
+- Payment: secure checkout via PayPal; license key issued instantly on payment
+- Sign-in: Google account (the license is bound to the account, not the hardware)
+- Refunds: digital product, so sales are generally final, but a refund is available within 14 days if it can't be made to work — see the Terms
+- Supported OS: Windows 10 and Windows 11, 64-bit
+- Includes free updates for the entire v3.x line
+
+## Notes
+
+- main is not affiliated with Spotify, Discord, or Microsoft.
+- Some features automate your own Windows (media keys, overlays, macros, virtual controller input). Most are harmless, but certain anti-cheat systems dislike overlays or virtual input — use those specific features at your own discretion.

@@ -10,7 +10,7 @@ import { LicenseKeyPill } from "@/components/account/LicenseKeyPill";
 
 const INCLUDED = [
   "Every core feature — Spotify, lyrics, performance, FPS optimizer & more",
-  "All 19 mini widgets in the Widget Library",
+  "All 22 mini widgets in the Widget Library",
   "Free updates for the entire v3.x line",
   "Windows 10 & 11 · 64-bit",
   "Your unique license key + instant download",
@@ -24,7 +24,7 @@ export async function Pricing() {
   return (
     <section
       id="pricing"
-      className="relative mx-auto max-w-6xl px-6 py-24 scroll-mt-24"
+      className="relative mx-auto max-w-6xl px-6 pb-24 pt-12"
     >
       <ScrollReveal className="mb-12 text-center">
         <SectionLabel className="mb-4">Pricing</SectionLabel>

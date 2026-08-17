@@ -46,12 +46,12 @@ export function WidgetLibrary() {
   return (
     <section
       id="widgets"
-      className="relative mx-auto max-w-6xl px-6 py-24 scroll-mt-24"
+      className="relative mx-auto max-w-6xl px-6 pb-24 pt-12"
     >
       <ScrollReveal className="mb-10 text-center">
         <SectionLabel className="mb-4">Widget Library</SectionLabel>
         <h2 className="display-type mx-auto max-w-2xl text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl">
-          19 mini widgets. All included.
+          22 mini widgets. All included.
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-balance text-neutral-400">
           Browse the same library that lives inside the app — search it, filter

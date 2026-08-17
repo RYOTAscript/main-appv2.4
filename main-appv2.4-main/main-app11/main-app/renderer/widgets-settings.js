@@ -367,6 +367,7 @@
             renderMiniWidgetsSettings();
             renderBackgroundSettings();
             if (typeof loadAccountInfo === 'function') loadAccountInfo();
+            if (typeof loadUpdatesInfo === 'function') loadUpdatesInfo();
 
             if (window.electronAPI?.getAutoStart) {
                 const enabled = await window.electronAPI.getAutoStart();
@@ -381,7 +382,6 @@
             loadVisualizerPref();
             loadSpotifyExtrasCollapsed();
             refreshSleepTimerUI();
-            loadFpsDisplayMode();
             loadParallaxPref();
             loadClockFormat();
             loadWeatherUnit();
@@ -431,11 +431,50 @@
 
         function renderSettingsApps() {
             const container = document.getElementById('settings-apps');
-            // Quick Launch Enhanced adds a per-app folder selector.
             const enhanced = typeof isQuickLaunchEnhancedEnabled === 'function' && isQuickLaunchEnhancedEnabled();
-            const folders = enhanced && typeof getQuickLaunchFolders === 'function' ? getQuickLaunchFolders() : [];
+
+            // ── Base Quick Launch: a fixed 6-slot board ───────────────────────
+            // Empty slots are click-to-add; filled slots are draggable and dropping
+            // one on another swaps their positions. This is where slots are chosen.
+            if (!enhanced) {
+                const slots = typeof baseSlotLayout === 'function' ? baseSlotLayout(6) : new Array(6).fill(null);
+                const full = pinnedApps.length >= quickLaunchAppLimit();
+                container.innerHTML = slots.map((cell, slot) => {
+                    if (!cell) {
+                        // Empty slot: click to add here; also a drop target for moves.
+                        return `
+                        <div class="ql-slot-cell border border-neutral-700 border-dashed rounded-2xl p-4 bg-neutral-950/30 flex items-center justify-center ${full ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-neutral-900/40'} transition-colors" data-slot="${slot}"
+                             ${full ? '' : `onclick="addAppToSlot(${slot})"`}
+                             ondragover="slotDragOver(event)" ondragleave="slotDragLeave(event)" ondrop="slotDrop(event)">
+                            <div class="text-center pointer-events-none">
+                                <div class="text-3xl text-neutral-600 mb-1">+</div>
+                                <p class="text-[10px] text-neutral-600 uppercase tracking-wider">Slot ${slot + 1}</p>
+                            </div>
+                        </div>`;
+                    }
+                    const { app, index } = cell;
+                    return `
+                    <div class="ql-slot-cell border border-neutral-800 rounded-2xl p-4 pt-7 bg-neutral-950/50 relative" draggable="true" data-slot="${slot}" data-index="${index}"
+                         ondragstart="slotDragStart(event)" ondragend="slotDragEnd(event)" ondragover="slotDragOver(event)" ondragleave="slotDragLeave(event)" ondrop="slotDrop(event)">
+                        <span class="absolute top-2 left-3 text-[10px] text-neutral-600 uppercase tracking-wider no-drag pointer-events-none">Slot ${slot + 1}</span>
+                        <button onclick="deleteApp(${index})" class="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-xs bg-neutral-800/30 hover:bg-red-800/50 border border-neutral-700/50 hover:border-red-700/50 text-neutral-400 hover:text-red-400 rounded-lg transition-colors no-drag" title="Delete app">✕</button>
+                        <div class="flex justify-center mb-3">
+                            <img src="${esc(getIconPath(app.icon))}" draggable="false" class="w-14 h-14 object-contain rounded-xl pointer-events-none"
+                                 onerror="this.outerHTML='<div class=\\'w-14 h-14 bg-neutral-800 rounded-xl flex items-center justify-center text-2xl text-neutral-500\\'>?</div>'">
+                        </div>
+                        <input type="text" value="${esc(app.name)}" onchange="updateAppName(${index}, this.value)"
+                               class="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-sm mb-2 focus:outline-none focus:border-neutral-600 no-drag">
+                        <input type="text" value="${esc(app.path)}" onchange="updateAppPath(${index}, this.value)"
+                               class="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs mb-3 focus:outline-none focus:border-neutral-600 no-drag">
+                        <button onclick="changeIcon(${index})" class="text-xs w-full py-2 border border-neutral-700 rounded-xl hover:bg-neutral-800 transition-colors no-drag">Change Icon</button>
+                    </div>`;
+                }).join('');
+                return;
+            }
+
+            // ── Enhanced: packed card list with folders (no fixed slots) ──────
+            const folders = typeof getQuickLaunchFolders === 'function' ? getQuickLaunchFolders() : [];
             const folderSelect = (app, i) => {
-                if (!enhanced) return '';
                 const opts = ['<option value="">No folder</option>']
                     .concat(folders.map(f => `<option value="${esc(f)}"${(app.folder || '') === f ? ' selected' : ''}>${esc(f)}</option>`))
                     .join('');
@@ -447,7 +486,7 @@
                      ondragstart="dragStart(event)" ondragover="dragOver(event)" ondrop="drop(event)">
                     <button onclick="deleteApp(${i})" class="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-xs bg-neutral-800/30 hover:bg-red-800/50 border border-neutral-700/50 hover:border-red-700/50 text-neutral-400 hover:text-red-400 rounded-lg transition-colors no-drag" title="Delete app">✕</button>
                     <div class="flex justify-center mb-3">
-                        <img src="${esc(getIconPath(app.icon))}" class="w-14 h-14 object-contain rounded-xl"
+                        <img src="${esc(getIconPath(app.icon))}" draggable="false" class="w-14 h-14 object-contain rounded-xl pointer-events-none"
                              onerror="this.outerHTML='<div class=\\'w-14 h-14 bg-neutral-800 rounded-xl flex items-center justify-center text-2xl text-neutral-500\\'>?</div>'">
                     </div>
                     <input type="text" value="${esc(app.name)}" onchange="updateAppName(${i}, this.value)"
@@ -473,7 +512,93 @@
             container.innerHTML = html;
         }
 
-        function dragStart(e) { draggedIndex = parseInt(e.currentTarget.dataset.index, 10); }
+        // Add a fresh app pinned directly to the clicked slot. Existing apps are
+        // materialized into explicit slots first so they don't shuffle.
+        function addAppToSlot(slot) {
+            if (pinnedApps.length >= quickLaunchAppLimit()) { showToast('All slots are full', true); return; }
+            if (typeof baseSlotLayout === 'function') {
+                baseSlotLayout(6).forEach((cell, s) => { if (cell) cell.app.slot = s; });
+            }
+            pinnedApps.push({ name: 'New App', path: '', icon: 'main.ico', slot });
+            localStorage.setItem('pinnedApps', JSON.stringify(pinnedApps));
+            scheduleSettingsSave();
+            renderSettingsApps();
+            renderApps();
+            showToast(`Added app to slot ${slot + 1}`);
+        }
+
+        // ── Slot board drag-and-drop (base mode) ──────────────────────────────
+        // Drag a filled slot onto any slot to move it; dropping on an occupied slot
+        // swaps the two. The whole card is the drag ghost (icon can't tear off).
+        let settingsDraggedIndex = null;
+
+        function slotDragStart(e) {
+            const card = e.currentTarget;
+            settingsDraggedIndex = parseInt(card.dataset.index, 10);
+            try {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(settingsDraggedIndex));
+                e.dataTransfer.setDragImage(card, card.offsetWidth / 2, card.offsetHeight / 2);
+            } catch (_) {}
+            card.classList.add('ql-dragging');
+        }
+
+        function slotDragEnd(e) {
+            e.currentTarget.classList.remove('ql-dragging');
+            document.querySelectorAll('#settings-apps .ql-slot-over').forEach(el => el.classList.remove('ql-slot-over'));
+            settingsDraggedIndex = null;
+        }
+
+        function slotDragOver(e) {
+            if (settingsDraggedIndex === null) return;
+            e.preventDefault();
+            try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+            e.currentTarget.classList.add('ql-slot-over');
+        }
+
+        function slotDragLeave(e) {
+            e.currentTarget.classList.remove('ql-slot-over');
+        }
+
+        function slotDrop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('ql-slot-over');
+            if (settingsDraggedIndex === null) return;
+            const targetSlot = parseInt(e.currentTarget.dataset.slot, 10);
+            const dragged = settingsDraggedIndex;
+            settingsDraggedIndex = null;
+            if (Number.isInteger(targetSlot)) moveAppToSlot(dragged, targetSlot);
+        }
+
+        // Move an app into a target slot, swapping with whatever app is there.
+        function moveAppToSlot(draggedIndex, targetSlot) {
+            const dragged = pinnedApps[draggedIndex];
+            if (!dragged) { renderSettingsApps(); return; }
+            const layout = typeof baseSlotLayout === 'function' ? baseSlotLayout(6) : new Array(6).fill(null);
+            // Materialize current positions so the swap is deterministic.
+            layout.forEach((cell, s) => { if (cell) cell.app.slot = s; });
+            const from = dragged.slot;
+            if (from !== targetSlot) {
+                const occupant = layout[targetSlot] ? layout[targetSlot].app : null;
+                dragged.slot = targetSlot;
+                if (occupant && occupant !== dragged) occupant.slot = from;
+            }
+            localStorage.setItem('pinnedApps', JSON.stringify(pinnedApps));
+            scheduleSettingsSave();
+            renderApps();
+            renderSettingsApps();
+        }
+
+        // Enhanced-mode card reorder (packed array order, no fixed slots).
+        function dragStart(e) {
+            const card = e.currentTarget;
+            draggedIndex = parseInt(card.dataset.index, 10);
+            try {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(draggedIndex));
+                e.dataTransfer.setDragImage(card, card.offsetWidth / 2, card.offsetHeight / 2);
+            } catch (_) {}
+        }
         function dragOver(e) { e.preventDefault(); }
         function drop(e) {
             e.preventDefault();
@@ -593,7 +718,6 @@
                 spotifyAutoPlay: localStorage.getItem('spotifyAutoPlay') === 'true',
                 spotifyAutoPlayDelay: localStorage.getItem('spotifyAutoPlayDelay') || '2800',
                 lyricsAnticipateMs: localStorage.getItem('lyricsAnticipateMs') || String(DEFAULT_LYRICS_ANTICIPATE_MS),
-                fpsDisplayMode: localStorage.getItem('fpsDisplayMode') || 'sidepanel',
                 screenResFavourites: safeParseJSON(localStorage.getItem('screenResFavourites'), {}),
                 spotifyFavPlaylists: safeParseJSON(localStorage.getItem('spotifyFavPlaylists'), []),
                 spotifyPlaylistSort: localStorage.getItem('spotifyPlaylistSort') || 'recent',
@@ -671,10 +795,6 @@
                         if (data.lyricsAnticipateMs) {
                             localStorage.setItem('lyricsAnticipateMs', String(data.lyricsAnticipateMs));
                             loadLyricsAnticipateDelay();
-                        }
-                        if (data.fpsDisplayMode) {
-                            localStorage.setItem('fpsDisplayMode', data.fpsDisplayMode);
-                            loadFpsDisplayMode();
                         }
                         if (data.screenResFavourites) {
                             localStorage.setItem('screenResFavourites', JSON.stringify(data.screenResFavourites));

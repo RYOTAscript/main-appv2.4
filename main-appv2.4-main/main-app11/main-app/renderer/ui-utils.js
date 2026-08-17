@@ -30,7 +30,7 @@
 
         let toastHideTimer = null;
 
-        function showToast(message, isError = false) {
+        function showToast(message, isError = false, durationMs = 2200) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
             toast.className = `absolute bottom-8 left-1/2 -translate-x-1/2 glass border px-6 py-3 rounded-2xl text-sm z-[70] glow pointer-events-none ${isError ? 'border-red-900/50 text-red-300' : 'border-white/10'}`;
@@ -50,7 +50,7 @@
                     toast.classList.remove('toast-out');
                     toastHideTimer = null;
                 }, 240);
-            }, 2200);
+            }, durationMs);
         }
 
         // Plays the modal exit animation (.modal-closing in main.css), then hides
@@ -90,22 +90,67 @@
         // or editing apps in Settings) must not replay the entrance animation.
         let appsRevealPlayed = false;
 
+        // Base Quick Launch is a fixed 6-slot grid. Apps carry an optional `slot`
+        // (0-5) so you can place a handful of apps in specific positions and leave
+        // gaps. Apps without an explicit slot fill the first free cells in order.
+        const QL_BASE_SLOTS = 6;
+
+        function baseSlotLayout(limit = QL_BASE_SLOTS) {
+            const slots = new Array(limit).fill(null);
+            const overflow = [];
+            pinnedApps.forEach((app, index) => {
+                let s = app.slot;
+                if (typeof s === 'string' && s !== '') s = parseInt(s, 10);
+                if (Number.isInteger(s) && s >= 0 && s < limit && slots[s] === null) {
+                    slots[s] = { app, index };
+                } else {
+                    overflow.push({ app, index });
+                }
+            });
+            let o = 0;
+            for (let i = 0; i < limit && o < overflow.length; i++) {
+                if (!slots[i]) slots[i] = overflow[o++];
+            }
+            return slots;
+        }
+
         function renderApps() {
             const grid = document.getElementById('apps-grid');
             const reveal = !appsRevealPlayed;
             appsRevealPlayed = true;
 
             // Quick Launch Enhanced: folders + running-app indicators. When it's off
-            // the launcher renders exactly as before (every pinned app, no dots).
+            // the launcher renders a fixed 6-slot grid (drag a tile onto any slot).
             const enhanced = typeof isQuickLaunchEnhancedEnabled === 'function' && isQuickLaunchEnhancedEnabled();
-            const activeFolder = enhanced && typeof quickLaunchActiveFolder !== 'undefined' ? quickLaunchActiveFolder : 'All';
-            const runningSet = enhanced && typeof quickLaunchRunningSet !== 'undefined' ? quickLaunchRunningSet : null;
+
+            if (!enhanced) {
+                // Fixed 6-slot layout. Empty slots are invisible spacers so apps
+                // sit in their chosen positions (with gaps) but the launcher stays
+                // clean — slots are assigned from Settings, not by dragging here.
+                const slots = baseSlotLayout(QL_BASE_SLOTS);
+                grid.innerHTML = slots.map((cell, slot) => {
+                    if (!cell) return `<div class="app-slot-empty" aria-hidden="true"></div>`;
+                    const { app, index } = cell;
+                    return `
+                    <div class="app-icon flex flex-col items-center cursor-pointer py-3 px-2 rounded-3xl border border-transparent hover:border-white/10${reveal ? ' app-reveal' : ''}"${reveal ? ` style="animation-delay:${0.12 + slot * 0.05}s"` : ''} data-index="${index}">
+                        <div class="icon-tile w-16 h-16 bg-neutral-950 border border-white/10 rounded-3xl flex items-center justify-center overflow-hidden mb-2.5 transition-all relative">
+                            <img src="${esc(getIconPath(app.icon))}" alt="" style="width:70%;height:70%;object-fit:contain;"
+                                 onerror="this.outerHTML='<i class=\\'fas fa-bolt text-3xl text-neutral-400\\'></i>';">
+                        </div>
+                        <span class="text-[11px] text-neutral-500 text-center leading-tight">${esc(app.name)}</span>
+                    </div>`;
+                }).join('');
+                return;
+            }
+
+            const activeFolder = typeof quickLaunchActiveFolder !== 'undefined' ? quickLaunchActiveFolder : 'All';
+            const runningSet = typeof quickLaunchRunningSet !== 'undefined' ? quickLaunchRunningSet : null;
 
             // Keep data-index pointing at the real pinnedApps index so clicks always
             // launch the right app even when a folder filter hides some tiles.
             const entries = pinnedApps
                 .map((app, i) => ({ app, i }))
-                .filter(({ app }) => !enhanced || appMatchesFolder(app, activeFolder));
+                .filter(({ app }) => appMatchesFolder(app, activeFolder));
 
             grid.innerHTML = entries.map(({ app, i }, pos) => {
                 const running = runningSet && appIsRunning(app, runningSet);
@@ -120,7 +165,7 @@
                 </div>`;
             }).join('');
 
-            if (enhanced && typeof renderQuickLaunchBar === 'function') renderQuickLaunchBar();
+            if (typeof renderQuickLaunchBar === 'function') renderQuickLaunchBar();
         }
 
         document.getElementById('apps-grid').addEventListener('click', (e) => {
@@ -131,11 +176,6 @@
         });
 
         async function launchApp(fullPath, name) {
-            if (name === 'FPS Optimizer') {
-                openFpsOptimizer();
-                return;
-            }
-
             // Auto-detected store games are pinned with a protocol URI (steam://,
             // com.epicgames.launcher://) as their path — launch those through the
             // store client rather than the file-path launcher.
@@ -154,14 +194,9 @@
             showToast(`Launching ${name}...`);
             try {
                 if (!window.electronAPI) return;
-                let result;
-                if (name === 'FPS Optimizer') {
-                    result = await window.electronAPI.launchFPSOptimizer();
-                } else {
-                    const autoPlay = name === 'Spotify' && localStorage.getItem('spotifyAutoPlay') === 'true';
-                    const autoPlayDelay = parseInt(localStorage.getItem('spotifyAutoPlayDelay') || '2800', 10);
-                    result = await window.electronAPI.launchApp(fullPath, { autoPlay, autoPlayDelay });
-                }
+                const autoPlay = name === 'Spotify' && localStorage.getItem('spotifyAutoPlay') === 'true';
+                const autoPlayDelay = parseInt(localStorage.getItem('spotifyAutoPlayDelay') || '2800', 10);
+                const result = await window.electronAPI.launchApp(fullPath, { autoPlay, autoPlayDelay });
                 if (result && !result.success) {
                     showToast(`Failed: ${result.error || 'unknown error'}`, true);
                 }

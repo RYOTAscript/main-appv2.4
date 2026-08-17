@@ -1,0 +1,60 @@
+================================================================================
+ValClips Quality — Third-Party Software Notices and Licenses
+================================================================================
+
+"ValClips Quality" is a proprietary product. It includes and/or depends on the
+third-party open-source components below, each the property of its respective
+authors and provided under its own license.
+
+Contact for any request below: mainappsupport@gmail.com
+
+
+--------------------------------------------------------------------------------
+1. FFmpeg (with libvmaf)  —  GNU General Public License, version 3 (GPLv3)
+--------------------------------------------------------------------------------
+
+ValClips uses the FFmpeg command-line tools, invoked as a separate process (not
+linked into the application). If a suitable FFmpeg is not already present, the
+app downloads a full GPL build from the BtbN FFmpeg-Builds project the first
+time it is needed:
+
+  https://github.com/BtbN/FFmpeg-Builds/releases/latest
+  (ffmpeg-master-latest-win64-gpl.zip — includes libx264 and libvmaf)
+
+  License  : GNU GPL v3.
+  Upstream : https://ffmpeg.org
+  x264     : GPLv2-or-later (https://www.videolan.org/developers/x264.html)
+  libvmaf  : BSD-2-Clause-Patent (https://github.com/Netflix/vmaf)
+
+  WRITTEN OFFER FOR SOURCE CODE (GPLv3 §6):
+  The complete corresponding source code for the FFmpeg build used is available
+  from the FFmpeg project (https://github.com/FFmpeg/FFmpeg) and the BtbN
+  FFmpeg-Builds project linked above. For a three-year period from the date you
+  received this software, you may also request the corresponding source on a
+  physical medium, at no more than our cost of distribution, by emailing
+  mainappsupport@gmail.com.
+
+  FFmpeg is free software, redistributable under the terms of the GNU GPL v3 or
+  (at your option) any later version, WITHOUT ANY WARRANTY.
+
+
+--------------------------------------------------------------------------------
+2. Electron  —  MIT License (bundling Chromium and Node.js)
+--------------------------------------------------------------------------------
+
+  Electron : https://github.com/electron/electron/blob/main/LICENSE  (MIT)
+  Chromium : BSD-3-Clause and others
+  Node.js  : https://github.com/nodejs/node/blob/main/LICENSE  (MIT)
+
+
+--------------------------------------------------------------------------------
+3. React and other npm dependencies  —  MIT (and others)
+--------------------------------------------------------------------------------
+
+React and React DOM are Copyright (c) Meta Platforms, Inc. and affiliates,
+licensed under the MIT License (https://github.com/facebook/react). Other npm
+dependencies are provided under their own licenses, included in each package's
+folder under node_modules/ and obtainable from https://www.npmjs.com.
+
+For any question about these licenses, or to request source for a GPL-covered
+component, contact mainappsupport@gmail.com.

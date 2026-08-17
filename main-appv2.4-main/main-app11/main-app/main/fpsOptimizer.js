@@ -1,7 +1,14 @@
-const { ipcMain, shell } = require('electron');
-const fs = require('fs');
+const { ipcMain } = require('electron');
 const path = require('path');
 const { runCmd, runCmdSync } = require('./shellUtils');
+
+// Our own executable image name — 'main' in a packaged build, 'electron' in dev.
+// Whitelisting it (plus our own PIDs) is the hard guarantee that the kill sweeps
+// can never terminate the launcher itself, any of its child windows (mic overlay,
+// crosshair, license gate), or its GPU/utility helpers — every one of those runs
+// under this same image name, whatever the build is called. Computed from
+// process.execPath so a future rename can't silently reopen the self-kill hole.
+const OWN_IMAGE = path.basename(process.execPath).replace(/\.exe$/i, '').toLowerCase();
 
 const SYSTEM_PROCS = [
   'explorer', 'taskmgr', 'svchost', 'system', 'smss', 'csrss', 'wininit', 'winlogon',
@@ -18,8 +25,11 @@ const WHITELIST_DC = [...SYSTEM_PROCS, 'discord', 'valorant', 'vgc', 'riotclient
 async function killProcesses(whitelist, protectedPIDs = [], mainAppPID = null) {
   const killed = [];
   try {
-    // Always protect main app PID if available
-    const safePIDs = [...protectedPIDs];
+    // Always protect our own processes by PID: the main process itself
+    // (process.pid) and the renderer (mainAppPID). Name-based protection below
+    // covers the rest of our child processes, but pinning these two PIDs means
+    // even a renamed/relaunched build can't accidentally kill the core.
+    const safePIDs = [...protectedPIDs, process.pid.toString()];
     if (mainAppPID !== null && mainAppPID !== undefined && !safePIDs.includes(mainAppPID.toString())) {
       safePIDs.push(mainAppPID.toString());
     }
@@ -43,8 +53,9 @@ async function killProcesses(whitelist, protectedPIDs = [], mainAppPID = null) {
       // PROTECTION LAYER 2: Check whitelist by exact process name
       if (whitelist.some(w => base === w || pname === w)) continue;
 
-      // PROTECTION LAYER 3: Additional safety checks for common app names
-      const dangerousNames = ['launcher', 'main-app', 'main', 'electron'];
+      // PROTECTION LAYER 3: Never kill our own executable image (whatever the
+      // build renamed it to) or the other names our process family uses.
+      const dangerousNames = ['launcher', 'main-app', 'main', 'electron', OWN_IMAGE];
       if (dangerousNames.some(d => base === d)) continue;
 
       // Safe to kill
@@ -154,6 +165,77 @@ const REVERT_STEPS = [
   }
 ];
 
+// Granular, single-shot actions for the mini-widget panel's Power / Memory /
+// Network / Restore tabs. Each is one named step so it flows through the same
+// runSteps() progress path as the batch operations — the panel's progress bar
+// and per-step failure reporting come for free. The batch OPT/REVERT/BATTERY
+// lists above stay the "run everything" entry points (and back Game Mode);
+// these expose the individual tweaks the standalone app used to.
+const MM_BASE = 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile';
+const ACTIONS = {
+  // ── Power ──
+  ultimate: {
+    name: 'Ultimate Performance plan', fn: async () => {
+      const r = await runCmd('powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61');
+      if (r.ok && r.stdout) {
+        const guid = r.stdout.trim().split(/\s+/).pop();
+        if (guid && guid.length === 36) await runCmd(`powercfg /setactive ${guid}`);
+      }
+      await runCmd('powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c');
+    }
+  },
+  high: { name: 'High Performance plan', fn: async () => runCmd('powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c') },
+  balanced: { name: 'Balanced power plan', fn: async () => runCmd('powercfg /setactive 381b4222-f694-41f0-9685-ff5bb260df2e') },
+  cpuPriority: {
+    name: 'CPU → Game priority', fn: async () => {
+      await runCmd(`reg add "${MM_BASE}" /v "SystemResponsiveness" /t REG_DWORD /d 0 /f`);
+      await runCmd(`reg add "${MM_BASE}\\Tasks\\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f`);
+      await runCmd(`reg add "${MM_BASE}\\Tasks\\Games" /v "Priority" /t REG_DWORD /d 6 /f`);
+      await runCmd(`reg add "${MM_BASE}\\Tasks\\Games" /v "Scheduling Category" /t REG_SZ /d "High" /f`);
+    }
+  },
+  hags: { name: 'Enable HAGS', fn: async () => runCmd('reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" /v "HwSchMode" /t REG_DWORD /d 2 /f') },
+
+  // ── Memory ──
+  clearStandby: {
+    name: 'Release standby RAM', fn: async () => runCmd('powershell -Command "Add-Type -MemberDefinition \'[DllImport(\\"kernel32.dll\\")]public static extern bool SetProcessWorkingSetSize(IntPtr proc, int min, int max);\' -Name Memory -Namespace Win32; $p = Get-Process; foreach ($proc in $p) { try { [Win32.Memory]::SetProcessWorkingSetSize($proc.Handle, -1, -1) } catch {} }"')
+  },
+  clearTemp: {
+    name: 'Clear temp files', fn: async () => {
+      const temp = process.env.TEMP || '';
+      if (temp) await runCmd(`del /q /f /s "${temp}\\*" 2>nul`);
+      await runCmd('del /q /f /s "C:\\Windows\\Temp\\*" 2>nul');
+    }
+  },
+  disableSuperfetch: {
+    name: 'Disable Superfetch', fn: async () => {
+      await runCmd('net stop SysMain /y');
+      await runCmd('sc config SysMain start= disabled');
+    }
+  },
+  enableSuperfetch: {
+    name: 'Re-enable Superfetch', fn: async () => {
+      await runCmd('sc config SysMain start= auto');
+      await runCmd('net start SysMain');
+    }
+  },
+
+  // ── Network ──
+  flushDns: { name: 'Flush DNS cache', fn: async () => runCmd('ipconfig /flushdns') },
+  lowLatency: { name: 'Low-latency network', fn: async () => runCmd(`reg add "${MM_BASE}" /v "NetworkThrottlingIndex" /t REG_DWORD /d 0xffffffff /f`) },
+  resetNetwork: { name: 'Reset network tweaks', fn: async () => runCmd(`reg delete "${MM_BASE}" /v "NetworkThrottlingIndex" /f`) },
+
+  // ── Restore (individual reverts) ──
+  enableSearch: {
+    name: 'Re-enable Search Indexer', fn: async () => {
+      await runCmd('sc config WSearch start= auto');
+      await runCmd('net start WSearch');
+    }
+  },
+  restoreTelemetry: { name: 'Restore Telemetry default', fn: async () => runCmd('reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection" /v "AllowTelemetry" /f') },
+  restoreBackgroundApps: { name: 'Restore Background Apps default', fn: async () => runCmd('reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApplications" /v "GlobalUserDisabled" /f') }
+};
+
 // Runs a step list, sending progress after each step and collecting real
 // per-step success/failure instead of a blanket success:true — failures are
 // logged (CLAUDE.md: no silent failures) and surfaced back to the renderer.
@@ -182,7 +264,7 @@ async function runSteps(steps, mainWindow, logger, doneMsg, ctx) {
 }
 
 function init(ctx) {
-  const { logger, appRoot, getMainWindow, getMainAppPID } = ctx;
+  const { logger, getMainWindow, getMainAppPID } = ctx;
 
   ipcMain.handle('fps-optimize-only', async () => {
     const mainWindow = getMainWindow();
@@ -196,45 +278,18 @@ function init(ctx) {
     return runSteps(REVERT_STEPS, mainWindow, logger, 'Defaults restored!', ctx);
   });
 
-  ipcMain.handle('launch-fps-optimizer', async () => {
-    const fpsOptimizerPath = path.join(appRoot, 'fps-optimizer-electron', 'fps-optimizer-electron', 'main.js');
-    const fpsOptimizerExe = path.join(appRoot, 'fps-optimizer-electron', 'fps-optimizer-electron', 'dist', 'FPS Optimizer.exe');
-
-    if (fs.existsSync(fpsOptimizerExe)) {
-      // shell.openPath resolves to an error string on failure, '' on success —
-      // it does NOT reject, so the previous code always reported success even
-      // when the exe failed to launch (e.g. missing dependency, blocked by AV).
-      const err = await shell.openPath(fpsOptimizerExe);
-      if (err) {
-        logger.error('Failed to launch FPS Optimizer', new Error(err));
-        return { success: false, error: err };
-      }
-    } else if (fs.existsSync(fpsOptimizerPath)) {
-      // Dev-mode fallback: spawn detached and unref so this handler doesn't
-      // block on `await` for as long as the optimizer window stays open, and
-      // so the child isn't left as an untracked/attached process under this
-      // one — closing the main app must not also kill it (it's a standalone
-      // helper app) nor hang waiting on it.
-      const { spawn } = require('child_process');
-      try {
-        const child = spawn(process.execPath, [fpsOptimizerPath], {
-          detached: true,
-          stdio: 'ignore',
-          windowsHide: false
-        });
-        child.on('error', (e) => logger.error('Failed to launch FPS Optimizer (dev mode)', e));
-        child.unref();
-      } catch (e) {
-        logger.error('Failed to launch FPS Optimizer (dev mode)', e);
-        return { success: false, error: e.message };
-      }
-    } else {
-      const notFoundErr = new Error(fpsOptimizerExe);
-      logger.error('FPS Optimizer not found', notFoundErr);
-      return { success: false, error: 'FPS Optimizer is not installed' };
+  // Single granular tweak from the panel's Power / Memory / Network / Restore
+  // tabs. Runs through runSteps() so it shares the progress bar + per-step
+  // failure reporting with the batch operations.
+  ipcMain.handle('fps-action', async (_event, key) => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return { success: false, error: 'Main window not available' };
+    const action = ACTIONS[key];
+    if (!action) {
+      logger.warn('Unknown fps-action requested', { key: String(key).slice(0, 60) });
+      return { success: false, error: 'Unknown action' };
     }
-    logger.success('FPS Optimizer launched');
-    return { success: true };
+    return runSteps([action], mainWindow, logger, `${action.name} done`, ctx);
   });
 
   ipcMain.handle('fps-discord-only', async () => {

@@ -1,5 +1,7 @@
-const { ipcMain, clipboard } = require('electron');
+const { ipcMain, clipboard, powerSaveBlocker, Notification } = require('electron');
 const path = require('path');
+const os = require('os');
+const fs = require('fs');
 const { ensureVersionedScript } = require('./scriptCache');
 const { runCmd } = require('./shellUtils');
 
@@ -21,7 +23,10 @@ const { runCmd } = require('./shellUtils');
 //
 //   windows              -> { ok, windows:[{hwnd,pid,title,process}] }
 //   send <hwnd> <0|1>    -> { ok }   (focus hwnd, Ctrl+V, then Enter if 1)
-const CLAUDE_LIMIT_SCRIPT_VERSION = 1;
+//   readtext <hwnd>      -> { ok, text }   (UI-Automation dump of the window's
+//                          visible text, traversed bottom-first so a usage-limit
+//                          banner near the composer is captured before older chat)
+const CLAUDE_LIMIT_SCRIPT_VERSION = 2;
 
 const CLAUDE_LIMIT_SCRIPT_CONTENT = `Add-Type @"
 using System;
@@ -107,6 +112,56 @@ elseif ($command -eq "send") {
     Start-Sleep -Milliseconds 200
     if ($enter -eq "1") { [System.Windows.Forms.SendKeys]::SendWait("{ENTER}") }
     [pscustomobject]@{ ok = $true } | ConvertTo-Json -Compress
+}
+elseif ($command -eq "readtext") {
+    $hwnd = [long]$args[1]
+    try {
+        Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop
+        Add-Type -AssemblyName UIAutomationTypes -ErrorAction Stop
+    } catch {
+        [pscustomobject]@{ ok = $false; error = "uia unavailable" } | ConvertTo-Json -Compress
+        exit
+    }
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$hwnd)
+    if ($root -eq $null) {
+        [pscustomobject]@{ ok = $false; error = "no element" } | ConvertTo-Json -Compress
+    } else {
+        # Bottom-first DFS: push children in forward order onto a stack so the last
+        # sibling's subtree pops first. A usage-limit banner sits just above the
+        # composer (late in the tree), so it lands at the START of our buffer — which
+        # lets the parser prefer it over any older "limit" chatter higher up the page.
+        $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+        $sb = New-Object System.Text.StringBuilder
+        $maxChars = 16000
+        $maxNodes = 3000
+        $count = 0
+        $stack = New-Object System.Collections.Stack
+        $stack.Push($root)
+        while ($stack.Count -gt 0 -and $sb.Length -lt $maxChars -and $count -lt $maxNodes) {
+            $node = $stack.Pop()
+            $count++
+            try {
+                $ct = $node.Current.ControlType
+                if ($ct -eq [System.Windows.Automation.ControlType]::Text -or
+                    $ct -eq [System.Windows.Automation.ControlType]::Document -or
+                    $ct -eq [System.Windows.Automation.ControlType]::Edit -or
+                    $ct -eq [System.Windows.Automation.ControlType]::Button) {
+                    $name = $node.Current.Name
+                    if ($name -and $name.Trim().Length -gt 0) { [void]$sb.Append($name); [void]$sb.Append([char]10) }
+                }
+            } catch {}
+            try {
+                $child = $walker.GetFirstChild($node)
+                while ($child -ne $null) {
+                    $stack.Push($child)
+                    $child = $walker.GetNextSibling($child)
+                }
+            } catch {}
+        }
+        $text = $sb.ToString()
+        if ($text.Length -gt $maxChars) { $text = $text.Substring(0, $maxChars) }
+        [pscustomobject]@{ ok = $true; text = $text } | ConvertTo-Json -Compress
+    }
 }
 else {
     [pscustomobject]@{ ok = $false; error = "unknown command" } | ConvertTo-Json -Compress
@@ -211,14 +266,268 @@ function init(ctx) {
     if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
   }
 
+  // ── In-window detection ──
+  // Reads the target chat window's visible text (UI Automation) and looks for a
+  // usage-limit banner directly, so the user never has to copy anything. The
+  // banner is only accepted when BOTH a "reached/hit … limit" phrase AND a
+  // "reset/again … at/in" phrase are present, which keeps ordinary conversation
+  // *about* limits from tripping it. We then send just the slice around the reset
+  // phrase to the renderer, which parses the exact time.
+  const BANNER_LIMIT_RE = /(reached|hit|exceeded|run out of|out of)[^.\n]{0,40}(usage|message|rate|free|daily|weekly|plan)?\s*(limit|messages|credits|quota)/i;
+  const BANNER_RESET_RE = /(reset[s]?|available again|try again|comes? back|renew[s]?|resume[s]?)\b[^.\n]{0,24}\b(at|in|on|after)\b[^.\n]{0,40}/i;
+  const ROLLING_RE = /\b\d+\s*-\s*hour\s+limit\b/i;
+
+  async function resolveHwnd(process, title) {
+    const { windows } = await listWindows();
+    const p = (process || '').toLowerCase();
+    const ttl = title || '';
+    const key = ttl.slice(0, 24);
+    const pick =
+      windows.find((w) => (w.process || '').toLowerCase() === p && w.title === ttl) ||
+      windows.find((w) => (w.process || '').toLowerCase() === p && key && w.title.includes(key)) ||
+      windows.find((w) => ttl && w.title === ttl) ||
+      windows.find((w) => (w.process || '').toLowerCase() === p) ||
+      windows.find((w) => key && w.title.includes(key));
+    return pick ? pick.hwnd : null;
+  }
+
+  // Pulls the window text and, if a limit banner is present, returns the focused
+  // slice around it (so the renderer parses the banner's time, not older text).
+  async function detectInWindow(hwnd) {
+    const res = await run(`readtext ${hwnd}`, 13000);
+    const text = (res && res.ok) ? String(res.text || '') : '';
+    if (!text) return { found: false, text: '' };
+    const hasLimit = BANNER_LIMIT_RE.test(text) || ROLLING_RE.test(text);
+    if (!hasLimit) return { found: false, text: '' };
+    const r = BANNER_RESET_RE.exec(text) || ROLLING_RE.exec(text);
+    if (!r) return { found: false, text: '' };
+    const start = Math.max(0, r.index - 90);
+    const slice = text.slice(start, r.index + 160).replace(/[ \t]+/g, ' ').trim();
+    return { found: true, text: slice };
+  }
+
+  async function readWindowText(process, title) {
+    const hwnd = await resolveHwnd(process, title);
+    if (!hwnd) return { ok: false, error: 'window not open', found: false, text: '' };
+    try {
+      const d = await detectInWindow(hwnd);
+      return { ok: true, ...d };
+    } catch (e) {
+      logger.error('Claude-limit window read failed', e, { process });
+      return { ok: false, error: 'read failed', found: false, text: '' };
+    }
+  }
+
+  // Poller: while on, reads the configured window every few seconds and pushes a
+  // 'window-hit' to the renderer when a *new* banner appears (deduped on the
+  // banner slice so a persistent on-screen banner only arms once).
+  let winWatchTimer = null;
+  let winWatchTarget = null;
+  let winPolling = false;
+  let lastBannerSig = '';
+
+  async function pollWindow() {
+    if (winPolling || !winWatchTarget) return;
+    winPolling = true;
+    try {
+      const hwnd = await resolveHwnd(winWatchTarget.process, winWatchTarget.title);
+      if (!hwnd) return;
+      const d = await detectInWindow(hwnd);
+      if (!d.found) return;
+      const sig = d.text.slice(0, 200);
+      if (sig === lastBannerSig) return; // same banner still on screen — don't re-fire
+      lastBannerSig = sig;
+      const win = ctx.getMainWindow?.();
+      if (win && !win.isDestroyed()) win.webContents.send('claude-limit:window-hit', { text: d.text });
+    } catch (e) { /* transient UIA failures are fine */ } finally {
+      winPolling = false;
+    }
+  }
+
+  function startWindowWatch(target) {
+    stopWindowWatch();
+    if (!target || !target.process && !target.title) return;
+    winWatchTarget = target;
+    lastBannerSig = '';
+    winWatchTimer = setInterval(pollWindow, 8000);
+    setTimeout(pollWindow, 1200); // quick first look
+  }
+  function stopWindowWatch() {
+    if (winWatchTimer) { clearInterval(winWatchTimer); winWatchTimer = null; }
+    winWatchTarget = null;
+  }
+
+  // ── Claude Code transcript detection (the reliable "Nimbalyst way") ──
+  // Claude Code / Nimbalyst don't screen-scrape to know the limit: when the API
+  // returns 429 they write a synthetic assistant message into the session's
+  // transcript at ~/.claude/projects/<proj>/<session>.jsonl, tagged
+  //   { error:"rate_limit", isApiErrorMessage:true, apiErrorStatus:429,
+  //     message.content[0].text:"You've hit your session limit · resets 10:50pm (Tz)" }
+  // Reading that gives an exact, focus-independent reset time — no OCR, no
+  // clipboard. We tail the most-recently-touched transcripts and take the newest
+  // rate_limit event.
+  const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  const CC_PROJECTS_DIR = path.join(CLAUDE_HOME, 'projects');
+
+  // Read only the last `maxBytes` of a file — a fresh limit event is appended at
+  // the end, and transcripts can be many MB, so never read the whole thing.
+  function tailRead(file, maxBytes) {
+    const fd = fs.openSync(file, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      const start = Math.max(0, size - maxBytes);
+      const len = size - start;
+      if (len <= 0) return '';
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, start);
+      return buf.toString('utf8');
+    } finally { fs.closeSync(fd); }
+  }
+
+  function listTranscripts() {
+    const out = [];
+    let projects;
+    try { projects = fs.readdirSync(CC_PROJECTS_DIR, { withFileTypes: true }); } catch (e) { return out; }
+    for (const p of projects) {
+      if (!p.isDirectory()) continue;
+      const dir = path.join(CC_PROJECTS_DIR, p.name);
+      let files;
+      try { files = fs.readdirSync(dir); } catch (e) { continue; }
+      for (const f of files) {
+        if (!f.endsWith('.jsonl')) continue;
+        try { const st = fs.statSync(path.join(dir, f)); out.push({ file: path.join(dir, f), mtime: st.mtimeMs }); } catch (e) {}
+      }
+    }
+    return out;
+  }
+
+  // Newest rate_limit event across the most-recently-modified transcripts, or null.
+  function scanCcLimit() {
+    const files = listTranscripts().sort((a, b) => b.mtime - a.mtime).slice(0, 25);
+    let best = null;
+    for (const { file } of files) {
+      let tail;
+      try { tail = tailRead(file, 262144); } catch (e) { continue; }
+      if (tail.indexOf('rate_limit') === -1) continue; // cheap pre-filter before JSON.parse
+      const lines = tail.split('\n');
+      for (const line of lines) {
+        if (line.indexOf('rate_limit') === -1) continue;
+        let obj;
+        try { obj = JSON.parse(line); } catch (e) { continue; }
+        if (!obj || obj.error !== 'rate_limit') continue;
+        const ts = Date.parse(obj.timestamp || '') || 0;
+        const text = (obj.message && obj.message.content && obj.message.content[0] && obj.message.content[0].text) || '';
+        if (!text) continue;
+        if (!best || ts > best.ts) best = { ts, uuid: obj.uuid || '', text, cwd: obj.cwd || '', sessionId: obj.sessionId || '' };
+      }
+    }
+    return best;
+  }
+
+  function readCcLimit() {
+    try {
+      const ev = scanCcLimit();
+      if (!ev || !ev.text) return { ok: true, found: false };
+      return { ok: true, found: true, text: ev.text, at: ev.ts, cwd: ev.cwd };
+    } catch (e) {
+      logger.error('Claude-code limit scan failed', e);
+      return { ok: false, found: false };
+    }
+  }
+
+  // Poller: emits a 'cc-hit' when a *new*, *fresh* rate_limit event shows up.
+  let ccWatchTimer = null;
+  let ccPolling = false;
+  let lastCcUuid = '';
+  const CC_FRESH_MS = 15 * 60000; // ignore events older than this so we don't re-arm off history
+
+  async function pollCc() {
+    if (ccPolling) return;
+    ccPolling = true;
+    try {
+      const ev = scanCcLimit();
+      if (!ev || !ev.text || !ev.uuid) return;
+      if (ev.uuid === lastCcUuid) return;             // already handled this event
+      if (Date.now() - ev.ts > CC_FRESH_MS) { lastCcUuid = ev.uuid; return; } // stale — suppress
+      lastCcUuid = ev.uuid;
+      const win = ctx.getMainWindow?.();
+      if (win && !win.isDestroyed()) win.webContents.send('claude-limit:cc-hit', { text: ev.text, cwd: ev.cwd });
+    } catch (e) { /* transient FS races are fine */ } finally {
+      ccPolling = false;
+    }
+  }
+
+  function startCcWatch() {
+    stopCcWatch();
+    // Seed against any *old* event so we don't fire on startup for history; a
+    // genuinely fresh event (< CC_FRESH_MS) stays unseeded and fires on first poll.
+    try { const ev = scanCcLimit(); if (ev && ev.uuid && Date.now() - ev.ts > CC_FRESH_MS) lastCcUuid = ev.uuid; } catch (e) {}
+    ccWatchTimer = setInterval(pollCc, 5000);
+    setTimeout(pollCc, 800);
+  }
+  function stopCcWatch() {
+    if (ccWatchTimer) { clearInterval(ccWatchTimer); ccWatchTimer = null; }
+  }
+
+  // ── Keep-awake ──
+  // Unattended is the whole point: if the machine sleeps before the reset time,
+  // the countdown never fires. While a continue is armed the renderer asks us to
+  // hold a power-save blocker so the box stays awake long enough to send. We use
+  // 'prevent-app-suspension' (lets the display sleep, keeps the process running)
+  // rather than the heavier 'prevent-display-sleep'.
+  let keepAwakeId = null;
+  function setKeepAwake(enabled) {
+    try {
+      if (enabled) {
+        if (keepAwakeId === null || !powerSaveBlocker.isStarted(keepAwakeId)) {
+          keepAwakeId = powerSaveBlocker.start('prevent-app-suspension');
+          logger.info?.('Claude-limit keep-awake engaged', { id: keepAwakeId });
+        }
+      } else if (keepAwakeId !== null) {
+        if (powerSaveBlocker.isStarted(keepAwakeId)) powerSaveBlocker.stop(keepAwakeId);
+        keepAwakeId = null;
+        logger.info?.('Claude-limit keep-awake released');
+      }
+      return { ok: true, keepAwake: keepAwakeId !== null };
+    } catch (e) {
+      logger.error('Claude-limit keep-awake failed', e, { enabled });
+      return { ok: false, keepAwake: false };
+    }
+  }
+
+  // ── OS notification ──
+  // The app usually lives in the tray, so an in-app toast isn't seen. A native
+  // toast tells the user their overnight continue actually fired (or failed).
+  function notify(title, body) {
+    try {
+      if (!Notification.isSupported()) return { ok: false };
+      const icon = path.join(ctx.appRoot || __dirname, 'assets', 'icon.ico');
+      const n = new Notification({ title: String(title || 'Claude Auto-Continue'), body: String(body || ''), icon, silent: false });
+      n.on('click', () => { try { ctx.focusMainWindow?.(); } catch (e) {} });
+      n.show();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false };
+    }
+  }
+
   ipcMain.handle('claude-limit:list-windows', () => listWindows());
   ipcMain.handle('claude-limit:send', (_e, hwnd, prompt, pressEnter) => sendToWindow(hwnd, prompt, pressEnter));
   ipcMain.handle('claude-limit:read-clipboard', () => readClipboard());
   ipcMain.handle('claude-limit:set-watch', (_e, enabled) => { if (enabled) startWatch(); else stopWatch(); return { ok: true, watching: !!enabled }; });
+  ipcMain.handle('claude-limit:set-keep-awake', (_e, enabled) => setKeepAwake(!!enabled));
+  ipcMain.handle('claude-limit:notify', (_e, title, body) => notify(title, body));
+  ipcMain.handle('claude-limit:read-window-text', (_e, process, title) => readWindowText(process, title));
+  ipcMain.handle('claude-limit:set-window-watch', (_e, enabled, process, title) => {
+    if (enabled) startWindowWatch({ process, title }); else stopWindowWatch();
+    return { ok: true, watching: !!enabled };
+  });
+  ipcMain.handle('claude-limit:read-cc-limit', () => readCcLimit());
+  ipcMain.handle('claude-limit:set-cc-watch', (_e, enabled) => { if (enabled) startCcWatch(); else stopCcWatch(); return { ok: true, watching: !!enabled }; });
 
-  function teardown() { stopWatch(); }
+  function teardown() { stopWatch(); stopWindowWatch(); stopCcWatch(); setKeepAwake(false); }
 
-  return { listWindows, sendToWindow, teardown };
+  return { listWindows, sendToWindow, readWindowText, readCcLimit, setKeepAwake, notify, teardown };
 }
 
 module.exports = { init };

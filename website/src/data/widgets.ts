@@ -1,5 +1,5 @@
 /**
- * The 19 real mini widgets, mirrored from the app's MINI_WIDGETS registry
+ * The 22 real mini widgets, mirrored from the app's MINI_WIDGETS registry
  * (main-app11/main-app/renderer/core.js — the single source of truth). Names,
  * categories, icons, descriptions, versions and keywords are copied so the
  * #widgets grid stays in lockstep with the app.
@@ -345,6 +345,87 @@ export const WIDGETS: Widget[] = [
     ],
     version: "1.0.0",
     keywords: ["discord", "rich presence", "rpc", "status", "playing", "activity"],
+  },
+  {
+    id: "taskbar",
+    name: "Translucent Taskbar",
+    category: "System",
+    icon: "fa-window-maximize",
+    description:
+      "Make the Windows taskbar transparent, blurred or acrylic — a TranslucentTB-style styler.",
+    features: [
+      "Clear, Blur, Acrylic, Opaque or Normal styles",
+      "Custom tint colour & opacity",
+      "Live mock-taskbar preview",
+      "Drives your installed TranslucentTB on Windows 11 24H2+",
+    ],
+    version: "1.0.0",
+    keywords: [
+      "taskbar",
+      "translucent",
+      "translucenttb",
+      "transparent",
+      "blur",
+      "acrylic",
+      "glass",
+      "tint",
+      "opacity",
+    ],
+  },
+  {
+    id: "appInstaller",
+    name: "App Installer",
+    category: "Utilities",
+    icon: "fa-box-open",
+    description:
+      "Tick a bunch of popular apps and install them all silently in one go — winget under the hood.",
+    features: [
+      "Category grid of popular apps — tick what you want",
+      "One-click silent install of everything selected",
+      "Powered by winget — real publishers, latest versions",
+      "Detects & skips apps you already have",
+    ],
+    version: "1.0.0",
+    keywords: [
+      "install",
+      "installer",
+      "apps",
+      "winget",
+      "bulk",
+      "setup",
+      "fresh",
+      "pc",
+      "silent",
+      "preset",
+    ],
+  },
+  {
+    id: "debloat",
+    name: "Windows Debloat",
+    category: "System",
+    icon: "fa-broom",
+    description:
+      "Uninstall preinstalled Windows bloatware and flip reversible privacy & UX tweaks — per-user, no admin.",
+    features: [
+      "Scans and lists only the bloat apps actually installed",
+      "One-click bulk uninstall with live per-app progress",
+      "Reversible privacy & UX tweaks (real on/off toggles)",
+      "Per-user scope — no admin, nothing system-wide",
+    ],
+    version: "1.0.0",
+    keywords: [
+      "debloat",
+      "bloatware",
+      "uninstall",
+      "remove",
+      "appx",
+      "privacy",
+      "tweaks",
+      "clean",
+      "telemetry",
+      "fresh install",
+      "declutter",
+    ],
   },
 ];
 

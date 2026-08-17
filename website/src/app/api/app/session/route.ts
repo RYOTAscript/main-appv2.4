@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "@/lib/prisma";
+import { rateLimit, clientIp } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,14 @@ const allowedAudiences = [
 const googleClient = new OAuth2Client();
 
 export async function POST(req: Request) {
+  const limit = rateLimit(`app-session:${clientIp(req)}`, 30, 60_000);
+  if (!limit.ok) {
+    return NextResponse.json(
+      { authenticated: false, error: "Too many requests." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } },
+    );
+  }
+
   if (allowedAudiences.length === 0) {
     return NextResponse.json(
       { authenticated: false, error: "App sign-in isn't configured." },
@@ -77,10 +86,19 @@ export async function POST(req: Request) {
 
   // Match the account created when they signed in / bought on the web. We look
   // up by email (stable + verified); we never auto-create a purchase here.
-  const user = await prisma.user.findUnique({
-    where: { email },
-    include: { license: true },
-  });
+  let user;
+  try {
+    user = await prisma.user.findUnique({
+      where: { email },
+      include: { license: true },
+    });
+  } catch (err) {
+    console.error("[app/session] db error", err);
+    return NextResponse.json(
+      { authenticated: false, error: "Service temporarily unavailable." },
+      { status: 503 },
+    );
+  }
 
   const purchased = Boolean(user?.license?.active);
 

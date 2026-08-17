@@ -1,7 +1,7 @@
 # main — website
 
 The marketing + commerce site for **main**, a glass-morphism Windows desktop
-overlay (v3.40.0, made by ryota). It sells the app as a **one-time $5 lifetime
+overlay (v3.48.0, made by ryota). It sells the app as a **one-time $5 lifetime
 license**, signs people in with **Google**, and — after a **PayPal** payment —
 hands out a **license key** and a gated **Windows download**.
 
@@ -257,4 +257,4 @@ src/
 prisma/schema.prisma      # User/Account/Session/VerificationToken + License/Purchase
 ```
 
-Made by ryota · main v3.40.0
+Made by ryota · main v3.48.0

@@ -2,12 +2,15 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getUserLicense } from "@/lib/license";
+import { getLicenseDevices } from "@/lib/activation";
 import { SectionLabel } from "@/components/ui/SectionLabel";
 import { Button } from "@/components/ui/Button";
 import { AccentPicker } from "@/components/AccentPicker";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { LicenseKeyPill } from "@/components/account/LicenseKeyPill";
 import { PayPalCheckout } from "@/components/account/PayPalCheckout";
+import { DeleteAccountButton } from "@/components/account/DeleteAccountButton";
+import { DeviceManager } from "@/components/account/DeviceManager";
 
 export const metadata: Metadata = {
   title: "Account · main",
@@ -27,6 +30,7 @@ export default async function AccountPage() {
   const user = session.user;
   const license = await getUserLicense(user.id);
   const active = Boolean(license?.active);
+  const devices = active ? await getLicenseDevices(user.id) : null;
 
   return (
     <section className="relative mx-auto max-w-3xl px-6 pb-24 pt-32">
@@ -115,6 +119,14 @@ export default async function AccountPage() {
             )}
           </div>
 
+          {/* Devices (HWID) */}
+          {active && devices && (
+            <div>
+              <SectionLabel className="mb-4">Devices</SectionLabel>
+              <DeviceManager initial={devices} />
+            </div>
+          )}
+
           {/* Accent theme */}
           <div>
             <SectionLabel className="mb-4">Accent theme</SectionLabel>
@@ -123,6 +135,16 @@ export default async function AccountPage() {
               like the app&apos;s accent picker.
             </p>
             <AccentPicker />
+          </div>
+
+          {/* Danger zone */}
+          <div>
+            <SectionLabel className="mb-4">Danger zone</SectionLabel>
+            <p className="mb-4 max-w-md text-sm text-neutral-400">
+              Delete your account and all associated data — your profile, license
+              and purchase records. This can&apos;t be undone.
+            </p>
+            <DeleteAccountButton />
           </div>
         </div>
       </div>
