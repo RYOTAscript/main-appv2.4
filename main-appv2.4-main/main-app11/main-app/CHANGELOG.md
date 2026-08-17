@@ -5,6 +5,37 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [3.48.4] — 2026-08-17
+
+### Added
+
+- **App-wide elevation (UAC).** Features that need administrator rights (FPS Optimizer's
+  power plans, HKLM writes, service start/stop) now prompt the Windows UAC dialog and, on
+  accept, relaunch the whole app elevated so those actions actually apply. Unelevated-safe
+  actions (DNS flush, temp clear, process kills) never trigger it. New `main/elevate.js`.
+- **Store-less winget install.** App Installer can now bootstrap winget itself on machines
+  without the Store (LTSC / N / Server) by fetching the App Installer package + its
+  dependencies from Microsoft and registering them per-user — no admin needed.
+- **TranslucentTB install prompt.** The Translucent Taskbar widget now shows a clear
+  prompt with a one-click winget install when TranslucentTB isn't present (required for
+  taskbar styling on Windows 11 24H2/25H2, where the built-in engine can't paint the bar).
+
+### Changed
+
+- **Windows Debloat is now edition-aware.** Windows-11-only tweaks (Widgets/Chat buttons,
+  classic context menu) are hidden on Windows 10, so every toggle shown actually does
+  something on the running edition.
+- **Controller Macros driver button** now downloads the pinned ViGEmBus v1.22.0 installer
+  directly instead of opening a releases page.
+
+### Notes
+
+- Third-party notices updated to list the bundled `Nefarius.ViGEm.Client` (BSD-3-Clause).
+- Added `⚠️ WINDOWS VERSION NOTE` comments documenting per-edition behaviour across the
+  taskbar, debloat, app-installer, controller-macros and FPS-optimizer modules.
+
+---
+
 ## [3.48.1] — 2026-08-14
 
 ### Added

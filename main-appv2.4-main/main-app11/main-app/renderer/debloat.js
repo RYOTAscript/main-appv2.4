@@ -12,6 +12,7 @@
         let dblApps = null;            // [{ category, apps:[{name,label,caution,note}] }]
         let dblTweaks = null;          // [{ category, tweaks:[{id,label,description,restartExplorer}] }]
         let dblPs = { available: false };
+        let dblOs = null;              // { build, isWin11, name } — detected edition
         let dblInstalled = new Set();  // package names present on this PC
         let dblSelected = new Set();   // names ticked for removal (persisted)
         let dblTweakState = {};        // id -> bool (applied)
@@ -64,7 +65,7 @@
                 dblLoadSelection();
                 try {
                     const res = await window.electronAPI.debloatCatalog();
-                    if (res?.ok) { dblApps = res.apps; dblTweaks = res.tweaks; dblPs = res.ps || dblPs; }
+                    if (res?.ok) { dblApps = res.apps; dblTweaks = res.tweaks; dblPs = res.ps || dblPs; dblOs = res.os || null; }
                 } catch (e) { /* handled by null-catalog branch */ }
                 try {
                     const st = await window.electronAPI.debloatStatus();
@@ -96,7 +97,7 @@
             return `
                 ${dblTabsHtml()}
                 <div class="dbl-tabbody">${dblTab === 'apps' ? dblAppsTabHtml() : dblTweaksTabHtml()}</div>
-                <p class="dbl-eula">Changes apply only to what you tick, using Windows' own tools, for your user account only. App removals affect your account; tweaks are reversible from this panel.</p>`;
+                <p class="dbl-eula">Changes apply only to what you tick, using Windows' own tools, for your user account only. App removals affect your account; tweaks are reversible from this panel.${dblOs ? ` Tweaks are filtered for <b>${esc(dblOs.name)}</b> — only ones that work on your edition are shown.` : ''}</p>`;
         }
 
         function dblTabsHtml() {

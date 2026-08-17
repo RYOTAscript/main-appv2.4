@@ -39,6 +39,7 @@ const appInstaller = require('./main/appInstaller');
 const debloat = require('./main/debloat');
 const license = require('./main/license');
 const autoUpdate = require('./main/autoUpdate');
+const elevate = require('./main/elevate');
 
 // Present as "main" everywhere Windows surfaces the app identity. setAppUserModelId
 // ties the running windows to the installer's shortcut so pinning to the taskbar
@@ -423,6 +424,7 @@ if (!gotSingleInstanceLock) {
     getMainWindow: () => mainWindow,
     getMainAppPID: () => mainAppPID,
     focusMainWindow,
+    isElevated: () => elevate.isElevated(),
     refreshTrayMenu: () => { if (appTray) appTray.setContextMenu(buildTrayMenu()); }
   };
 
@@ -487,6 +489,7 @@ if (!gotSingleInstanceLock) {
 
     createWindow();
 
+    elevate.init(ctx);
     micModule = micMute.init(ctx);
     spotifyModule = spotify.init(ctx);
     autostart.init(ctx);

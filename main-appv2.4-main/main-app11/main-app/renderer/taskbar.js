@@ -178,6 +178,9 @@
                 </div>` : '';
 
             panel.innerHTML = `<div class="mt-3 space-y-3">
+                <!-- TranslucentTB install prompt (shown when it isn't installed) -->
+                <div id="taskbar-ttb-prompt"></div>
+
                 <!-- Live mock-taskbar preview over a wallpaper-like backdrop -->
                 <div class="rounded-xl border border-white/10 overflow-hidden relative" style="height:120px; background:
                     linear-gradient(135deg, #3a4a6b 0%, #6b4a7a 45%, #b06a52 100%)">
@@ -230,12 +233,33 @@
             let st;
             try { st = await window.electronAPI.taskbarStatus(); } catch (e) { return; }
             const badgeNow = document.getElementById('taskbar-engine-badge');
+            const prompt = document.getElementById('taskbar-ttb-prompt');
             if (!badgeNow) return;
             if (st.engine === 'translucenttb') {
+                // Installed → drive TranslucentTB; no prompt needed.
                 badgeNow.innerHTML = `<i class="fas fa-bolt mr-1 text-emerald-400/70"></i>Powered by TranslucentTB${st.running ? '' : ' <span class="text-neutral-700">(will launch on apply)</span>'}`;
+                if (prompt) prompt.innerHTML = '';
             } else {
-                badgeNow.innerHTML = `<i class="fas fa-triangle-exclamation mr-1 text-amber-400/70"></i>Built-in engine — <span class="text-neutral-500">no effect on Windows 11 24H2+.</span>
-                    <button type="button" id="taskbar-install-btn" class="hotkey-bind no-drag ml-1" onclick="tbInstallTtb()">Install TranslucentTB</button>`;
+                // Not installed → short status line + a prominent install prompt.
+                badgeNow.innerHTML = `<i class="fas fa-triangle-exclamation mr-1 text-amber-400/70"></i>Built-in engine <span class="text-neutral-600">(limited on Win11 24H2+)</span>`;
+                if (prompt) {
+                    // Inline styles for colours so this renders correctly without a
+                    // Tailwind rebuild (matches how the rest of this panel inlines style).
+                    prompt.innerHTML = `
+                        <div style="border:1px solid rgba(251,191,36,0.28);background:rgba(251,191,36,0.10);border-radius:12px;padding:11px;display:flex;flex-direction:column;gap:9px">
+                            <div style="display:flex;align-items:flex-start;gap:8px">
+                                <i class="fas fa-wand-magic-sparkles" style="color:rgba(252,211,77,0.85);margin-top:2px"></i>
+                                <div style="font-size:11px;line-height:1.5;color:#e5e5e5">
+                                    <b>Install TranslucentTB for the best result.</b>
+                                    <span style="color:#a3a3a3">The built-in engine can't style the taskbar on newer Windows 11 builds (24H2/25H2). TranslucentTB fixes that — main installs it for you via winget.</span>
+                                </div>
+                            </div>
+                            <button type="button" class="taskbar-install-btn no-drag" onclick="tbInstallTtb()"
+                                style="align-self:flex-start;font-size:11px;padding:6px 12px;border-radius:8px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);color:#fff;cursor:pointer;transition:background .15s">
+                                <i class="fas fa-download mr-1.5"></i>Install TranslucentTB (winget)
+                            </button>
+                        </div>`;
+                }
             }
         }
 
@@ -244,9 +268,10 @@
         // so re-push the saved look and refresh the badge to the TranslucentTB engine.
         async function tbInstallTtb() {
             if (!window.electronAPI?.taskbarInstallTtb) return;
-            const btn = document.getElementById('taskbar-install-btn');
-            if (btn) { btn.disabled = true; btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i>Installing…`; }
-            showToast('Installing TranslucentTB…');
+            const btn = document.querySelector('.taskbar-install-btn');
+            const resetBtn = (label) => { if (btn) { btn.disabled = false; btn.innerHTML = `<i class="fas fa-download mr-1.5"></i>${label}`; } };
+            if (btn) { btn.disabled = true; btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1.5"></i>Installing…`; }
+            showToast('Installing TranslucentTB via winget…');
             let res;
             try { res = await window.electronAPI.taskbarInstallTtb(); }
             catch (e) { res = { ok: false }; }
@@ -254,12 +279,12 @@
             if (res && res.ok && (res.method === 'winget' || res.already)) {
                 showToast('TranslucentTB installed');
                 pushTaskbarState();          // now applies through TranslucentTB
-                updateTaskbarEngineBadge();
+                updateTaskbarEngineBadge();  // clears the prompt, flips the badge
             } else if (res && res.method === 'store') {
-                showToast('Opened Microsoft Store — click Get, then reopen this panel');
-                if (btn) { btn.disabled = false; btn.textContent = 'Install TranslucentTB'; }
+                showToast('winget unavailable — opened the Microsoft Store. Click Get, then reopen this panel.');
+                resetBtn('Install TranslucentTB (winget)');
             } else {
                 showToast('Install failed — try the Microsoft Store', true);
-                if (btn) { btn.disabled = false; btn.textContent = 'Install TranslucentTB'; }
+                resetBtn('Install TranslucentTB (winget)');
             }
         }

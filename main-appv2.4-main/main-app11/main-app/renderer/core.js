@@ -1,4 +1,4 @@
-        const APP_VERSION = 'v3.48.1';
+        const APP_VERSION = 'v3.48.4';
         const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M', crosshair: 'Control+Shift+X' };
 
         // Registry of "Mini Widgets" -- small, self-contained utilities. This is the

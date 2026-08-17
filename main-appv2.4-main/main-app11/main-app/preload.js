@@ -54,6 +54,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('updates:state', listener);
   },
 
+  // Admin / elevation (UAC). isElevated → bool; elevate → shows UAC and, on
+  // accept, relaunches the whole app as administrator (this instance then quits).
+  adminIsElevated: () => ipcRenderer.invoke('admin:is-elevated'),
+  adminElevate: () => ipcRenderer.invoke('admin:elevate'),
+
   // FPS Optimizer
   fpsOptimizeOnly: () => ipcRenderer.invoke('fps-optimize-only'),
   fpsDiscordOnly: () => ipcRenderer.invoke('fps-discord-only'),
@@ -287,6 +292,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   appInstallerExportPresets: (json) => ipcRenderer.invoke('app-installer:export-presets', json),
   appInstallerImportPresets: () => ipcRenderer.invoke('app-installer:import-presets'),
   appInstallerOpenWingetStore: () => ipcRenderer.invoke('app-installer:open-winget-store'),
+  appInstallerInstallWinget: () => ipcRenderer.invoke('app-installer:install-winget'),
   onAppInstallerProgress: (callback) => ipcRenderer.on('app-installer:progress', (_event, data) => callback(data)),
 
   // Mini Widgets: Windows Debloat (per-user AppX removal + reversible HKCU tweaks)

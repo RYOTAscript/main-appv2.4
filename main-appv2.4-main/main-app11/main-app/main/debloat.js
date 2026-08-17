@@ -1,5 +1,27 @@
 const { ipcMain } = require('electron');
+const os = require('os');
 const { runCmd, runCmdSync } = require('./shellUtils');
+
+// ── Windows edition detection ──
+// os.release() on Windows returns "10.0.<build>" (e.g. "10.0.22631"). Windows 11
+// is build 22000+; everything below that is Windows 10. We use this to hide
+// tweaks that target UI which only exists on one edition, so every toggle the
+// user sees on their machine actually does something (see publicTweakCatalog).
+function getOsInfo() {
+  const rel = os.release() || '';
+  const build = parseInt((rel.split('.')[2] || '0'), 10) || 0;
+  const isWin11 = build >= 22000;
+  return { build, isWin11, name: isWin11 ? 'Windows 11' : 'Windows 10' };
+}
+
+// A tweak with no `platform` applies to every edition. 'win11' → only shown/
+// applied on Windows 11 (the UI it toggles doesn't exist on Windows 10).
+function tweakAppliesTo(tw, osInfo) {
+  if (!tw.platform || tw.platform === 'all') return true;
+  if (tw.platform === 'win11') return osInfo.isWin11;
+  if (tw.platform === 'win10') return !osInfo.isWin11;
+  return true;
+}
 
 // ── Windows Debloat mini widget ──
 // Two jobs, both done with Windows' OWN built-in tooling — this module ships no
@@ -129,17 +151,24 @@ const TWEAK_CATALOG = [
       id: 'classicContextMenu',
       label: 'Classic right-click menu (Win11)',
       description: 'Bring back the full Windows 10 right-click menu instead of the trimmed Windows 11 one.',
+      platform: 'win11', // Win10 already has the classic menu — nothing to restore
       restartExplorer: true,
       read: { path: 'HKCU\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32', name: '', type: 'sz', equals: '' },
       apply:  [{ op: 'add', path: 'HKCU\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32', name: '', type: 'REG_SZ', data: '' }],
       revert: [{ op: 'delKey', path: 'HKCU\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}' }]
     }
   ]},
+  // WINDOWS VERSION: the Widgets and Chat buttons are Windows-11-only, so those two
+  // tweaks are tagged platform:'win11' and filtered out on Windows 10 by
+  // publicTweakCatalog() — the user only ever sees toggles that do something.
+  // "Hide taskbar search" (SearchboxTaskbarMode) works on both editions, so it has
+  // no platform tag. On Win10 this group therefore shows just the search tweak.
   { category: 'Taskbar', tweaks: [
     {
       id: 'hideTaskbarWidgets',
       label: 'Hide Widgets button',
       description: 'Remove the weather / news Widgets button from the taskbar.',
+      platform: 'win11', // the Widgets button only exists on Windows 11
       restartExplorer: true,
       read: { path: ADV, name: 'TaskbarDa', type: 'dword', equals: 0 },
       apply:  [{ op: 'add', path: ADV, name: 'TaskbarDa', type: 'REG_DWORD', data: '0' }],
@@ -149,6 +178,7 @@ const TWEAK_CATALOG = [
       id: 'hideTaskbarChat',
       label: 'Hide Chat button',
       description: 'Remove the Teams Chat button from the taskbar.',
+      platform: 'win11', // the Teams Chat button only exists on Windows 11
       restartExplorer: true,
       read: { path: ADV, name: 'TaskbarMn', type: 'dword', equals: 0 },
       apply:  [{ op: 'add', path: ADV, name: 'TaskbarMn', type: 'REG_DWORD', data: '0' }],
@@ -225,11 +255,18 @@ function publicAppCatalog() {
     apps: g.apps.map((a) => ({ name: a.name, label: a.label, caution: !!a.caution, note: a.note || '' }))
   }));
 }
-function publicTweakCatalog() {
-  return TWEAK_CATALOG.map((g) => ({
-    category: g.category,
-    tweaks: g.tweaks.map((t) => ({ id: t.id, label: t.label, description: t.description, restartExplorer: !!t.restartExplorer }))
-  }));
+// Only expose tweaks that apply to the running Windows edition, and drop any
+// group left empty by that filter — so on Windows 10 the Win11-only tweaks
+// simply aren't offered (rather than showing as inert toggles).
+function publicTweakCatalog(osInfo) {
+  return TWEAK_CATALOG
+    .map((g) => ({
+      category: g.category,
+      tweaks: g.tweaks
+        .filter((t) => tweakAppliesTo(t, osInfo))
+        .map((t) => ({ id: t.id, label: t.label, description: t.description, restartExplorer: !!t.restartExplorer }))
+    }))
+    .filter((g) => g.tweaks.length);
 }
 
 // Build a single `reg` command string from an op. Every path/name/data here comes
@@ -261,6 +298,10 @@ function opIsSafe(op) {
 
 function init(ctx) {
   const { logger } = ctx;
+
+  // Fixed for the session — the OS edition can't change while the app runs.
+  const osInfo = getOsInfo();
+  logger.system('Debloat: Windows edition', osInfo);
 
   // PowerShell availability is fixed for the session — probe once and cache.
   let ps = { available: false };
@@ -404,7 +445,10 @@ function init(ctx) {
 
   async function readAllTweaks() {
     const state = {};
+    // Only read tweaks applicable to this edition — the others aren't shown, and
+    // reading a Win11-only key on Win10 would just report a meaningless "off".
     for (const [id, tw] of TWEAK_BY_ID) {
+      if (!tweakAppliesTo(tw, osInfo)) continue;
       try { state[id] = await readTweak(tw); }
       catch (e) { state[id] = false; }
     }
@@ -414,6 +458,9 @@ function init(ctx) {
   async function setTweak(id, on) {
     const tw = TWEAK_BY_ID.get(id);
     if (!tw) return { ok: false, error: 'unknown-tweak' };
+    // Never apply a tweak that doesn't belong to this edition, even if a stale
+    // renderer somehow asks for it.
+    if (!tweakAppliesTo(tw, osInfo)) return { ok: false, error: 'not-applicable' };
     const ops = on ? tw.apply : tw.revert;
     for (const op of ops) {
       if (!opIsSafe(op)) {
@@ -462,7 +509,7 @@ function init(ctx) {
 
   // ── IPC ──
   ipcMain.handle('debloat:catalog', () => ({
-    ok: true, apps: publicAppCatalog(), tweaks: publicTweakCatalog(), ps
+    ok: true, apps: publicAppCatalog(), tweaks: publicTweakCatalog(osInfo), ps, os: osInfo
   }));
   ipcMain.handle('debloat:status', () => sessionPayload());
   ipcMain.handle('debloat:scan-installed', () => scanInstalled());

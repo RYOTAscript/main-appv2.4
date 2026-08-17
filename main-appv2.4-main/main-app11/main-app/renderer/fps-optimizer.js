@@ -66,6 +66,21 @@
             }
         ];
 
+        // Actions that touch HKLM / Windows services / powercfg / other processes'
+        // working sets need administrator rights. When the app isn't elevated we
+        // show the Windows UAC prompt and, on accept, relaunch the WHOLE app as
+        // admin so these just work (see main/elevate.js). Everything not listed
+        // here is HKCU / user-temp / process-kill work that runs fine unelevated.
+        const FPS_ADMIN_METHODS = new Set(['fpsOptimizeOnly', 'fpsBatterySaver', 'fpsRevertOptimizations']);
+        const FPS_ADMIN_ACTIONS = new Set([
+            'ultimate', 'high', 'balanced', 'cpuPriority', 'hags',
+            'clearStandby', 'disableSuperfetch', 'enableSuperfetch',
+            'lowLatency', 'resetNetwork', 'enableSearch', 'restoreTelemetry'
+        ]);
+        function fpsActionNeedsAdmin(a) {
+            return a.method ? FPS_ADMIN_METHODS.has(a.method) : FPS_ADMIN_ACTIONS.has(a.action);
+        }
+
         let fpsTab = 'boost';        // active tab id
         let fpsBusy = false;         // an action is mid-run (locks the panel)
         let fpsProgressHooked = false;
@@ -109,7 +124,7 @@
                 ${fpsProgressHtml()}
                 ${fpsTabsHtml()}
                 <div class="fps-tabbody ${fpsBusy ? 'fps-locked' : ''}">${fpsActionsHtml()}</div>
-                <p class="fps-eula">Actions use Windows' own tools. Process kills always protect Windows and the launcher itself; tweaks are reversible from the Restore tab.</p>`;
+                <p class="fps-eula">Actions use Windows' own tools. System tweaks (power plans, services, HKLM) need administrator rights — main will ask to restart as admin the first time you run one. Process kills always protect Windows and the launcher itself; tweaks are reversible from the Restore tab.</p>`;
         }
 
         function fpsProgressHtml() {
@@ -158,6 +173,25 @@
             const tab = FPS_TABS.find((t) => t.id === tabId);
             const a = tab && tab.actions[index];
             if (!a) return;
+
+            // Admin-gated actions: ensure the app is elevated first. If it isn't,
+            // adminElevate() shows UAC — on accept the app relaunches as admin (this
+            // instance quits, so we just stop here), on decline we abort the action.
+            if (fpsActionNeedsAdmin(a) && window.electronAPI.adminIsElevated) {
+                let elevated = false;
+                try { elevated = await window.electronAPI.adminIsElevated(); } catch (e) { elevated = false; }
+                if (!elevated) {
+                    showToast('Administrator access needed — approve the Windows prompt. main will restart as admin.');
+                    let res;
+                    try { res = await window.electronAPI.adminElevate(); } catch (e) { res = null; }
+                    if (res && res.relaunching) return;         // app is restarting elevated
+                    if (!res || res.declined) {
+                        showToast(`${a.title} needs administrator access.`, true);
+                        return;
+                    }
+                    // res.alreadyElevated / res.ok → fall through and run.
+                }
+            }
 
             fpsBusy = true;
             renderFpsOptimizerPanel();      // repaint with buttons disabled

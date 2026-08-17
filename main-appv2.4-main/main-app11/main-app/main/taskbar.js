@@ -126,6 +126,17 @@ $n = [TbAccent]::Apply($state, $flags, $color)
 [pscustomobject]@{ ok = $true; windows = $n } | ConvertTo-Json -Compress
 `;
 
+// ⚠️ WINDOWS VERSION NOTE (built-in Win32 engine)
+// SetWindowCompositionAttribute(WCA_ACCENT_POLICY) styling below is:
+//   • Windows 10 (all): fully works.
+//   • Windows 11 21H2–23H2: works.
+//   • Windows 11 24H2 / 25H2: NO-OP — the taskbar is painted by a XAML/
+//     DirectComposition surface the accent API can no longer touch. status()
+//     still reports engine:'winapi' and apply() returns ok:true, but nothing
+//     visibly changes. On these builds the ONLY working path is TranslucentTB
+//     (installed via winget / Store), which apply()/clear() auto-prefer when
+//     present. If a user on 24H2+ reports "the taskbar widget does nothing",
+//     that is this limitation — steer them to Install TranslucentTB.
 // Accent name -> Win32 accent state + flags (built-in engine only).
 const WINAPI_MODES = {
   normal:  { state: 150, flags: 0, usesColor: false },

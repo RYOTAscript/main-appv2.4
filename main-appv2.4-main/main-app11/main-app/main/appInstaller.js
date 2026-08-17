@@ -118,6 +118,12 @@ for (const group of CATALOG) {
 function init(ctx) {
   const { logger } = ctx;
 
+  // ⚠️ WINDOWS VERSION NOTE: this whole widget depends on winget (the App
+  // Installer / Microsoft.DesktopAppInstaller package). Present by default on
+  // Windows 11 and up-to-date Windows 10 (1809+). MISSING on: Windows 10/11 LTSC
+  // & LTSB, Windows Server, some N/EDU images, and machines where App Installer
+  // was never updated from the Store. When absent, runInstall() returns
+  // 'winget-missing' and the panel offers open-winget-store — expected, not a bug.
   // winget availability is fixed for the session (the user isn't going to
   // install/remove the package manager mid-run), so probe once and cache.
   let winget = { available: false, version: '' };
@@ -354,6 +360,62 @@ function init(ctx) {
     });
     return { ok: true };
   });
+
+  // ── Bootstrap winget without the Store (fixes F3) ──
+  // On Windows 10/11 LTSC, Server and stripped images the Store may be absent, so
+  // "open the Store page" isn't a fix. This installs winget the same way Microsoft
+  // documents for those environments: download the App Installer msixbundle plus
+  // its two runtime dependencies (VC++ Libs, UI.Xaml) straight from Microsoft /
+  // the official microsoft-ui-xaml release, then register them with
+  // Add-AppxPackage. That's a PER-USER registration — no admin / UAC needed — and
+  // every URL is served by Microsoft (aka.ms) or the official Microsoft GitHub org,
+  // so this app still never ships or serves the binaries itself.
+  async function installWinget() {
+    if (winget.available) return { ok: true, already: true, winget };
+
+    const tmp = path.join(ctx.userDataPath, 'winget-bootstrap');
+    // Single-quote for a PowerShell literal (double any embedded quote).
+    const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
+    const script =
+      `$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';` +
+      `$tmp=${q(tmp)};New-Item -ItemType Directory -Force -Path $tmp | Out-Null;` +
+      `$vc=Join-Path $tmp 'vclibs.appx';$xaml=Join-Path $tmp 'xaml.appx';$wg=Join-Path $tmp 'winget.msixbundle';` +
+      `Invoke-WebRequest -Uri 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx' -OutFile $vc;` +
+      `Invoke-WebRequest -Uri 'https://github.com/microsoft/microsoft-ui-xaml/releases/download/v2.8.6/Microsoft.UI.Xaml.2.8.x64.appx' -OutFile $xaml;` +
+      `Invoke-WebRequest -Uri 'https://aka.ms/getwinget' -OutFile $wg;` +
+      // Dependencies may already be present at an equal/newer version, where
+      // Add-AppxPackage throws — that's fine, so swallow those two.
+      `try{Add-AppxPackage -Path $vc}catch{};try{Add-AppxPackage -Path $xaml}catch{};` +
+      `Add-AppxPackage -Path $wg;Write-Output 'WINGET-BOOTSTRAP-OK'`;
+
+    logger.system('App Installer: bootstrapping winget (Store-less install)');
+    const res = await runCmd(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "${script.replace(/"/g, '\\"')}"`, 5 * 60 * 1000);
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* leftover temp is harmless */ }
+
+    const out = `${res.stdout || ''}\n${res.stderr || ''}`;
+    if (!/WINGET-BOOTSTRAP-OK/.test(out)) {
+      logger.warn('App Installer: winget bootstrap did not complete', { stderr: (res.stderr || '').slice(0, 300) });
+      return { ok: false, error: 'bootstrap-failed', detail: (res.stderr || '').trim().split('\n')[0] || 'download/install failed' };
+    }
+
+    // Re-probe so the cached availability (and the UI) reflect the new install.
+    // A freshly-registered package can take a moment before winget.exe resolves on
+    // PATH, so re-check via the App Execution Alias if the bare command misses.
+    let probe = runCmdSync('winget --version');
+    if (!probe.ok) {
+      const alias = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'winget.exe');
+      if (fs.existsSync(alias)) probe = runCmdSync(`"${alias}" --version`);
+    }
+    if (probe.ok) {
+      winget = { available: true, version: (probe.stdout || '').trim() };
+      logger.success('App Installer: winget bootstrapped', { version: winget.version });
+      return { ok: true, winget };
+    }
+    logger.warn('App Installer: winget installed but not yet resolvable — a relaunch may be needed');
+    return { ok: false, error: 'installed-pending', hint: 'Restart main to finish enabling winget.' };
+  }
+
+  ipcMain.handle('app-installer:install-winget', () => installWinget());
 
   return { runInstall };
 }

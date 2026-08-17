@@ -9,8 +9,25 @@ const PAD_ENGINE_SCRIPT_VERSION = 1;
 const DEFAULT_TOGGLE_HOTKEY = 'F10';
 const TRIGGERS = ['pressed', 'hold', 'toggle', 'released'];
 const PAD_TYPES = ['x360', 'ds4'];
-const DRIVER_PAGE_URL = 'https://github.com/nefarius/ViGEmBus/releases/latest';
+// Direct download of the ViGEmBus installer (pinned to v1.22.0, the last stable
+// release; the single-file installer carries x64 + x86 + arm64). Opening this in
+// the browser starts the download immediately instead of dropping the user on a
+// GitHub releases page to hunt for the right asset.
+const DRIVER_PAGE_URL = 'https://github.com/nefarius/ViGEmBus/releases/download/v1.22.0/ViGEmBus_1.22.0_x64_x86_arm64.exe';
 const VIGEM_DLL = path.join(__dirname, 'vendor', 'Nefarius.ViGEm.Client.dll');
+
+// ⚠️ WINDOWS VERSION / DEPENDENCY NOTE
+// This widget CANNOT emit gamepad input until the user installs the external
+// ViGEmBus kernel driver — it is not bundled (kernel driver, must be installed
+// with admin rights). Behaviour by OS:
+//   • Windows 10 (1809+) and Windows 11 21H2–23H2: works once ViGEmBus is present.
+//   • Windows 11 24H2 / 25H2: the pinned v1.22.0 installer (DRIVER_PAGE_URL)
+//     installs cleanly on recent builds; the "Get the driver" button downloads it
+//     directly.
+//   • Windows on ARM (ARM64): the x64 build runs under emulation and ViGEmBus's
+//     x64 kernel driver will not load — the virtual pad is effectively unavailable.
+// When the driver is missing, PLUG fails and the renderer surfaces DRIVER_PAGE_URL;
+// this is expected, not a bug.
 
 // ── Virtual pad engine ──
 // Games only see a gamepad that exists as a real device, so playback goes
@@ -943,7 +960,7 @@ function init(ctx, deps) {
 
   ipcMain.handle('controller-macros-open-driver-page', async () => {
     await shell.openExternal(DRIVER_PAGE_URL);
-    logger.log('ViGEmBus download page opened', 'INFO');
+    logger.log('ViGEmBus v1.22.0 installer download started', 'INFO');
     return { ok: true };
   });
 

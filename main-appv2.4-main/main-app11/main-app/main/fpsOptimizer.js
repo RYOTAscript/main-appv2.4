@@ -68,6 +68,20 @@ async function killProcesses(whitelist, protectedPIDs = [], mainAppPID = null) {
   return killed;
 }
 
+// ⚠️ ADMIN / WINDOWS VERSION NOTE (applies to OPT_STEPS, BATTERY_STEPS,
+// REVERT_STEPS and the HKLM/service ACTIONS below):
+//   • ELEVATION: every HKLM reg write, `sc config`, `net stop/start`, `powercfg`
+//     and telemetry/HAGS tweak needs administrator rights. When the launcher is
+//     NOT run as admin (the default), these steps FAIL silently at the OS level;
+//     runSteps() catches and reports each as a failed step rather than crashing.
+//     HKCU-only steps (Game Mode, Game Bar, Background Apps) still work unelevated.
+//     This is an elevation limitation, not a per-Windows-version one — it affects
+//     Windows 10 and 11 identically.
+//   • 'Ultimate Performance' plan (duplicatescheme e9a42b02…) is hidden on many
+//     editions (Win10/11 Home, and battery-powered Win11 24H2 devices). The step
+//     falls back to the High Performance GUID, so it degrades gracefully.
+//   • HAGS (HwSchMode=2) requires Windows 10 2004+ AND a GPU/driver that supports
+//     it; on older builds or unsupported GPUs the key is written but ignored.
 const OPT_STEPS = [
   {
     name: 'Power → Ultimate Performance', fn: async () => {

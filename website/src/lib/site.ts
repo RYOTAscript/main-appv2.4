@@ -14,12 +14,12 @@ export const SITE_URL =
 export const SITE = {
   name: "main",
   /** Current desktop-app version — kept in sync with main-app11 package.json. */
-  version: "3.48.1",
+  version: "3.48.4",
   tagline: "your desktop, glassed.",
   author: "ryota",
   description:
     "An always-on glass-morphism Windows overlay for gaming and power users — Spotify with synced lyrics, live performance, one-click FPS tweaks, quick launch, and 22 mini widgets. One-time $5 lifetime license.",
 } as const;
 
-/** Prefixed "v" label, e.g. "v3.48.1". */
+/** Prefixed "v" label, e.g. "v3.48.4". */
 export const VERSION_LABEL = `v${SITE.version}`;

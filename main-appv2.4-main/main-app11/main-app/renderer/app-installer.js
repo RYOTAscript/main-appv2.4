@@ -19,6 +19,7 @@
         let aiCheckedInstalled = false;
         let aiPresets = {};            // { name: [ids] } — saved app selections
         let aiPresetNaming = false;    // inline "name this preset" input open?
+        let aiWingetBusy = false;      // winget bootstrap install in progress
 
         function isAppInstallerEnabled() {
             const prefs = safeParseJSON(localStorage.getItem('miniWidgetPrefs'), {});
@@ -97,9 +98,14 @@
                 return `<div class="ai-empty ai-empty-warn">
                         <i class="fas fa-triangle-exclamation"></i>
                         <p>This installer needs Windows' package manager (<b>winget</b>), which isn't available.</p>
-                        <p class="ai-hint">winget ships with the App Installer package from the Microsoft Store on Windows 10/11.</p>
-                        <button type="button" class="ai-btn ai-btn-primary no-drag mt-1" onclick="aiOpenWingetStore()">
-                            <i class="fab fa-microsoft mr-1.5"></i>Get App Installer
+                        <p class="ai-hint">${aiWingetBusy
+                            ? 'Downloading and registering winget from Microsoft… this can take a minute.'
+                            : 'Install it automatically (no Store needed), or get the App Installer from the Microsoft Store.'}</p>
+                        <button type="button" class="ai-btn ai-btn-primary no-drag mt-1" onclick="aiInstallWinget()" ${aiWingetBusy ? 'disabled' : ''}>
+                            ${aiWingetBusy ? '<span class="load-ring mr-1.5"></span>Installing winget…' : '<i class="fas fa-download mr-1.5"></i>Install winget automatically'}
+                        </button>
+                        <button type="button" class="ai-btn no-drag mt-1" onclick="aiOpenWingetStore()" ${aiWingetBusy ? 'disabled' : ''}>
+                            <i class="fab fa-microsoft mr-1.5"></i>Get from Store instead
                         </button>
                     </div>`;
             }
@@ -451,4 +457,35 @@
             if (!window.electronAPI?.appInstallerOpenWingetStore) return;
             await window.electronAPI.appInstallerOpenWingetStore();
             showToast('Opening the Microsoft Store…');
+        }
+
+        // Store-less winget install: main downloads the App Installer package + its
+        // dependencies from Microsoft and registers them for this user (no admin).
+        // On success winget is live, so flip the panel over to the real catalog.
+        async function aiInstallWinget() {
+            if (aiWingetBusy || !window.electronAPI?.appInstallerInstallWinget) return;
+            aiWingetBusy = true;
+            aiPaint();
+            showToast('Installing winget from Microsoft…');
+            try {
+                const res = await window.electronAPI.appInstallerInstallWinget();
+                if (res && res.ok && res.winget) {
+                    aiWinget = res.winget;
+                    showToast(`winget ${res.winget.version || ''} installed`.trim());
+                    aiWingetBusy = false;
+                    aiPaint();                       // repaint into the real catalog
+                    if (aiWinget.available && !aiCheckedInstalled) { aiCheckedInstalled = true; aiRefreshInstalled(); }
+                    return;
+                }
+                if (res && res.error === 'installed-pending') {
+                    showToast(res.hint || 'winget installed — restart main to finish.', true);
+                } else {
+                    showToast((res && res.detail) || 'Could not install winget automatically — try the Store option.', true);
+                }
+            } catch (e) {
+                showToast('winget install failed — try the Store option.', true);
+                console.error('winget bootstrap failed', e);
+            }
+            aiWingetBusy = false;
+            aiPaint();
         }
