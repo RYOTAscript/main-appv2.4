@@ -156,6 +156,14 @@ function init(ctx) {
   const clamp255 = (n) => Math.max(0, Math.min(255, Math.round(Number(n) || 0)));
   const validAccent = (m) => (VALID_ACCENTS.includes(m) ? m : 'clear');
 
+  // Last look actually pushed to TranslucentTB. Unlike the Win32 engine (which
+  // must re-assert on a loop because other windows steal the accent), TTB persists
+  // what we write to its settings.json — so re-writing the SAME look is pointless
+  // and, because TTB live-reloads on every settings write and we relaunch it,
+  // a rapid stream of identical applies visibly spams the taskbar / notifications.
+  // Dedupe on an unchanged look so repeat applies are cheap no-ops.
+  let lastTtbSig = null;
+
   // ────────────────────────────── TranslucentTB engine ──────────────────────
   // Locate <LocalAppData>\Packages\<TranslucentTB>\RoamingState\settings.json.
   // The package family folder is stable, but discover it defensively in case a
@@ -242,6 +250,12 @@ function init(ctx) {
     const p = ttbSettingsPath();
     if (!p) return { ok: false, error: 'TranslucentTB not installed' };
 
+    // Idempotency guard: skip when the look hasn't changed since the last write,
+    // so a caller re-pushing the same state (even many times a second) doesn't
+    // rewrite settings.json + relaunch TranslucentTB on a loop.
+    const sig = `${mode}|${toHexRgba(color)}`;
+    if (sig === lastTtbSig) return { ok: true, engine: 'translucenttb', skipped: true };
+
     let settings;
     try {
       settings = readTtbSettings(p);
@@ -265,11 +279,13 @@ function init(ctx) {
     writeTtbSettings(p, settings);
 
     if (!(await ttbRunning())) await ttbLaunch();
+    lastTtbSig = sig;
     logger.log(`Taskbar styled via TranslucentTB: ${mode}`, 'INFO');
     return { ok: true, engine: 'translucenttb' };
   }
 
   async function clearViaTtb() {
+    lastTtbSig = null; // force the next apply to actually re-push
     const p = ttbSettingsPath();
     if (!p) return { ok: false, error: 'TranslucentTB not installed' };
 

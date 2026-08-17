@@ -40,6 +40,12 @@
 
         // Push the current look to the main process (which applies it to every
         // taskbar and keeps re-asserting it). Safe to call on startup and every edit.
+        // Last (mode|rgba) actually sent to main. Guards against re-pushing an
+        // identical look on every panel repaint / prefs re-apply — which, once
+        // TranslucentTB is driving the bar, would otherwise rewrite its settings and
+        // relaunch it in a tight loop (visible as taskbar/notification spam).
+        let lastTaskbarPushSig = null;
+
         function pushTaskbarState() {
             if (!window.electronAPI?.taskbarApply) return;
             const cfg = getTaskbarConfig();
@@ -48,6 +54,9 @@
             // Alpha only matters for colour modes with an opacity control; solid and
             // colourless modes send a: 0 and let main decide.
             const a = def.opacity ? Math.round((Number(cfg.opacity) || 0) / 100 * 255) : (def.color ? 255 : 0);
+            const sig = `${cfg.mode}|${rgb.r},${rgb.g},${rgb.b},${a}`;
+            if (sig === lastTaskbarPushSig) return; // unchanged — don't re-apply
+            lastTaskbarPushSig = sig;
             window.electronAPI.taskbarApply(cfg.mode, { r: rgb.r, g: rgb.g, b: rgb.b, a });
         }
 
@@ -58,6 +67,7 @@
             if (enabled) {
                 pushTaskbarState();
             } else if (window.electronAPI?.taskbarClear) {
+                lastTaskbarPushSig = null; // so re-enabling re-pushes the look
                 window.electronAPI.taskbarClear();
             }
             renderTaskbarPanel();
