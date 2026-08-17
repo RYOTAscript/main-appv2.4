@@ -374,21 +374,29 @@ function init(ctx) {
   }
 
   // ────────────────────────────── Dispatch ──────────────────────────────────
+  // TranslucentTB is the DEFAULT (and only auto-run) engine. When it isn't
+  // installed we don't fall back to the built-in Win32 engine — that engine is a
+  // no-op on modern Windows 11 and re-asserting it on a loop just burns cycles —
+  // instead we report needsInstall so the widget prompts the user to install
+  // TranslucentTB. (applyViaWinapi/clearViaWinapi are kept below but no longer
+  // auto-run; they can be reinstated as an explicit Windows-10 opt-in if wanted.)
   async function apply(mode, color) {
+    if (!ttbInstalled()) return { ok: false, engine: 'none', needsInstall: true };
     const m = validAccent(mode);
     const c = color && typeof color === 'object' ? color : { r: 0, g: 0, b: 0, a: 0 };
-    return ttbInstalled() ? applyViaTtb(m, c) : applyViaWinapi(m, c);
+    return applyViaTtb(m, c);
   }
 
   async function clear() {
-    return ttbInstalled() ? clearViaTtb() : clearViaWinapi();
+    // Nothing to undo when TTB isn't installed (the built-in engine never ran).
+    return ttbInstalled() ? clearViaTtb() : { ok: true, engine: 'none' };
   }
 
   async function status() {
     const installed = ttbInstalled();
     return {
       installed,
-      engine: installed ? 'translucenttb' : 'winapi',
+      engine: installed ? 'translucenttb' : 'none',
       running: installed ? await ttbRunning() : false,
       storeUrl: TTB_STORE_URL,
     };

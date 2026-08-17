@@ -250,8 +250,9 @@
                 badgeNow.innerHTML = `<i class="fas fa-bolt mr-1 text-emerald-400/70"></i>Powered by TranslucentTB${st.running ? '' : ' <span class="text-neutral-700">(will launch on apply)</span>'}`;
                 if (prompt) prompt.innerHTML = '';
             } else {
-                // Not installed → short status line + a prominent install prompt.
-                badgeNow.innerHTML = `<i class="fas fa-triangle-exclamation mr-1 text-amber-400/70"></i>Built-in engine <span class="text-neutral-600">(limited on Win11 24H2+)</span>`;
+                // Not installed → TranslucentTB is the default engine, so prompt to
+                // install it (we don't run the old built-in engine as a fallback).
+                badgeNow.innerHTML = `<i class="fas fa-triangle-exclamation mr-1 text-amber-400/70"></i>Needs <span class="text-neutral-400">TranslucentTB</span> to style the taskbar`;
                 if (prompt) {
                     // Inline styles for colours so this renders correctly without a
                     // Tailwind rebuild (matches how the rest of this panel inlines style).
@@ -260,8 +261,8 @@
                             <div style="display:flex;align-items:flex-start;gap:8px">
                                 <i class="fas fa-wand-magic-sparkles" style="color:rgba(252,211,77,0.85);margin-top:2px"></i>
                                 <div style="font-size:11px;line-height:1.5;color:#e5e5e5">
-                                    <b>Install TranslucentTB for the best result.</b>
-                                    <span style="color:#a3a3a3">The built-in engine can't style the taskbar on newer Windows 11 builds (24H2/25H2). TranslucentTB fixes that — main installs it for you via winget.</span>
+                                    <b>Install TranslucentTB to style your taskbar.</b>
+                                    <span style="color:#a3a3a3">Taskbar styling runs through TranslucentTB (it's the only reliable way on current Windows 11). One click installs it for you via winget.</span>
                                 </div>
                             </div>
                             <button type="button" class="taskbar-install-btn no-drag" onclick="tbInstallTtb()"
@@ -288,6 +289,7 @@
 
             if (res && res.ok && (res.method === 'winget' || res.already)) {
                 showToast('TranslucentTB installed');
+                lastTaskbarPushSig = null;    // force the first post-install apply through
                 pushTaskbarState();          // now applies through TranslucentTB
                 updateTaskbarEngineBadge();  // clears the prompt, flips the badge
             } else if (res && res.method === 'store') {
