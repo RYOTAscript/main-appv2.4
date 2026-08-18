@@ -49,6 +49,23 @@ body {
   margin: 0;
   min-height: 100vh;
   /* Horizontal clip lives on <html>, not here — see the note there. */
+  /* Turn text selection off on UI chrome by default. With it on, the default
+     `cursor: auto` resolves to the text I-beam over any glyph and to the arrow
+     over the surrounding padding, so hovering a button/card/nav label flips
+     the cursor back and forth (the reported flickering). Real content that
+     people copy re-enables selection just below. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Content people actually select/copy — legal prose, license keys and other
+   <code>/<pre>, form fields, and anything opted in with `.selectable` — stays
+   selectable with a text caret. */
+input, textarea, select,
+[contenteditable="true"], [contenteditable="true"] *,
+code, pre, .legal-prose, .legal-prose *, .selectable, .selectable * {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* ── Surfaces ────────────────────────────────────────────────────────── */
@@ -482,7 +499,9 @@ body {
 }
 
 /* Small album-cover thumbnail tucked at the disk's corner (app's
-   .spotify-album-cover, here a gradient stand-in). */
+   .spotify-album-cover). The per-track cover gradient is set inline via
+   `background-image`; `grayscale(1)` here keeps every album cover black-and-
+   white no matter which song is playing. */
 .spotify-album-cover {
   position: absolute;
   bottom: 2px;
@@ -490,8 +509,9 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 4px;
-  /* Black-and-white album cover for the example track. */
-  background: linear-gradient(135deg, #e6e6e6 0%, #8a8a8a 45%, #171717 100%);
+  background-color: #171717;
+  background-size: cover;
+  background-position: center;
   filter: grayscale(1) contrast(1.05);
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6), 0 0 12px rgba(255, 255, 255, 0.08);
   z-index: 20;
@@ -668,15 +688,15 @@ body {
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0,
-    #000 12%,
-    #000 60%,
+    #000 20px,
+    #000 62%,
     transparent 100%
   );
   mask-image: linear-gradient(
     to bottom,
     transparent 0,
-    #000 12%,
-    #000 60%,
+    #000 20px,
+    #000 62%,
     transparent 100%
   );
 }
@@ -686,10 +706,11 @@ body {
   top: 0;
   left: 50%;
   width: max-content;
-  /* Cap at the strip width so lines wrap inside the panel instead of bleeding
-     over the vinyl (the app sets --lyrics-max-width to the live panel width;
-     here the strip is narrow, so 100% keeps text contained). */
-  max-width: 100%;
+  /* Cap the text column a little inside the strip so the current line's accent
+     glow has room to breathe and isn't clipped by the window's edge (the app
+     sets --lyrics-max-width to the live panel width; here the strip is narrow,
+     so this keeps text contained with glow headroom on the sides). */
+  max-width: calc(100% - 16px);
   padding: 6px 4px;
   text-align: center;
   white-space: normal;
@@ -706,7 +727,7 @@ body {
 }
 
 .lyrics-slot-current {
-  text-shadow: 0 0 8px rgba(var(--accent), 0.9), 0 0 20px rgba(var(--accent), 0.6);
+  text-shadow: 0 0 6px rgba(var(--accent), 0.9), 0 0 15px rgba(var(--accent), 0.55);
 }
 
 /* Trailing "(...)" backing vocals render as a smaller second line beneath the
@@ -734,6 +755,63 @@ body {
 .spotify-lyrics-panel--wide .lyrics-slot {
   font-size: 15px;
   line-height: 1.35;
+  /* Roomier strip → more side headroom for the glow. */
+  max-width: calc(100% - 32px);
+}
+
+/* Lyrics loading skeleton — shimmering placeholder bars shown for a beat after
+   a track skip while the new song's synced lyrics "load". Lives inside
+   .lyrics-window, so it inherits the same soft top/bottom mask fade. */
+.lyrics-skeleton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding-top: 40px; /* matches LYRICS_TOP_PAD so the top bar lands on the
+                        current line's position */
+}
+
+.lyrics-skel-bar {
+  height: 11px;
+  border-radius: 6px;
+  width: 70%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.14) 50%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  background-size: 220% 100%;
+  animation: lyricsSkelShimmer 1.15s ease-in-out infinite;
+}
+
+.lyrics-skel-bar--current {
+  height: 13px;
+  background: linear-gradient(
+    90deg,
+    rgba(var(--accent), 0.16) 0%,
+    rgba(var(--accent), 0.36) 50%,
+    rgba(var(--accent), 0.16) 100%
+  );
+  background-size: 220% 100%;
+  box-shadow: 0 0 10px rgba(var(--accent), 0.25);
+}
+
+.spotify-lyrics-panel--wide .lyrics-skel-bar {
+  height: 13px;
+}
+
+.spotify-lyrics-panel--wide .lyrics-skel-bar--current {
+  height: 15px;
+}
+
+@keyframes lyricsSkelShimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
 }
 
 /* Audio-visualiser particles scattered around the disk (app's "particles"
@@ -1180,10 +1258,13 @@ body {
   --nf-gy: 38%;
 }
 
-/* Spotlight that tracks the cursor, tinted with the live accent. */
+/* Spotlight that tracks the cursor, tinted with the live accent. Pinned to the
+   viewport (position: fixed) rather than the narrow max-w section, so the glow
+   spans the full width and its own radial simply fades to transparent — it can
+   never clip against a container edge. Driven by viewport-relative vars. */
 .nf-spotlight {
-  position: absolute;
-  inset: -10%;
+  position: fixed;
+  inset: 0;
   pointer-events: none;
   background: radial-gradient(
     440px circle at var(--nf-gx) var(--nf-gy),
@@ -1191,7 +1272,6 @@ body {
     rgba(var(--accent), 0.05) 34%,
     transparent 60%
   );
-  transition: background-position 0.2s ease;
   z-index: 0;
 }
 
@@ -1297,6 +1377,28 @@ body {
   50.01%, 100% { opacity: 0; }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Arcade — glass Snake (SnakeGame.tsx), reached via the footer logo.
+   A .glass board on the site's grid/glow language; the snake + food are drawn
+   on a canvas that reads the live --accent each frame, so the game is tinted by
+   whatever accent the visitor picked.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.snake-board {
+  position: relative;
+  display: inline-block;
+  padding: 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 8, 8, 0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 var(--glow-spread) rgba(var(--accent), var(--glow-strength));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  touch-action: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .nf-glitch,
   .nf-glitch__layer--a,
@@ -1331,6 +1433,7 @@ body {
   .beat-glow-halo,
   .perf-live-dot,
   .viz-dot,
+  .lyrics-skel-bar,
   .reveal-item {
     animation: none !important;
   }

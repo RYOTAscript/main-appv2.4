@@ -45,34 +45,98 @@ const STRIP = [
   { icon: "fa-solid fa-sliders", label: "Volume Mixer" },
 ];
 
-/* ── The fictional now-playing track + its synced (LRC-style) lyrics ──────
-   Wholly made-up song so the synced-lyrics feature can show off with nothing
-   to license. Times are seconds; "♪" lines are instrumental beats. */
-const TRACK = {
-  title: "Neon Overdrive",
-  artist: "Static Vega",
-  duration: 126, // 2:06 — fully covered by the lyrics below, loops cleanly
+/* ── The fictional now-playing playlist + each track's synced (LRC-style)
+   lyrics ──────────────────────────────────────────────────────────────────
+   Wholly made-up songs so the synced-lyrics feature can show off with nothing
+   to license. Times are seconds; "♪" lines are instrumental beats. The Next /
+   Previous transport steps a *whole* track at a time (like the real player):
+   the title, artist, album art, lyrics and duration all change together. Each
+   track's `cover` is a colour gradient rendered black-and-white by the
+   `.spotify-album-cover` filter, so every album cover reads as monochrome. */
+type Lyric = { t: number; text: string };
+type Track = {
+  title: string;
+  artist: string;
+  duration: number;
+  cover: string; // CSS background for the album art (shown grayscale)
+  lyrics: Lyric[];
 };
 
-const LYRICS: { t: number; text: string }[] = [
-  { t: 0, text: "♪" },
-  { t: 7, text: "City lights bleed through the rain" },
-  { t: 14, text: "Static humming in my chest (in my chest)" },
-  { t: 21, text: "Chasing shadows down the lane" },
-  { t: 28, text: "No idea where we begin (where we begin)" },
-  { t: 35, text: "Turn it up, let the engine roar (let it roar)" },
-  { t: 42, text: "Neon overdrive, we don't slow no more (no more)" },
-  { t: 49, text: "Hold the night 'til the morning breaks" },
-  { t: 56, text: "Every heartbeat's a risk we take (a risk we take)" },
-  { t: 63, text: "♪" },
-  { t: 70, text: "Faded polaroids and gasoline" },
-  { t: 77, text: "Dreaming loud in ultramarine (ultramarine)" },
-  { t: 84, text: "We were wildfire, seventeen (wildfire)" },
-  { t: 91, text: "Burning up the in-between" },
-  { t: 98, text: "Turn it up, let the engine roar (let it roar)" },
-  { t: 105, text: "Neon overdrive, we don't slow no more (no more)" },
-  { t: 112, text: "Hold the night 'til the morning breaks" },
-  { t: 119, text: "Every heartbeat's a risk we take (a risk we take)" },
+const TRACKS: Track[] = [
+  {
+    title: "Neon Overdrive",
+    artist: "Static Vega",
+    duration: 126, // 2:06 — fully covered by the lyrics below, loops cleanly
+    cover:
+      "linear-gradient(135deg, #ff4d8d 0%, #7a2ff2 55%, #101010 100%)",
+    lyrics: [
+      { t: 0, text: "♪" },
+      { t: 7, text: "City lights bleed through the rain" },
+      { t: 14, text: "Static humming in my chest (in my chest)" },
+      { t: 21, text: "Chasing shadows down the lane" },
+      { t: 28, text: "No idea where we begin (where we begin)" },
+      { t: 35, text: "Turn it up, let the engine roar (let it roar)" },
+      { t: 42, text: "Neon overdrive, we don't slow no more (no more)" },
+      { t: 49, text: "Hold the night 'til the morning breaks" },
+      { t: 56, text: "Every heartbeat's a risk we take (a risk we take)" },
+      { t: 63, text: "♪" },
+      { t: 70, text: "Faded polaroids and gasoline" },
+      { t: 77, text: "Dreaming loud in ultramarine (ultramarine)" },
+      { t: 84, text: "We were wildfire, seventeen (wildfire)" },
+      { t: 91, text: "Burning up the in-between" },
+      { t: 98, text: "Turn it up, let the engine roar (let it roar)" },
+      { t: 105, text: "Neon overdrive, we don't slow no more (no more)" },
+      { t: 112, text: "Hold the night 'til the morning breaks" },
+      { t: 119, text: "Every heartbeat's a risk we take (a risk we take)" },
+    ],
+  },
+  {
+    title: "Paper Moons",
+    artist: "Halcyon Drift",
+    duration: 112, // 1:52
+    cover:
+      "radial-gradient(circle at 30% 25%, #ffd36e 0%, #ff7a3d 40%, #1a1030 100%)",
+    lyrics: [
+      { t: 0, text: "♪" },
+      { t: 8, text: "Cut a sky out of cardboard blue" },
+      { t: 16, text: "Hung a paper moon for you (just for you)" },
+      { t: 24, text: "We pretend that the dark's not real" },
+      { t: 32, text: "Trace the cracks in the way we feel (the way we feel)" },
+      { t: 40, text: "So hold my hand through the make-believe" },
+      { t: 48, text: "Nothing's fake if it helps us breathe (helps us breathe)" },
+      { t: 56, text: "♪" },
+      { t: 64, text: "Paper moons and a plywood sea" },
+      { t: 72, text: "Sail me somewhere we're meant to be (meant to be)" },
+      { t: 80, text: "Even props cast a real enough glow" },
+      { t: 88, text: "Stay a while 'fore the curtains close (curtains close)" },
+      { t: 96, text: "So hold my hand through the make-believe" },
+      { t: 104, text: "Nothing's fake if it helps us breathe (helps us breathe)" },
+    ],
+  },
+  {
+    title: "Concrete Sky",
+    artist: "The Wandering",
+    duration: 138, // 2:18
+    cover:
+      "linear-gradient(160deg, #2ee6c8 0%, #2f7bf2 50%, #0a1424 100%)",
+    lyrics: [
+      { t: 0, text: "♪" },
+      { t: 9, text: "Grey towers reaching for the light" },
+      { t: 18, text: "Steel horizons out of sight (out of sight)" },
+      { t: 27, text: "I've been counting every window pane" },
+      { t: 36, text: "Looking for a face in the rain (in the rain)" },
+      { t: 45, text: "But I'll build a home from the noise and dust" },
+      { t: 54, text: "Concrete sky can't bury us (bury us)" },
+      { t: 63, text: "♪" },
+      { t: 72, text: "Sirens fade into a lullaby" },
+      { t: 81, text: "Somewhere up there's a real blue sky (real blue sky)" },
+      { t: 90, text: "Take the long road, take my hand" },
+      { t: 99, text: "We'll find green in this iron land (iron land)" },
+      { t: 108, text: "So I'll build a home from the noise and dust" },
+      { t: 117, text: "Concrete sky can't bury us (bury us)" },
+      { t: 126, text: "Concrete sky can't bury us (bury us)" },
+    ],
+  },
 ];
 
 // Split a lyric line that ends in one or more parenthesised groups into a main
@@ -91,8 +155,10 @@ function parseLyricParens(
 
 const START_AT = 44; // begin mid-song so it reads as "already playing"
 
-// Lyrics conveyor geometry — mirrors renderer/lyrics.js.
-const LYRICS_TOP_PAD = 26;
+// Lyrics conveyor geometry — mirrors renderer/lyrics.js. The top pad gives the
+// current line enough headroom that its accent glow isn't clipped by the top of
+// the lyrics window (see .lyrics-window mask + .lyrics-slot-current in the CSS).
+const LYRICS_TOP_PAD = 40;
 const LYRICS_GAP = 14;
 const LYRICS_SLOTS_AHEAD = 2;
 
@@ -101,10 +167,10 @@ function fmt(t: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function activeLyricIndex(time: number) {
+function activeLyricIndex(time: number, lyrics: Lyric[]) {
   let idx = 0;
-  for (let i = 0; i < LYRICS.length; i++) {
-    if (LYRICS[i].t <= time) idx = i;
+  for (let i = 0; i < lyrics.length; i++) {
+    if (lyrics[i].t <= time) idx = i;
     else break;
   }
   return idx;
@@ -126,26 +192,37 @@ function lyricsSlotOpacity(role: number) {
    the fresh bottom line fades in from just below — so you never see a raw
    top-to-bottom jump. Slots that end in "(...)" render a smaller backing line.
    Managed imperatively (like the app) so the entrance/exit transitions play. */
-function LyricsPanel({ time, wide }: { time: number; wide?: boolean }) {
-  const idx = activeLyricIndex(time);
+function LyricsPanel({
+  time,
+  wide,
+  lyrics,
+}: {
+  time: number;
+  wide?: boolean;
+  lyrics: Lyric[];
+}) {
+  const idx = activeLyricIndex(time, lyrics);
   const windowRef = useRef<HTMLDivElement>(null);
   const slotEls = useRef<Map<number, HTMLDivElement>>(new Map());
   const startRef = useRef<number | null>(null);
   const loopRef = useRef(0);
   const prevIdxRef = useRef(idx);
   const wideRef = useRef(wide);
+  // Track which lyric set is mounted so a whole-track switch re-snaps cleanly
+  // (rather than being mistaken for a normal one-line advance / clock wrap).
+  const lyricsRef = useRef(lyrics);
 
   // The clock loops (0..duration), so map the looping line index to a
   // monotonically-increasing "virtual" index — that keeps every song loop a
   // clean one-line forward advance instead of a jump back to the top.
   const vActiveRef = useRef(idx);
 
-  const total = LYRICS.length;
+  const total = lyrics.length;
 
   function buildSlot(vIdx: number) {
     const el = document.createElement("div");
     el.className = "lyrics-slot";
-    const text = LYRICS[vIdx % total].text;
+    const text = lyrics[vIdx % total].text;
     const parsed = parseLyricParens(text);
     if (parsed) {
       const main = document.createElement("span");
@@ -252,14 +329,25 @@ function LyricsPanel({ time, wide }: { time: number; wide?: boolean }) {
     startRef.current = newStart;
   }
 
-  // Advance the conveyor whenever the active line changes.
+  // Advance the conveyor whenever the active line changes — or hard-reset it
+  // when the track (lyric set) changes under us.
   useEffect(() => {
+    if (lyricsRef.current !== lyrics) {
+      // Whole-track switch: drop the old conveyor and snap to the new song.
+      lyricsRef.current = lyrics;
+      loopRef.current = 0;
+      prevIdxRef.current = idx;
+      vActiveRef.current = idx;
+      startRef.current = null;
+      render(idx, true);
+      return;
+    }
     if (idx < prevIdxRef.current - 2) loopRef.current += 1; // clock wrapped
     prevIdxRef.current = idx;
     vActiveRef.current = loopRef.current * total + idx;
     render(vActiveRef.current, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx]);
+  }, [idx, lyrics]);
 
   // Re-snap on a width change (wide ↔ narrow) so the measured stacking is fresh.
   useEffect(() => {
@@ -278,6 +366,39 @@ function LyricsPanel({ time, wide }: { time: number; wide?: boolean }) {
       )}
     >
       <div ref={windowRef} className="lyrics-window" />
+    </div>
+  );
+}
+
+/* ───────────────────────── Lyrics loading skeleton ──────────────────────
+   Shown for a beat right after a track change, while the (pretend) synced
+   lyrics for the new song are "fetched" — shimmering placeholder bars that
+   mirror the conveyor's stacking, the top bar accent-tinted like the current
+   line. Then the real LyricsPanel takes over. */
+const SKELETON_BARS = [
+  { w: "82%", current: true },
+  { w: "64%", current: false },
+  { w: "72%", current: false },
+];
+
+function LyricsSkeleton({ wide }: { wide?: boolean }) {
+  return (
+    <div
+      className={cn("spotify-lyrics-panel", wide && "spotify-lyrics-panel--wide")}
+      aria-hidden="true"
+    >
+      <div className="lyrics-window lyrics-skeleton">
+        {SKELETON_BARS.map((b, i) => (
+          <span
+            key={i}
+            className={cn(
+              "lyrics-skel-bar",
+              b.current && "lyrics-skel-bar--current",
+            )}
+            style={{ width: b.w }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -307,25 +428,29 @@ const VIZ_PARTICLES = [
 ];
 
 function SpotifyWidget({
+  track,
   time,
   playing,
   showLyrics,
+  lyricsLoading,
   wide,
   onToggle,
   onSeek,
   onSkip,
   style,
 }: {
+  track: Track;
   time: number;
   playing: boolean;
   showLyrics: boolean;
+  lyricsLoading: boolean;
   wide: boolean;
   onToggle: () => void;
   onSeek: (t: number) => void;
-  onSkip: (delta: number) => void;
+  onSkip: (dir: number) => void;
   style?: CSSProperties;
 }) {
-  const pct = Math.min(100, (time / TRACK.duration) * 100);
+  const pct = Math.min(100, (time / track.duration) * 100);
 
   return (
     <div
@@ -335,8 +460,14 @@ function SpotifyWidget({
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/[0.03] to-transparent" />
 
       <div className="relative z-10 flex h-full w-full">
-        {/* Left: synced lyrics */}
-        {showLyrics && <LyricsPanel time={time} wide={wide} />}
+        {/* Left: synced lyrics — a loading skeleton flashes while the new
+            track's lyrics "load" after a skip, then the live conveyor mounts. */}
+        {showLyrics &&
+          (lyricsLoading ? (
+            <LyricsSkeleton wide={wide} />
+          ) : (
+            <LyricsPanel time={time} wide={wide} lyrics={track.lyrics} />
+          ))}
 
         {/* Center: vinyl + info + controls + progress */}
         <div className="relative flex flex-1 flex-col items-center justify-center">
@@ -370,14 +501,19 @@ function SpotifyWidget({
                 playing && "animate-spin-slow",
               )}
             />
-            <span className="spotify-album-cover" />
+            {/* Per-track album cover — a colour gradient rendered black-and-
+               white by the .spotify-album-cover grayscale filter. */}
+            <span
+              className="spotify-album-cover"
+              style={{ backgroundImage: track.cover }}
+            />
             {/* Floating track label */}
-            <div className="spotify-track-info absolute -top-1 right-0 z-10 max-w-[120px] rounded-xl border border-white/10 bg-black/70 px-2 py-1 backdrop-blur-sm">
+            <div className="spotify-track-info absolute -top-1 right-0 z-10 max-w-[140px] rounded-xl border border-white/10 bg-black/70 px-2 py-1 backdrop-blur-sm">
               <p className="truncate text-[9px] font-medium leading-tight text-white">
-                {TRACK.title}
+                {track.title}
               </p>
               <p className="truncate text-[8px] leading-tight text-neutral-400">
-                {TRACK.artist}
+                {track.artist}
               </p>
             </div>
           </div>
@@ -386,8 +522,8 @@ function SpotifyWidget({
           <div className="mt-1 flex items-center gap-2.5">
             <button
               type="button"
-              aria-label="Previous"
-              onClick={() => onSkip(-15)}
+              aria-label="Previous track"
+              onClick={() => onSkip(-1)}
               className="spotify-control-btn flex h-6 w-6 items-center justify-center text-neutral-400 transition-colors hover:text-white"
             >
               <i className="fas fa-step-backward text-[9px]" />
@@ -408,8 +544,8 @@ function SpotifyWidget({
             </button>
             <button
               type="button"
-              aria-label="Next"
-              onClick={() => onSkip(15)}
+              aria-label="Next track"
+              onClick={() => onSkip(1)}
               className="spotify-control-btn flex h-6 w-6 items-center justify-center text-neutral-400 transition-colors hover:text-white"
             >
               <i className="fas fa-step-forward text-[9px]" />
@@ -420,14 +556,14 @@ function SpotifyWidget({
           <div className="mt-1.5 w-full px-3">
             <div className="mb-0.5 flex justify-between font-mono text-[8px] text-neutral-500">
               <span>{fmt(time)}</span>
-              <span>{fmt(TRACK.duration)}</span>
+              <span>{fmt(track.duration)}</span>
             </div>
             <button
               type="button"
               aria-label="Seek"
               onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect();
-                onSeek(((e.clientX - r.left) / r.width) * TRACK.duration);
+                onSeek(((e.clientX - r.left) / r.width) * track.duration);
               }}
               className="spotify-progress-track block h-1 w-full overflow-hidden rounded-full bg-neutral-800"
             >
@@ -640,11 +776,23 @@ export function AppWindowMock({
 }) {
   const [time, setTime] = useState(START_AT);
   const [playing, setPlaying] = useState(true);
+  const [trackIndex, setTrackIndex] = useState(0);
+  const [lyricsLoading, setLyricsLoading] = useState(false);
 
   const timeRef = useRef(START_AT);
   const playingRef = useRef(true);
   const emittedRef = useRef(START_AT);
+  const trackIndexRef = useRef(0);
+  const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   playingRef.current = playing;
+
+  // Clear any pending "lyrics loading" timer when the mock unmounts.
+  useEffect(
+    () => () => {
+      if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+    },
+    [],
+  );
 
   // The playback clock: advances the fake track, throttled to ~5 fps of React
   // state (CSS transitions smooth the rest). Reduced-motion sits on one line.
@@ -663,7 +811,8 @@ export function AppWindowMock({
       const dt = (now - last) / 1000;
       last = now;
       if (playingRef.current) {
-        timeRef.current = (timeRef.current + dt) % TRACK.duration;
+        const dur = TRACKS[trackIndexRef.current].duration;
+        timeRef.current = (timeRef.current + dt) % dur;
         if (Math.abs(timeRef.current - emittedRef.current) > 0.2) {
           emittedRef.current = timeRef.current;
           setTime(timeRef.current);
@@ -676,10 +825,29 @@ export function AppWindowMock({
   }, [active]);
 
   const seek = (t: number) => {
-    const clamped = ((t % TRACK.duration) + TRACK.duration) % TRACK.duration;
+    const dur = TRACKS[trackIndexRef.current].duration;
+    const clamped = ((t % dur) + dur) % dur;
     timeRef.current = clamped;
     emittedRef.current = clamped;
     setTime(clamped);
+  };
+
+  // Next / Previous — step a *whole* track (wrapping the playlist). The song
+  // changes completely: title, artist, album art, lyrics and duration, and
+  // playback restarts from the top and keeps playing.
+  const skipTrack = (dir: number) => {
+    const next = (trackIndexRef.current + dir + TRACKS.length) % TRACKS.length;
+    trackIndexRef.current = next;
+    setTrackIndex(next);
+    timeRef.current = 0;
+    emittedRef.current = 0;
+    setTime(0);
+    playingRef.current = true;
+    setPlaying(true);
+    // Flash the lyrics skeleton while the new song's lyrics "load".
+    setLyricsLoading(true);
+    if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+    loadTimerRef.current = setTimeout(() => setLyricsLoading(false), 750);
   };
 
   // Visible top-level widgets drive the grid column count (the app widens the
@@ -739,7 +907,7 @@ export function AppWindowMock({
         </div>
 
         {/* ── Quick Launch ── */}
-        <div className="px-8 pt-8">
+        <div className="px-8 pt-6">
           <div
             className="mock-item mb-5 flex items-center justify-between"
             style={{ animationDelay: "0.08s" }}
@@ -766,7 +934,7 @@ export function AppWindowMock({
 
         {/* ── Widgets row (exactly the app's grid, column count follows toggles) ── */}
         <div
-          className="mt-10 grid gap-5 px-8"
+          className="mt-6 grid gap-5 px-8"
           style={{
             gridTemplateColumns:
               cols > 0 ? `repeat(${cols}, minmax(0, 1fr))` : "1fr",
@@ -782,13 +950,15 @@ export function AppWindowMock({
               )}
               {visible.spotify && (
                 <SpotifyWidget
+                  track={TRACKS[trackIndex]}
                   time={time}
                   playing={playing}
                   showLyrics={visible.lyrics}
+                  lyricsLoading={lyricsLoading}
                   wide={cols === 1}
                   onToggle={() => setPlaying((p) => !p)}
                   onSeek={seek}
-                  onSkip={(d) => seek(timeRef.current + d)}
+                  onSkip={skipTrack}
                   style={{ animationDelay: "0.4s" }}
                 />
               )}
@@ -815,9 +985,11 @@ export function AppWindowMock({
           </div>
         </div>
 
-        {/* ── Footer ── */}
+        {/* ── Footer ── (mt-auto keeps it pinned to the window's bottom edge
+            while sitting in normal flow, so it never overlaps the Mini Widgets
+            strip above it) */}
         <div
-          className="mock-item absolute inset-x-8 bottom-5 flex justify-between text-[10px] tracking-wide text-neutral-600"
+          className="mock-item mt-auto flex justify-between px-8 pb-4 pt-3 text-[10px] tracking-wide text-neutral-600"
           style={{ animationDelay: "0.5s" }}
         >
           <div className="font-mono">Alt+M focus · Alt+Q close</div>

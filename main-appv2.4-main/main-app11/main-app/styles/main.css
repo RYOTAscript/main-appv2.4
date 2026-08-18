@@ -46,6 +46,28 @@
             color: #fff;
             overflow: hidden;
             margin: 0;
+            /* The launcher is app chrome, not a document. With text selection
+               enabled, the default `cursor: auto` resolves to the text I-beam
+               over any glyph and to the arrow over the surrounding padding, so
+               moving the mouse across a button/card/icon label flips the
+               cursor back and forth (the hover "flickering"). Turning selection
+               off app-wide keeps one stable cursor. Genuinely selectable
+               surfaces re-enable it below. */
+            -webkit-user-select: none;
+            user-select: none;
+            cursor: default;
+        }
+
+        /* Real text surfaces — form fields, editable content, the notes
+           markdown preview, and anything opted in with `.selectable` — get
+           text selection and a caret back. */
+        input, textarea, select,
+        [contenteditable="true"], [contenteditable="true"] *,
+        .notes-md-preview, .notes-md-preview *,
+        .selectable, .selectable * {
+            -webkit-user-select: text;
+            user-select: text;
+            cursor: auto;
         }
 
         html {
@@ -2086,6 +2108,38 @@
             opacity: 1;
         }
 
+        /* Global hover tooltip — replaces native title= tooltips app-wide with a
+           box that matches the weather tooltip above (same font/colours/size).
+           Positioned via JS in fixed/viewport coords (renderer/tooltip.js). */
+        .app-tooltip {
+            position: fixed;
+            left: 0;
+            top: 0;
+            z-index: 100000;
+            background: rgba(30, 30, 30, 0.95);
+            color: #e5e5e5;
+            padding: 6px 10px;
+            border-radius: 4px;
+            /* Match the weather tooltip, whose #weather host carries `font-mono`,
+               so every hover tooltip reads in the same monospace face. */
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 11px;
+            line-height: 1.35;
+            /* `normal` (not nowrap) so long descriptions wrap inside max-width
+               instead of spilling out of the box; short labels stay one line. */
+            white-space: normal;
+            max-width: 320px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+        }
+
+        .app-tooltip.is-visible {
+            opacity: 1;
+        }
+
         #close-windows-startup-label {
             display: flex;
             align-items: center;
@@ -3896,6 +3950,116 @@
 
         .dbl-eula { font-size: 10px; color: #6b6b6b; text-align: center; margin-top: 2px; }
 
+        /* ── Deep Uninstaller (Revo-style, 6-stage) ── */
+        .ru-root { display: flex; flex-direction: column; gap: 10px; }
+        .ru-ok { color: #4ade80; }
+        .ru-fail { color: #f87171; }
+
+        .ru-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 26px 16px; color: #a3a3a3; font-size: 12px; }
+        .ru-empty i { font-size: 22px; color: #6b6b6b; }
+        .ru-empty-warn i { color: #fbbf24; }
+
+        /* Search bar over the program list */
+        .ru-searchbar { display: flex; align-items: center; gap: 6px; }
+        .ru-search-wrap { position: relative; flex: 1; display: flex; align-items: center; }
+        .ru-search-icon { position: absolute; left: 10px; font-size: 11px; color: #6b6b6b; pointer-events: none; }
+        .ru-search { width: 100%; height: 32px; padding: 0 10px 0 28px; border-radius: 9px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.1); color: #f5f5f5; font-size: 12px; outline: none; transition: border-color var(--dur-1) var(--ease-out); }
+        .ru-search:focus { border-color: rgba(var(--accent), 0.5); }
+        .ru-search::placeholder { color: #6b6b6b; }
+
+        /* Buttons (shared idiom with the installer / debloat) */
+        .ru-btn { display: inline-flex; align-items: center; justify-content: center; height: 32px; min-width: 32px; padding: 0 12px; border-radius: 9px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #d4d4d4; font-size: 12px; font-weight: 500; cursor: pointer; transition: all var(--dur-1) var(--ease-out); white-space: nowrap; }
+        .ru-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #fff; }
+        .ru-btn:disabled { opacity: 0.4; cursor: default; }
+        .ru-btn-primary { background: rgba(var(--accent), 0.18); border-color: rgba(var(--accent), 0.45); color: var(--accent-solid); }
+        .ru-btn-primary:hover:not(:disabled) { background: rgba(var(--accent), 0.28); color: #fff; }
+        .ru-btn-danger { color: #f87171; border-color: rgba(185, 28, 28, 0.4); background: rgba(153, 27, 27, 0.2); }
+        .ru-btn-danger:hover:not(:disabled) { background: rgba(153, 27, 27, 0.4); color: #fff; }
+
+        /* The installed-programs list */
+        .ru-list { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow-y: auto; padding-right: 2px; }
+        .ru-prog { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left; padding: 7px 9px; border-radius: 8px; background: none; border: 1px solid transparent; cursor: pointer; transition: all var(--dur-1) var(--ease-out); }
+        .ru-prog:hover { background: rgba(255, 255, 255, 0.05); }
+        .ru-prog-on { background: rgba(var(--accent), 0.12); border-color: rgba(var(--accent), 0.4); }
+        .ru-prog-on:hover { background: rgba(var(--accent), 0.16); }
+        .ru-prog-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+        .ru-prog-name { font-size: 12px; color: #e5e5e5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ru-prog-on .ru-prog-name { color: #fff; }
+        .ru-prog-meta { font-size: 10px; color: #8b8b8b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ru-prog-size { flex-shrink: 0; font-size: 10px; color: #8b8b8b; font-variant-numeric: tabular-nums; }
+
+        /* Footer with the red Uninstall button */
+        .ru-footer { border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 9px; }
+        .ru-footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .ru-footer-count { font-size: 12px; color: #a3a3a3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ru-footer-count b { color: var(--accent-solid); }
+        .ru-uninstall { flex-shrink: 0; display: inline-flex; align-items: center; height: 34px; padding: 0 18px; border-radius: 10px; border: 1px solid rgba(185, 28, 28, 0.6); background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35); transition: all var(--dur-1) var(--ease-out); white-space: nowrap; }
+        .ru-uninstall:hover:not(:disabled) { background: linear-gradient(135deg, #f56565, #e02424); box-shadow: 0 6px 20px rgba(220, 38, 38, 0.5); transform: translateY(-1px); }
+        .ru-uninstall:active:not(:disabled) { transform: translateY(0); }
+        .ru-uninstall:disabled { opacity: 0.4; cursor: default; box-shadow: none; filter: grayscale(0.5); }
+        .ru-eula { font-size: 10px; color: #6b6b6b; line-height: 1.4; margin-top: 8px; }
+
+        /* Wizard */
+        .ru-wizard-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .ru-wizard-title { min-width: 0; font-size: 13px; font-weight: 600; color: #f5f5f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* The 6-stage stepper */
+        .ru-steps { display: flex; flex-direction: column; gap: 2px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: rgba(255, 255, 255, 0.025); padding: 8px; }
+        .ru-step { display: flex; align-items: center; gap: 10px; padding: 6px 6px; border-radius: 8px; }
+        .ru-step-ico { flex-shrink: 0; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; }
+        .ru-step-num { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.2); font-size: 10px; font-weight: 700; color: #8b8b8b; }
+        .ru-step-body { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+        .ru-step-label { font-size: 12px; color: #c9c9c9; }
+        .ru-step-note { font-size: 10px; color: #8b8b8b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ru-step-active { background: rgba(var(--accent), 0.1); }
+        .ru-step-active .ru-step-ico { color: var(--accent-solid); }
+        .ru-step-active .ru-step-label { color: #fff; }
+        .ru-step-done .ru-step-ico { color: #4ade80; }
+        .ru-step-done .ru-step-label { color: #e5e5e5; }
+        .ru-step-fail .ru-step-ico { color: #f87171; }
+        .ru-step-fail .ru-step-label { color: #fca5a5; }
+        .ru-step-skip .ru-step-ico { color: #8b8b8b; }
+        .ru-step-pending { opacity: 0.6; }
+
+        /* Rolling log */
+        .ru-log { border-radius: 10px; background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.06); padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; max-height: 120px; overflow-y: auto; }
+        .ru-log-line { font-size: 10.5px; color: #9a9a9a; font-family: var(--font-mono, ui-monospace, monospace); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* Leftover review + summary */
+        .ru-review { display: flex; flex-direction: column; gap: 9px; border: 1px solid rgba(var(--accent), 0.25); border-radius: 12px; background: linear-gradient(135deg, rgba(var(--accent), 0.08), rgba(var(--accent), 0.02)); padding: 11px; }
+        .ru-review-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; color: #e5e5e5; }
+        .ru-col-all { flex-shrink: 0; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #8b8b8b; background: none; border: 1px solid rgba(255, 255, 255, 0.12); cursor: pointer; padding: 2px 7px; border-radius: 6px; }
+        .ru-col-all:hover { color: var(--accent-solid); border-color: rgba(var(--accent), 0.4); }
+
+        .ru-lo-list { display: flex; flex-direction: column; gap: 1px; max-height: 220px; overflow-y: auto; }
+        .ru-lo { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 7px; cursor: pointer; transition: background var(--dur-1) var(--ease-out); }
+        .ru-lo:hover { background: rgba(255, 255, 255, 0.05); }
+        .ru-lo-on { background: rgba(255, 255, 255, 0.04); }
+        .ru-check { flex-shrink: 0; width: 14px; height: 14px; accent-color: var(--accent-solid); cursor: pointer; margin: 0; }
+        .ru-lo-icon { flex-shrink: 0; width: 14px; text-align: center; font-size: 11px; color: #8b8b8b; }
+        .ru-lo-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+        .ru-lo-label { font-size: 12px; color: #e5e5e5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ru-lo-path { font-size: 9.5px; color: #6b6b6b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ru-lo-kind { flex-shrink: 0; font-size: 9px; text-transform: uppercase; letter-spacing: 0.03em; color: #8b8b8b; }
+        .ru-lo-badge { flex-shrink: 0; font-size: 11px; }
+        .ru-lo-size { flex-shrink: 0; font-size: 10px; color: #8b8b8b; font-variant-numeric: tabular-nums; }
+        .ru-lo-normal { opacity: 0.82; }
+
+        /* Category grouping inside the leftover list */
+        .ru-lo-group + .ru-lo-group { margin-top: 6px; }
+        .ru-lo-cat { display: flex; align-items: center; gap: 6px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #8b8b8b; padding: 4px 4px 3px; position: sticky; top: 0; background: linear-gradient(rgba(20, 20, 24, 0.9), rgba(20, 20, 24, 0.6)); }
+        .ru-lo-cat-n { font-weight: 700; color: #6b6b6b; background: rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 0 5px; line-height: 14px; font-size: 9px; }
+
+        /* "?" confidence marker on broader (publisher-named) matches */
+        .ru-lo-low { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; margin-left: 6px; border-radius: 50%; background: rgba(202, 138, 4, 0.22); color: #fbbf24; font-size: 9px; font-weight: 800; vertical-align: middle; }
+        .ru-lo-hint { font-size: 10px; color: #9a9a9a; line-height: 1.45; display: flex; align-items: flex-start; gap: 6px; }
+        .ru-lo-hint .ru-lo-low { flex-shrink: 0; margin-left: 0; margin-top: 1px; }
+
+        .ru-wizard-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+        .ru-clean { display: inline-flex; align-items: center; height: 34px; padding: 0 16px; border-radius: 10px; border: 1px solid rgba(var(--accent), 0.5); background: rgba(var(--accent), 0.18); color: var(--accent-solid); font-size: 13px; font-weight: 700; cursor: pointer; transition: all var(--dur-1) var(--ease-out); white-space: nowrap; }
+        .ru-clean:hover:not(:disabled) { background: rgba(var(--accent), 0.3); color: #fff; }
+        .ru-clean:disabled { opacity: 0.4; cursor: default; }
+
         /* ── FPS Optimizer mini widget ── */
         .fps-root { display: flex; flex-direction: column; gap: 10px; }
 
@@ -3935,3 +4099,508 @@
         .fps-run-danger:hover:not(:disabled) { background: rgba(153, 27, 27, 0.45); color: #fff; }
 
         .fps-eula { font-size: 10px; color: #6b6b6b; text-align: center; margin-top: 2px; }
+
+        /* ══════════════════════════════════════════════════════════════════════
+           FULL SCREEN LYRICS  (mini widget: fullscreenLyrics)
+           Apple Music "Now Playing" stage — a body-level, position:fixed overlay
+           that fills the ENTIRE monitor while open (the main process takes the app
+           window to true full screen, see main.js `lyrics-set-immersive`).
+           Markup: #fullscreen-lyrics in main.html; logic: renderer/fullscreen-lyrics.js.
+           ══════════════════════════════════════════════════════════════════════ */
+
+        /* ── Player button (top-left of the lyrics panel) ──
+           No outer box-shadow: the panel is overflow:hidden, so a glow here would be
+           clipped at the corner. Emphasis comes from bg + border instead. */
+        .spotify-lyrics-panel { position: relative; }
+        .spotify-lyrics-fullscreen-btn {
+            display: none;
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            z-index: 6;
+            width: 22px;
+            height: 22px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 7px;
+            background: rgba(0, 0, 0, 0.34);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            color: rgba(255, 255, 255, 0.72);
+            font-size: 8.5px;
+            cursor: pointer;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            opacity: 0;
+            transform: scale(0.9);
+            transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out),
+                        background var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out),
+                        border-color var(--dur-2) var(--ease-out);
+        }
+        .spotify-lyrics-fullscreen-btn.is-visible { display: flex; }
+        .spotify-lyrics-panel:hover .spotify-lyrics-fullscreen-btn.is-visible { opacity: 1; transform: scale(1); }
+        .spotify-lyrics-fullscreen-btn.is-visible:focus-visible { opacity: 1; transform: scale(1); }
+        .spotify-lyrics-fullscreen-btn:hover {
+            background: rgba(var(--accent), 0.42);
+            border-color: rgba(var(--accent), 0.75);
+            color: #fff;
+        }
+
+        /* ── The stage overlay (body-level, whole-monitor) ── */
+        #fullscreen-lyrics {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 2147483000;
+            overflow: hidden;
+            color-scheme: dark;
+        }
+        #fullscreen-lyrics.shown,
+        #fullscreen-lyrics.fsl-closing { display: block; }
+        #fullscreen-lyrics.shown { animation: fslOverlayIn 0.5s var(--ease-out) backwards; }
+        #fullscreen-lyrics.fsl-closing { pointer-events: none; }
+        /* Phase 2 — after the content collapses (and the window restores behind the
+           still-opaque backdrop), fade the whole overlay away to reveal the app. */
+        #fullscreen-lyrics.fsl-closing-2 { animation: fslOverlayOut 0.3s var(--ease-in) forwards; }
+        @keyframes fslOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fslOverlayOut { from { opacity: 1; } to { opacity: 0; } }
+
+        /* Phase 1 (still full screen) — the now-playing content settles down + softly
+           blurs away over the OPAQUE backdrop, so the exit plays at full size instead
+           of squishing as the window shrinks. Album column drops deeper, lyrics drift
+           down, exit button spins out. */
+        #fullscreen-lyrics.fsl-closing .fsl-scene { animation: fslSceneOut 0.42s var(--ease-emphasized) forwards; }
+        #fullscreen-lyrics.fsl-closing .fsl-now { animation: fslNowOut 0.42s var(--ease-emphasized) forwards; }
+        #fullscreen-lyrics.fsl-closing .fsl-exit { animation: fslExitOut 0.22s var(--ease-in) forwards; }
+        @keyframes fslSceneOut { to { opacity: 0; transform: translateY(36px) scale(0.955); filter: blur(12px); } }
+        @keyframes fslNowOut { to { opacity: 0; transform: translateY(24px) scale(0.9); filter: blur(6px); } }
+        @keyframes fslExitOut { to { opacity: 0; transform: scale(0.8) rotate(-8deg); } }
+
+        /* ── Backdrop: deep, colour-matched album wash (Apple Music depth) ── */
+        .fsl-backdrop { position: absolute; inset: 0; overflow: hidden; background: #05060a; z-index: 0; }
+        .fsl-backdrop-img {
+            position: absolute;
+            inset: -18%;
+            width: 136%;
+            height: 136%;
+            object-fit: cover;
+            filter: blur(90px) saturate(1.7) brightness(0.52);
+            transform: scale(1.12);
+            opacity: 0;
+            transition: opacity 0.9s var(--ease-out);
+            animation: fslBackdropDrift 46s ease-in-out infinite alternate;
+        }
+        .fsl-backdrop-img.is-active { opacity: 1; }
+        #fullscreen-lyrics.fsl-bg-accent .fsl-backdrop-img { opacity: 0 !important; }
+        #fullscreen-lyrics.fsl-bg-accent .fsl-backdrop {
+            background:
+                radial-gradient(120% 90% at 14% 4%, rgba(var(--accent), 0.5), transparent 58%),
+                radial-gradient(120% 100% at 90% 100%, rgba(var(--accent), 0.32), transparent 60%),
+                #05060a;
+        }
+        @keyframes fslBackdropDrift {
+            from { transform: scale(1.12) translate3d(0, 0, 0); }
+            to   { transform: scale(1.2) translate3d(-1.8%, -1.8%, 0); }
+        }
+        /* Layered scrims: a soft accent bloom up top, a vertical darkening for text
+           contrast, and a corner vignette — together they read as intentional depth
+           rather than a flat blur. */
+        .fsl-backdrop-tint {
+            position: absolute; inset: 0;
+            background:
+                radial-gradient(70% 55% at 78% 42%, rgba(var(--accent), 0.14), transparent 70%),
+                linear-gradient(180deg, rgba(4, 5, 10, 0.55) 0%, rgba(4, 5, 10, 0.18) 38%, rgba(4, 5, 10, 0.32) 68%, rgba(4, 5, 10, 0.72) 100%);
+        }
+        .fsl-backdrop-vignette {
+            position: absolute; inset: 0;
+            background: radial-gradient(130% 130% at 50% 46%, transparent 46%, rgba(0, 0, 0, 0.66) 100%);
+        }
+
+        /* ── Floating exit (with a soft scrim so it reads over bright art) ── */
+        .fsl-exit {
+            position: absolute;
+            top: clamp(18px, 3vh, 40px);
+            right: clamp(18px, 3vw, 44px);
+            z-index: 4;
+            width: 46px;
+            height: 46px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 15px;
+            background: rgba(255, 255, 255, 0.09);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 15px;
+            cursor: pointer;
+            backdrop-filter: blur(16px) saturate(1.4);
+            -webkit-backdrop-filter: blur(16px) saturate(1.4);
+            transition: all var(--dur-2) var(--ease-out);
+            animation: fslFadeDown 0.55s var(--ease-emphasized) backwards;
+            animation-delay: 0.14s;
+        }
+        .fsl-exit:hover { background: rgba(255, 255, 255, 0.18); color: #fff; transform: scale(1.06); }
+
+        /* ── Scene: two columns (art + lyrics), centred as a group ── */
+        .fsl-scene {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: clamp(36px, 6.5vw, 132px);
+            padding: clamp(30px, 6vh, 84px) clamp(36px, 7.5vw, 140px);
+        }
+
+        /* ── Left: album art + progress + meta ── */
+        .fsl-now {
+            flex-shrink: 0;
+            width: clamp(240px, 30vw, 470px);
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            animation: fslNowIn 0.65s var(--ease-emphasized) backwards;
+            animation-delay: 0.1s;
+        }
+        .fsl-artwork {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            border-radius: clamp(16px, 1.7vw, 28px);
+            overflow: hidden;
+            box-shadow:
+                0 50px 100px -20px rgba(0, 0, 0, 0.7),
+                0 12px 40px rgba(0, 0, 0, 0.4),
+                0 0 0 1px rgba(255, 255, 255, 0.07) inset;
+        }
+        /* Subtle top sheen so the art doesn't look flat. */
+        .fsl-artwork::after {
+            content: '';
+            position: absolute; inset: 0;
+            background: linear-gradient(150deg, rgba(255, 255, 255, 0.14), transparent 34%);
+            pointer-events: none;
+        }
+        .fsl-artwork-fallback {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: clamp(48px, 6vw, 92px);
+            color: rgba(255, 255, 255, 0.2);
+            background: linear-gradient(155deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02));
+        }
+        .fsl-cover {
+            position: absolute; inset: 0;
+            width: 100%; height: 100%;
+            object-fit: cover;
+            transition: opacity 0.5s var(--ease-out);
+        }
+        /* New artwork slides in from the skip direction (--fsl-dir: 1 next, -1 prev,
+           0 on first open = no slide, just a fade). Clipped to the square by the
+           artwork's overflow:hidden, so it reads as a card swap. */
+        @keyframes fslCoverIn {
+            from { opacity: 0; transform: translateX(calc(var(--fsl-dir, 0) * 64px)) scale(1.05); }
+            to   { opacity: 1; transform: translateX(0) scale(1); }
+        }
+
+        .fsl-progress { width: 100%; margin-top: clamp(18px, 2.6vh, 32px); }
+        .fsl-times {
+            display: flex; justify-content: space-between;
+            font-family: ui-monospace, 'SF Mono', 'Segoe UI Mono', monospace;
+            font-size: clamp(10px, 0.75vw, 13px);
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 9px;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.3px;
+        }
+        .fsl-progress-bar {
+            position: relative;
+            height: 6px;
+            border-radius: 99px;
+            background: rgba(255, 255, 255, 0.18);
+            cursor: pointer;
+            transition: height var(--dur-2) var(--ease-out);
+        }
+        .fsl-progress-bar:hover { height: 9px; }
+        .fsl-progress-fill {
+            position: relative;
+            height: 100%;
+            width: 0%;
+            border-radius: 99px;
+            background: #fff;
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.35);
+            transition: width 0.25s linear;
+        }
+        .fsl-progress-knob {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            width: 14px; height: 14px;
+            border-radius: 99px;
+            background: #fff;
+            transform: translate(50%, -50%) scale(0);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+            transition: transform var(--dur-2) var(--ease-out);
+        }
+        .fsl-progress-bar:hover .fsl-progress-knob { transform: translate(50%, -50%) scale(1); }
+
+        .fsl-nowmeta { width: 100%; margin-top: clamp(16px, 2.2vh, 28px); min-width: 0; }
+        /* Both are single-line marquee containers (see setMarqueeText / the .marquee-*
+           classes shared with the compact player): long titles/artists scroll on the
+           exact same looping schedule instead of clipping or ellipsising. */
+        .fsl-title {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+            font-size: clamp(19px, 1.55vw, 28px);
+            font-weight: 700;
+            letter-spacing: -0.4px;
+            color: #fff;
+            line-height: 1.3;
+            position: relative;
+            max-width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: clip;
+        }
+        .fsl-sub {
+            font-size: clamp(12px, 0.95vw, 16px);
+            color: rgba(255, 255, 255, 0.58);
+            margin-top: 8px;
+            position: relative;
+            max-width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: clip;
+        }
+
+        /* ── Right: scrolling lyrics ── */
+        .fsl-stage {
+            position: relative;
+            z-index: 1;
+            flex: 1;
+            align-self: stretch;
+            min-width: 0;
+            max-width: 52vw;
+            overflow: hidden;
+            -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 15%, #000 85%, transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0%, #000 15%, #000 85%, transparent 100%);
+            /* Just a fade here — the per-line cascade (renderer/fullscreen-lyrics.js
+               → playFslEntrance + .fsl-enter) carries the motion so nothing double-moves. */
+            animation: fslStageFade 0.6s var(--ease-out) backwards;
+            animation-delay: 0.06s;
+        }
+        @keyframes fslStageFade { from { opacity: 0; } to { opacity: 1; } }
+        .fsl-stage.fsl-scrollable { overflow-y: auto; }
+        .fsl-stage.fsl-scrollable::-webkit-scrollbar { width: 8px; }
+        .fsl-stage.fsl-scrollable::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 99px; }
+
+        .fsl-lines {
+            position: absolute;
+            left: 0; right: 0; top: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            text-align: left;
+            gap: clamp(18px, 2.6vh, 42px);
+            /* Left/right insets keep the active line's glow off the stage's hard clip
+               edges (the stage is overflow:hidden for vertical masking, so glow that
+               reaches an edge would be sheared). */
+            padding-left: clamp(12px, 2vw, 40px);
+            padding-right: clamp(24px, 5vw, 90px);
+            will-change: transform;
+            transition: transform 0.66s var(--ease-emphasized);
+        }
+        .fsl-lines.fsl-static {
+            position: relative;
+            padding-top: 14vh;
+            padding-bottom: 18vh;
+            transform: none !important;
+            transition: none;
+        }
+
+        .fsl-line {
+            position: relative;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+            font-size: clamp(25px, 2.55vw, 50px);
+            line-height: 1.22;
+            font-weight: 800;
+            letter-spacing: -0.6px;
+            color: #fff;
+            transform-origin: left center;
+            /* Upcoming lines sit well below the current line's brightness so only the
+               line playing reads as "lit"; they dim further with distance (depth from
+               opacity, only far lines get a hair of blur). Sung lines → .is-past. */
+            opacity: max(0.14, calc(0.46 - var(--fsl-d, 3) * 0.1));
+            /* No blur on live lines: a filter layer (even blur(0)) re-rasterises the
+               text as opacity/transform transitions run, which flickers. Depth comes
+               from opacity; only fading .is-past lines get blur (masked by low alpha). */
+            filter: none;
+            transform: translateZ(0) scale(0.99);
+            transition: opacity 0.55s var(--ease-out), filter 0.55s var(--ease-out),
+                        transform 0.55s var(--ease-emphasized), color 0.4s var(--ease-out),
+                        text-shadow 0.45s var(--ease-out);
+        }
+        .fsl-line.fsl-seekable { cursor: pointer; }
+        .fsl-line.fsl-seekable:hover { opacity: 0.96; }
+        .fsl-lines.fsl-static .fsl-line { opacity: 0.86; filter: none; transform: none; }
+
+        /* Sung lines fade away above the current line, so the eye stays on the current
+           + upcoming lyrics (Spotify-style). The just-finished line eases down SLOWLY
+           (long transition) from lit → dim, then older lines drift to nothing. */
+        .fsl-line.is-past {
+            opacity: max(0, calc(0.3 - (var(--fsl-d, 1) - 1) * 0.3)) !important;
+            filter: blur(calc(max(var(--fsl-d, 1) - 1, 0) * 1.3px)) !important;
+            transform: translateZ(0) scale(0.965) translateY(-2px);
+            transition: opacity 1.7s var(--ease-out), filter 1.7s var(--ease-out),
+                        transform 0.8s var(--ease-emphasized), text-shadow 0.6s var(--ease-out);
+        }
+
+        /* Cascade entrance state (removed a frame later; see playFslEntrance). */
+        .fsl-line.fsl-enter {
+            opacity: 0 !important;
+            transform: translateZ(0) translateY(38px) scale(0.95) !important;
+            filter: blur(5px) !important;
+        }
+
+        .fsl-line.is-active {
+            opacity: 1;
+            filter: none;
+            transform: translateZ(0) scale(1.025);
+            color: #fff;
+            text-shadow: 0 0 16px rgba(var(--accent), 0.55), 0 0 34px rgba(var(--accent), 0.22), 0 1px 16px rgba(0, 0, 0, 0.3);
+            animation: fslActiveIn 0.6s var(--ease-out);
+        }
+        /* Glow blooms in each time a line becomes current (no `forwards`, so it settles
+           back onto the identical declared text-shadow above without a jump). */
+        @keyframes fslActiveIn {
+            0%   { text-shadow: 0 0 0 rgba(var(--accent), 0); }
+            100% { text-shadow: 0 0 16px rgba(var(--accent), 0.55), 0 0 34px rgba(var(--accent), 0.22), 0 1px 16px rgba(0, 0, 0, 0.3); }
+        }
+
+        .fsl-main-text { display: block; }
+        .fsl-paren-text { display: block; font-size: 70%; opacity: 0.7; font-weight: 700; margin-top: 3px; }
+
+        /* Instrumental / blank line → three softly pulsing dots. */
+        .fsl-line-instrumental { display: flex; gap: 12px; padding: 8px 0; }
+        .fsl-rest {
+            width: 13px; height: 13px; border-radius: 99px;
+            background: rgba(255, 255, 255, 0.8);
+            animation: fslRestPulse 1.5s ease-in-out infinite;
+        }
+        .fsl-line-instrumental .fsl-rest:nth-child(2) { animation-delay: 0.2s; }
+        .fsl-line-instrumental .fsl-rest:nth-child(3) { animation-delay: 0.4s; }
+        .fsl-line.is-active .fsl-rest { box-shadow: 0 0 18px rgba(var(--accent), 0.7); }
+        @keyframes fslRestPulse {
+            0%, 100% { transform: scale(0.6); opacity: 0.35; }
+            50% { transform: scale(1); opacity: 1; }
+        }
+
+        /* ── Focus layout: centred lyrics only, no album panel ── */
+        #fullscreen-lyrics.fsl-layout-focus .fsl-now { display: none; }
+        #fullscreen-lyrics.fsl-layout-focus .fsl-stage { max-width: min(1100px, 82vw); }
+        #fullscreen-lyrics.fsl-layout-focus .fsl-lines { align-items: center; text-align: center; padding-right: 0; }
+        #fullscreen-lyrics.fsl-layout-focus .fsl-line { transform-origin: center; font-size: clamp(30px, 3vw, 62px); max-width: 22ch; }
+        #fullscreen-lyrics.fsl-layout-focus .fsl-line-instrumental { justify-content: center; }
+
+        /* ── Empty / loading / no-lyrics state (dedicated, UN-clipped layer) ──
+           Sits in the lyrics' place in the row so the album art stays put; .fsl-empty
+           (no track) hides the art column for a clean, full-width, centred message. */
+        .fsl-state { display: none; }
+        #fullscreen-lyrics.fsl-has-state #fsl-stage { display: none; }
+        #fullscreen-lyrics.fsl-has-state #fsl-state {
+            display: flex;
+            flex: 1;
+            align-self: stretch;
+            align-items: center;
+            justify-content: flex-start;
+            min-width: 0;
+            animation: fslLyricsIn 0.5s var(--ease-emphasized) backwards;
+        }
+        #fullscreen-lyrics.fsl-empty .fsl-now { display: none; }
+        #fullscreen-lyrics.fsl-empty #fsl-state { justify-content: center; }
+
+        .fsl-state-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            text-align: left;
+            gap: 16px;
+            max-width: 32ch;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+        }
+        #fullscreen-lyrics.fsl-empty .fsl-state-inner { align-items: center; text-align: center; }
+        .fsl-state-badge {
+            width: clamp(64px, 5vw, 84px);
+            height: clamp(64px, 5vw, 84px);
+            border-radius: 99px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: clamp(24px, 2vw, 32px);
+            color: #fff;
+            background:
+                radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.16), transparent 60%),
+                rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            box-shadow: 0 0 40px rgba(var(--accent), 0.35), 0 10px 30px rgba(0, 0, 0, 0.4);
+        }
+        .fsl-state-badge.is-loading { animation: fslSpin 1.15s linear infinite; }
+        @keyframes fslSpin { to { transform: rotate(360deg); } }
+        .fsl-state-title { font-size: clamp(24px, 2vw, 34px); font-weight: 700; color: #fff; letter-spacing: -0.5px; line-height: 1.15; }
+        .fsl-state-sub { font-size: clamp(13px, 1vw, 16px); color: rgba(255, 255, 255, 0.55); line-height: 1.5; }
+
+        @keyframes fslFadeDown { from { opacity: 0; transform: translateY(-12px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes fslNowIn {
+            from { opacity: 0; transform: translateY(38px) scale(0.9); filter: blur(12px); }
+            60%  { opacity: 1; }
+            to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        @keyframes fslLyricsIn { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Stack the columns on short/narrow displays so nothing gets crushed. */
+        @media (max-aspect-ratio: 13/10), (max-height: 620px) {
+            #fullscreen-lyrics:not(.fsl-layout-focus) .fsl-scene { flex-direction: column; gap: clamp(16px, 3vh, 40px); overflow-y: auto; }
+            #fullscreen-lyrics:not(.fsl-layout-focus) .fsl-now { width: clamp(180px, 40vh, 300px); align-items: center; }
+            #fullscreen-lyrics:not(.fsl-layout-focus) .fsl-nowmeta { text-align: center; }
+            #fullscreen-lyrics:not(.fsl-layout-focus) .fsl-stage { max-width: 88vw; width: 88vw; }
+            #fullscreen-lyrics:not(.fsl-layout-focus) .fsl-lines { align-items: center; text-align: center; padding-right: 0; }
+            #fullscreen-lyrics:not(.fsl-layout-focus) .fsl-line { transform-origin: center; }
+            #fullscreen-lyrics:not(.fsl-layout-focus).fsl-has-state #fsl-state { justify-content: center; }
+            #fullscreen-lyrics:not(.fsl-layout-focus) .fsl-state-inner { align-items: center; text-align: center; }
+        }
+
+        /* ── Config panel (Widget Library detail view) ── */
+        .fsl-cfg { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+        .fsl-cfg-note {
+            display: flex; gap: 8px; align-items: flex-start;
+            font-size: 11.5px; line-height: 1.45; color: #fbbf24;
+            background: rgba(202, 138, 4, 0.12); border: 1px solid rgba(202, 138, 4, 0.3);
+            border-radius: 11px; padding: 9px 11px;
+        }
+        .fsl-cfg-note i { margin-top: 2px; }
+        .fsl-cfg-note b { color: #fcd34d; font-weight: 700; }
+        .fsl-cfg-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .fsl-cfg-label { font-size: 12.5px; color: #a3a3a3; font-weight: 500; }
+        .fsl-seg {
+            display: inline-flex; gap: 3px; padding: 3px;
+            background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 11px;
+        }
+        .fsl-seg-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 11px; border-radius: 8px;
+            font-size: 11.5px; font-weight: 500; color: #9a9a9a;
+            background: transparent; border: none; cursor: pointer;
+            transition: all var(--dur-1) var(--ease-out); white-space: nowrap;
+        }
+        .fsl-seg-btn:hover { color: #ddd; background: rgba(255, 255, 255, 0.05); }
+        .fsl-seg-btn.is-on { color: #fff; background: rgba(var(--accent), 0.22); box-shadow: 0 0 0 1px rgba(var(--accent), 0.4) inset; }
+        .fsl-cfg-open {
+            margin-top: 2px;
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            height: 40px; border-radius: 12px;
+            font-size: 13px; font-weight: 600; cursor: pointer;
+            color: var(--accent-solid);
+            background: rgba(var(--accent), 0.16);
+            border: 1px solid rgba(var(--accent), 0.42);
+            transition: all var(--dur-1) var(--ease-out);
+        }
+        .fsl-cfg-open:hover:not(:disabled) { background: rgba(var(--accent), 0.26); color: #fff; }
+        .fsl-cfg-open:disabled { opacity: 0.4; cursor: default; }
+        .fsl-cfg-hint { font-size: 11px; color: #6f6f6f; line-height: 1.5; margin-top: 2px; }
+        .fsl-cfg-hint b { color: #9a9a9a; font-weight: 600; }

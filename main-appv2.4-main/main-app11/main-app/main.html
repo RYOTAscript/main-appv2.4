@@ -45,7 +45,7 @@
                         onerror="this.outerHTML='<div class=\'w-9 h-9 bg-white rounded-2xl flex items-center justify-center text-xl font-bold text-black\'>M</div>'">
                     <div>
                         <h1 class="text-2xl font-semibold tracking-tight text-white">main</h1>
-                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.48.4</p>
+                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.48.5</p>
                     </div>
                 </div>
                 <div class="no-drag flex items-center gap-3 text-sm">
@@ -209,6 +209,13 @@
 
                         <!-- Left: Lyrics Panel -->
                         <div class="spotify-lyrics-panel" id="spotify-lyrics-panel">
+                            <!-- Full Screen Lyrics button (top-left). Hidden by default;
+                                 shown by renderer/fullscreen-lyrics.js only when the Full
+                                 Screen Lyrics mini widget AND the Lyrics display are on. -->
+                            <button id="spotify-lyrics-fullscreen-btn" class="spotify-lyrics-fullscreen-btn no-drag"
+                                onclick="openFullscreenLyrics()" title="Full-screen lyrics" aria-label="Open full-screen lyrics">
+                                <i class="fas fa-up-right-and-down-left-from-center"></i>
+                            </button>
                             <div id="spotify-lyrics-lines"><div id="spotify-lyrics-window"></div></div>
                             <button id="spotify-lyrics-expand-btn" class="spotify-lyrics-expand-btn no-drag" onclick="openLyricsModal()" title="Full lyrics">
                                 <i class="fas fa-expand text-[7px]"></i>
@@ -884,6 +891,10 @@
                 </div>
             </div>
 
+            <!-- Full Screen Lyrics stage is a BODY-level element (position:fixed) so it
+                 can fill the whole monitor — it lives just before the scripts, outside
+                 this clipped 920×640 #main-window. -->
+
             <!-- Widget Library Modal — browse/search/favourite Mini Widgets.
                  z-[55]: above Settings (z-50) so it can be opened from there too. -->
             <div id="widget-library-modal" class="hidden absolute inset-0 z-[55] no-drag"
@@ -935,7 +946,7 @@
                 class="absolute bottom-5 left-8 right-8 text-[10px] text-neutral-600 flex justify-between tracking-wide reveal-item"
                 style="animation-delay:0.5s">
                 <div id="footer-hotkeys" class="font-mono"></div>
-                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.48.4</div>
+                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.48.5</div>
             </div>
         </div>
         <!-- Log out confirmation (glass dialog, styled to match the app) -->
@@ -961,6 +972,69 @@
         </div>
     </div>
 
+    <!-- ══ Full Screen Lyrics — Apple Music "Now Playing" stage ══
+         BODY-level + position:fixed so it fills the ENTIRE monitor once the main
+         process takes the window to real full screen (electronAPI.lyricsSetImmersive).
+         Opened by the top-left button on the Spotify player. Logic:
+         renderer/fullscreen-lyrics.js; styling: the .fsl-* block in styles/main.css. -->
+    <div id="fullscreen-lyrics" class="hidden no-drag">
+        <!-- Blurred, colour-matched album-art backdrop -->
+        <div id="fsl-backdrop" class="fsl-backdrop">
+            <!-- Two stacked layers so the blurred album backdrop CROSS-FADES between
+                 songs instead of hard-cutting (renderer/fullscreen-lyrics.js swaps the
+                 .is-active class). Source art is already preloaded (same URL as cover). -->
+            <img id="fsl-backdrop-img" class="fsl-backdrop-img" src="" alt="" aria-hidden="true">
+            <img id="fsl-backdrop-img-b" class="fsl-backdrop-img" src="" alt="" aria-hidden="true">
+            <div class="fsl-backdrop-tint"></div>
+            <div class="fsl-backdrop-vignette"></div>
+        </div>
+
+        <!-- Floating exit (top-right) -->
+        <button class="fsl-exit no-drag" onclick="closeFullscreenLyrics()"
+            title="Exit full screen (Esc)" aria-label="Exit full screen">
+            <i class="fas fa-down-left-and-up-right-to-center"></i>
+        </button>
+
+        <div class="fsl-scene">
+            <!-- Left: album art + progress + track meta -->
+            <div class="fsl-now">
+                <div class="fsl-artwork">
+                    <div class="fsl-artwork-fallback"><i class="fab fa-spotify"></i></div>
+                    <img id="fsl-cover" class="fsl-cover" src="" alt="" aria-hidden="true"
+                        onerror="this.style.opacity='0'">
+                </div>
+                <div class="fsl-progress">
+                    <div class="fsl-times">
+                        <span id="fsl-time-current">0:00</span>
+                        <span id="fsl-time-total">0:00</span>
+                    </div>
+                    <div class="fsl-progress-bar" id="fsl-progress-bar" title="Seek"
+                        onclick="fslSeekFromEvent(event)">
+                        <div class="fsl-progress-fill" id="fsl-progress-fill">
+                            <span class="fsl-progress-knob"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="fsl-nowmeta">
+                    <p id="fsl-title" class="fsl-title">Not playing</p>
+                    <p id="fsl-sub" class="fsl-sub">—</p>
+                </div>
+            </div>
+
+            <!-- Right: scrolling lyrics. #fsl-lines is translated vertically to keep
+                 the active line centred (see renderer/fullscreen-lyrics.js). -->
+            <div id="fsl-stage" class="fsl-stage">
+                <div id="fsl-lines" class="fsl-lines"></div>
+            </div>
+
+            <!-- Empty / loading / no-lyrics state — takes the lyrics' place in the row
+                 (NOT inside the mask-clipped stage, so its icon glow is never cut off).
+                 The overlay gets .fsl-has-state to reveal this; .fsl-empty also hides
+                 the left now-playing column for a clean full-width "nothing playing". -->
+            <div id="fsl-state" class="fsl-state" aria-live="polite"></div>
+        </div>
+    </div>
+
     <script src="renderer/core.js"></script>
     <script src="renderer/fps-optimizer.js"></script>
     <script src="renderer/hotkeys.js"></script>
@@ -981,6 +1055,7 @@
     <script src="renderer/file-search.js"></script>
     <script src="renderer/app-installer.js"></script>
     <script src="renderer/debloat.js"></script>
+    <script src="renderer/revo-uninstaller.js"></script>
     <script src="renderer/claude-limit.js"></script>
     <script src="renderer/video-editor.js"></script>
     <script src="renderer/valclips.js"></script>
@@ -1001,6 +1076,8 @@
     <script src="renderer/visualizer.js"></script>
     <script src="renderer/spotify-widget.js"></script>
     <script src="renderer/lyrics.js"></script>
+    <script src="renderer/fullscreen-lyrics.js"></script>
+    <script src="renderer/tooltip.js"></script>
 </body>
 
 

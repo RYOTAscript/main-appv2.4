@@ -37,6 +37,7 @@ const gameMode = require('./main/gameMode');
 const quickLaunch = require('./main/quickLaunch');
 const appInstaller = require('./main/appInstaller');
 const debloat = require('./main/debloat');
+const revoUninstaller = require('./main/revoUninstaller');
 const license = require('./main/license');
 const autoUpdate = require('./main/autoUpdate');
 const elevate = require('./main/elevate');
@@ -519,6 +520,7 @@ if (!gotSingleInstanceLock) {
     quickLaunch.init(ctx);
     appInstaller.init(ctx);
     debloat.init(ctx);
+    revoUninstaller.init(ctx);
     volumeMixerModule = volumeMixer.init(ctx);
     discordRpc.init(ctx);
     gameModeModule = gameMode.init(ctx);
@@ -695,6 +697,36 @@ if (!gotSingleInstanceLock) {
   ipcMain.on('window-minimize', () => mainWindow?.minimize());
 
   ipcMain.on('window-close', () => mainWindow?.close());
+
+  // ── Full Screen Lyrics immersive mode ──
+  // The app window is normally a fixed 920×640 glass panel. While the Full Screen
+  // Lyrics stage is open we take the window to true full screen so the lyrics fill
+  // the whole monitor, then restore the previous size/flags when it closes. The
+  // renderer overlay is position:fixed, so it fills whatever size the window becomes.
+  let lyricsImmersiveRestore = null;
+  ipcMain.handle('lyrics-set-immersive', (_event, on) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    try {
+      if (on) {
+        // Capture the pre-immersive state once (guards against double-enter).
+        if (!lyricsImmersiveRestore) {
+          lyricsImmersiveRestore = { resizable: mainWindow.isResizable() };
+        }
+        // resizable:false pins the window size on Windows, which blocks the
+        // fullscreen resize — lift it for the duration of the stage.
+        mainWindow.setResizable(true);
+        mainWindow.setFullScreen(true);
+      } else if (lyricsImmersiveRestore) {
+        mainWindow.setFullScreen(false); // Electron restores the prior bounds
+        mainWindow.setResizable(lyricsImmersiveRestore.resizable);
+        lyricsImmersiveRestore = null;
+      }
+      return true;
+    } catch (e) {
+      logger.log(`lyrics-set-immersive failed: ${e?.message || e}`, 'ERROR');
+      return false;
+    }
+  });
 
   ipcMain.on('renderer-log', (_event, payload) => {
     if (!payload?.message) return;

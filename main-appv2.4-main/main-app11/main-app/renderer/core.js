@@ -1,4 +1,4 @@
-        const APP_VERSION = 'v3.48.4';
+        const APP_VERSION = 'v3.48.5';
         const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M', crosshair: 'Control+Shift+X' };
 
         // Registry of "Mini Widgets" -- small, self-contained utilities. This is the
@@ -94,6 +94,20 @@
                 features: ['Queue viewer', 'Playlist shortcuts', 'Recently played', 'One-click like / unlike'],
                 panelId: 'spotify-enhanced-panel',
                 panelRenderer: 'renderSpotifyEnhancedPanel'
+            },
+            {
+                id: 'fullscreenLyrics',
+                label: 'Full Screen Lyrics',
+                icon: 'fa-up-right-and-down-left-from-center',
+                description: 'An Apple Music–style full-screen lyrics stage, opened from a button on the player.',
+                longDescription: 'Turns the compact lyrics strip into a cinematic, Apple Music–style full-screen lyrics stage. When on, a small full-screen button appears in the top-left of the Spotify player (only while the Lyrics display is enabled) — click it to fill the whole window with big, bold, karaoke-synced lyrics over a blurred, colour-matched album-art backdrop. The active line lights up and glides to centre as the song plays, past and upcoming lines soften and blur with distance, and every line is click-to-seek when the track has synced timing. Reads beautifully whether the panel has synced lyrics or plain text.',
+                category: 'Spotify',
+                keywords: ['lyrics', 'fullscreen', 'full screen', 'apple music', 'karaoke', 'spotify', 'music', 'immersive', 'stage', 'sing', 'synced', 'now playing'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Full-screen, Apple Music–style lyrics stage', 'Full-screen button on the player (top-left) while Lyrics are on', 'Karaoke highlight that glides to centre as the song plays', 'Blurred, colour-matched album-art backdrop', 'Progressive dim + blur on past / upcoming lines', 'Click any line to seek (synced tracks)', 'Album-blur or accent-gradient backdrop, centre or left alignment'],
+                panelId: 'fullscreen-lyrics-panel',
+                panelRenderer: 'renderFullscreenLyricsPanel'
             },
             {
                 id: 'screenResolution',
@@ -335,6 +349,20 @@
                 features: ['Scans and lists only the bloat apps actually installed', 'One-click bulk uninstall with live per-app progress', 'Reversible privacy & UX tweaks (real on/off toggles)', 'Show file extensions, classic Win10 right-click menu', 'Hide taskbar Widgets / Chat / search, disable Bing in Start', 'Turn off suggested content & ads', 'Per-user scope — no admin, nothing system-wide', 'Flags apps you might actually want before removing them'],
                 panelId: 'debloat-panel',
                 panelRenderer: 'renderDebloatPanel'
+            },
+            {
+                id: 'revoUninstaller',
+                label: 'Deep Uninstaller',
+                icon: 'fa-trash-can',
+                description: 'Fully remove a program in 6 stages — run its uninstaller, then sweep up the leftover files & registry keys.',
+                longDescription: 'A Revo-Uninstaller-style deep uninstaller. Pick one installed program from a searchable list, hit Uninstall, and it runs a guided 6-stage wipe: (1) a System Restore point for safety, (2) analyze the program\'s install folder and registry footprint, (3) run the program\'s own uninstaller — silently when the program offers a quiet mode or is an MSI, (4) deep-scan for the leftovers ordinary uninstallers leave behind — the install folder, per-user AppData folders named after the app or its publisher, Start-menu shortcuts and Software registry keys, (5) you review the found leftovers and tick which to remove — nothing is deleted without your say-so, then (6) a summary of everything that happened. Every leftover is re-validated against a fixed allow-list of safe locations before deletion, so it can never touch Windows or files outside the program\'s own footprint. It acts on one program at a time and reports honestly when a step needs admin or a file is locked.',
+                category: 'System',
+                keywords: ['uninstall', 'uninstaller', 'remove', 'delete', 'program', 'app', 'leftovers', 'revo', 'clean', 'registry', 'residue', 'deep', 'wipe', 'declutter', 'installed'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Searchable list of installed programs', '6-stage guided deep uninstall', 'Runs the program\'s own uninstaller (silent when possible)', 'Scans for leftover files, folders & registry keys', 'You review & tick which leftovers to remove', 'System Restore point before it starts (best-effort)', 'Safety allow-list — never touches Windows or unrelated files', 'Honest per-item reporting'],
+                panelId: 'revo-uninstaller-panel',
+                panelRenderer: 'renderRevoUninstallerPanel'
             },
             {
                 id: 'fpsOptimizer',

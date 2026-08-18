@@ -1,6 +1,6 @@
 {
   "name": "main-app",
-  "version": "3.48.4",
+  "version": "3.48.5",
   "description": "main",
   "main": "main.js",
   "scripts": {

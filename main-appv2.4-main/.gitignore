@@ -3,6 +3,7 @@ node_modules/
 
 # Electron build output
 dist/
+dist-*/
 
 # Machine-specific Claude settings
 .claude/settings.local.json

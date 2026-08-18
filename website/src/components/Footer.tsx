@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Logo } from "@/components/ui/Logo";
 import { AccentPicker } from "@/components/AccentPicker";
+import { FooterLogoGame } from "@/components/FooterLogoGame";
 import { VERSION_LABEL } from "@/lib/site";
 
 const FOOTER_LINKS = [
@@ -18,7 +18,8 @@ export function Footer() {
     <footer className="relative z-10 mt-24 border-t border-white/10">
       <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-12 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
-          <Logo size={36} />
+          {/* Easter egg: the footer mark opens the hidden glass arcade (modal). */}
+          <FooterLogoGame />
           <div className="leading-tight">
             <span className="block text-lg font-semibold tracking-tight text-white">
               main

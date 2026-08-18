@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectIcon: () => ipcRenderer.invoke('select-icon'),
   minimizeWindow: () => ipcRenderer.send('window-minimize'),
   closeWindow: () => ipcRenderer.send('window-close'),
+  // Grow the app window to true full screen (whole monitor) while the Full Screen
+  // Lyrics stage is open, and restore its normal bounds when it closes.
+  lyricsSetImmersive: (on) => ipcRenderer.invoke('lyrics-set-immersive', !!on),
   setFocusHotkey: (accelerator) => ipcRenderer.invoke('set-focus-hotkey', accelerator),
   getFocusHotkey: () => ipcRenderer.invoke('get-focus-hotkey'),
   unregisterFocusHotkey: () => ipcRenderer.invoke('unregister-focus-hotkey'),
@@ -294,6 +297,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   appInstallerOpenWingetStore: () => ipcRenderer.invoke('app-installer:open-winget-store'),
   appInstallerInstallWinget: () => ipcRenderer.invoke('app-installer:install-winget'),
   onAppInstallerProgress: (callback) => ipcRenderer.on('app-installer:progress', (_event, data) => callback(data)),
+
+  // Mini Widgets: Deep Uninstaller (Revo-style — uninstall + leftover sweep, 6 stages)
+  revoUninstallerStatus: () => ipcRenderer.invoke('revo-uninstaller:status'),
+  revoUninstallerList: (force) => ipcRenderer.invoke('revo-uninstaller:list', force),
+  revoUninstallerUninstall: (id) => ipcRenderer.invoke('revo-uninstaller:uninstall', id),
+  revoUninstallerClean: (ids) => ipcRenderer.invoke('revo-uninstaller:clean', ids),
+  revoUninstallerCancel: () => ipcRenderer.invoke('revo-uninstaller:cancel'),
+  revoUninstallerReset: () => ipcRenderer.invoke('revo-uninstaller:reset'),
+  onRevoUninstallerProgress: (callback) => ipcRenderer.on('revo-uninstaller:progress', (_event, data) => callback(data)),
 
   // Mini Widgets: Windows Debloat (per-user AppX removal + reversible HKCU tweaks)
   debloatCatalog: () => ipcRenderer.invoke('debloat:catalog'),

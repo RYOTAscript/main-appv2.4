@@ -794,7 +794,13 @@
 
             if (keydownMatches(e, hotkeys.close)) {
                 e.preventDefault();
-                if (!document.getElementById('settings-modal').classList.contains('hidden')) closeSettingsDone();
+                // The Full Screen Lyrics stage sits on top of everything — a stray
+                // Escape should drop out of it first, not close the whole app.
+                if (typeof isFullscreenLyricsOpen === 'function' && isFullscreenLyricsOpen()) {
+                    e.stopPropagation();
+                    closeFullscreenLyrics();
+                }
+                else if (!document.getElementById('settings-modal').classList.contains('hidden')) closeSettingsDone();
                 else closeApp();
                 return;
             }

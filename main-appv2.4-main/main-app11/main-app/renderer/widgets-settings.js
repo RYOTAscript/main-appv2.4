@@ -220,6 +220,12 @@
             if (typeof applySpotifyEnhancedEnabled === 'function') {
                 applySpotifyEnhancedEnabled(!!prefs.spotifyEnhanced);
             }
+            // Full Screen Lyrics is renderer-only — show/hide the player's full-screen
+            // button (which also respects whether the Lyrics display is on), close the
+            // stage if it was turned off while open, and refresh its config panel.
+            if (typeof applyFullscreenLyricsEnabled === 'function') {
+                applyFullscreenLyricsEnabled(!!prefs.fullscreenLyrics);
+            }
             // Screen Resolution Manager is renderer-only too — (re)load the panel so
             // toggling it on immediately populates the monitor list.
             if (typeof renderScreenResolutionPanel === 'function') {
@@ -299,6 +305,12 @@
             if (panel) {
                 panel.style.display = enabled ? 'flex' : 'none';
             }
+            // The Full Screen Lyrics button only makes sense while lyrics are shown —
+            // and if lyrics were just turned off, drop out of the stage if it's open.
+            if (typeof updateFullscreenLyricsBtn === 'function') updateFullscreenLyricsBtn();
+            if (!enabled && typeof isFullscreenLyricsOpen === 'function' && isFullscreenLyricsOpen()) {
+                closeFullscreenLyrics();
+            }
             scheduleSettingsSave();
         }
 
@@ -310,6 +322,7 @@
             if (panel) {
                 panel.style.display = enabled ? 'flex' : 'none';
             }
+            if (typeof updateFullscreenLyricsBtn === 'function') updateFullscreenLyricsBtn();
         }
 
         // Initialize lyrics panel with placeholder (defensive — normally the static

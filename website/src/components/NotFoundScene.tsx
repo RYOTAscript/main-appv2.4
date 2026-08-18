@@ -21,7 +21,7 @@ const GHOST_WIDGETS = [
   { icon: "fa-brands fa-spotify", label: "Spotify" },
   { icon: "fa-solid fa-gauge-high", label: "FPS Optimizer" },
   { icon: "fa-solid fa-rocket", label: "Quick Launch" },
-  { icon: "fa-solid fa-music", label: "Synced Lyrics" },
+  { icon: "fa-solid fa-microchip", label: "System Monitor" },
   { icon: "fa-solid fa-download", label: "App Installer" },
   { icon: "fa-solid fa-broom", label: "Debloat" },
 ] as const;
@@ -53,9 +53,11 @@ export function NotFoundScene() {
     let px = 0;
     let py = 0;
     const onMove = (e: PointerEvent) => {
-      const r = el.getBoundingClientRect();
-      px = (e.clientX - r.left) / r.width; // 0..1
-      py = (e.clientY - r.top) / r.height;
+      // Viewport-relative so the fixed, full-screen spotlight lands under the
+      // cursor exactly (the section is only max-w wide — mapping to it would
+      // squeeze the glow into the centre column).
+      px = e.clientX / window.innerWidth; // 0..1
+      py = e.clientY / window.innerHeight;
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
@@ -75,13 +77,13 @@ export function NotFoundScene() {
   return (
     <section
       ref={sceneRef}
-      className="nf-scene relative mx-auto flex min-h-[86vh] max-w-4xl flex-col items-center justify-center overflow-hidden px-6 pt-28 pb-16 text-center"
+      className="nf-scene relative mx-auto flex min-h-[86vh] max-w-4xl flex-col items-center justify-center px-6 pt-28 pb-16 text-center"
     >
       {/* Cursor-tracking accent spotlight */}
       <div className="nf-spotlight" aria-hidden />
 
       {/* Drifting ghost widgets that "fell off the glass" */}
-      <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden>
         {GHOST_WIDGETS.map((w, i) => {
           const g = GHOST_LAYOUT[i];
           return (
