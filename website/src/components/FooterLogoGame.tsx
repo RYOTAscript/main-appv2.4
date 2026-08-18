@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/ui/Logo";
+import { ArcadeBoot } from "@/components/ArcadeBoot";
 import { SnakeGame } from "@/components/SnakeGame";
 
 /**
@@ -15,14 +16,13 @@ import { SnakeGame } from "@/components/SnakeGame";
  */
 export function FooterLogoGame() {
   const [open, setOpen] = useState(false);
-  // Brief "spinning up" beat before the board appears — cheap loadup animation
-  // reusing the app's existing spin-ring/glass/live-dot classes (no new CSS).
-  const [loading, setLoading] = useState(true);
+  // Boot sequence plays every time the arcade opens; ArcadeBoot flips this
+  // via onDone once its terminal log + progress bar finish (or are skipped).
+  const [booted, setBooted] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setLoading(true);
-    const t = window.setTimeout(() => setLoading(false), 550);
+    setBooted(false);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
@@ -31,7 +31,6 @@ export function FooterLogoGame() {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      window.clearTimeout(t);
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
@@ -69,20 +68,10 @@ export function FooterLogoGame() {
             >
               <i className="fa-solid fa-xmark" />
             </button>
-            {loading ? (
-              <div className="flex flex-col items-center justify-center gap-4 py-24">
-                <div className="spin-ring relative flex h-16 w-16 items-center justify-center rounded-full border border-white/10">
-                  <div className="glass glow flex h-12 w-12 items-center justify-center rounded-full border border-white/10">
-                    <Logo size={26} rounded="rounded-lg" bordered={false} />
-                  </div>
-                  <span className="live-dot absolute right-0 top-0" />
-                </div>
-                <p className="font-mono text-xs tracking-widest text-neutral-500">
-                  LOADING ARCADE…
-                </p>
-              </div>
-            ) : (
+            {booted ? (
               <SnakeGame />
+            ) : (
+              <ArcadeBoot onDone={() => setBooted(true)} />
             )}
           </div>
         </div>

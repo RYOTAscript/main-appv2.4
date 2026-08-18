@@ -1399,7 +1399,89 @@ code, pre, .legal-prose, .legal-prose *, .selectable, .selectable * {
   touch-action: none;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Arcade boot sequence (ArcadeBoot.tsx) — the loadup screen before Snake.
+   A glass terminal in the same vocabulary as the 404 route trace (traffic
+   lights, monospace log, .nf-caret). Line reveals + the "OK" chips are plain
+   opacity/transform transitions driven by a JS timeline (ArcadeBoot computes
+   when to toggle each .is-shown); only the progress bar's width transition
+   duration is set inline per-mount since it depends on that same timeline.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@keyframes abPowerOn {
+  0% { transform: scale(0.6); opacity: 0; filter: blur(2px); }
+  60% { transform: scale(1.08); opacity: 1; filter: blur(0); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.ab-icon {
+  animation: abPowerOn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ab-line {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.ab-line.is-shown {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.ab-ok {
+  display: inline-block;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.ab-ok.is-shown {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.ab-bar-track {
+  position: relative;
+  height: 3px;
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.ab-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(var(--accent), 0.6), var(--accent-solid));
+  box-shadow: 0 0 10px rgba(var(--accent), 0.6);
+  /* transition is driven entirely by the inline `transition` shorthand
+     (ArcadeBoot.tsx) — its duration depends on the JS timeline, and skip
+     needs to force it to `none` even though the target width doesn't change. */
+}
+
+.ab-exit {
+  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.4, 0, 1, 1);
+}
+.ab-exit.is-exiting {
+  opacity: 0;
+  transform: scale(0.96) translateY(-6px);
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .ab-icon {
+    animation: none !important;
+  }
+  .ab-line,
+  .ab-ok {
+    transition: none !important;
+  }
+  .ab-bar-fill {
+    transition: none !important;
+  }
+  .ab-exit.is-exiting {
+    transition: opacity 0.15s ease !important;
+    transform: none !important;
+  }
   .nf-glitch,
   .nf-glitch__layer--a,
   .nf-glitch__layer--b,
