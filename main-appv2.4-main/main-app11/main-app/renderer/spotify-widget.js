@@ -633,6 +633,9 @@
             // lands on a populated dashboard instead of an empty one. No-ops on
             // every subsequent launch. See seedFirstRunMiniWidgets() in core.js.
             const justOnboarded = typeof seedFirstRunMiniWidgets === 'function' && seedFirstRunMiniWidgets();
+            // Expose the first-launch flag so renderApps() can show a one-time
+            // "add your own app" invite in the empty 6th Quick Launch slot.
+            window.__mainFirstLaunch = justOnboarded;
             renderApps();
             updateClock();
             applyWidgetPrefs(true); // skip animation on first load -- nothing should flash/animate in or out

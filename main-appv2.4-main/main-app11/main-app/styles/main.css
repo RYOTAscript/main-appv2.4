@@ -168,6 +168,55 @@
             pointer-events: none;
         }
 
+        /* First-launch "add your own app" invite tile (see quickLaunchAddTile in
+           renderer/ui-utils.js). A dashed, accent-aware ghost of a normal Quick
+           Launch tile so it reads as an empty slot waiting to be filled. Shares
+           .app-icon so it inherits the hover lift; these rules sit after
+           `.app-icon .icon-tile` so they win the equal-specificity tie. */
+        .ql-add-tile {
+            background: transparent;
+            border: none;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .ql-add-tile .icon-tile {
+            background: color-mix(in srgb, var(--tile-bg, #0a0a0a) 55%, transparent);
+            border-style: dashed;
+            border-color: rgba(255, 255, 255, 0.18);
+        }
+
+        .ql-add-tile:hover .icon-tile {
+            border-color: rgba(var(--accent), 0.5);
+            box-shadow: 0 0 30px rgba(var(--accent), 0.15), inset 0 0 20px rgba(var(--accent), 0.04);
+        }
+
+        .ql-add-tile .ql-add-label {
+            color: rgba(255, 255, 255, 0.55);
+            transition: color 0.35s ease;
+        }
+
+        .ql-add-tile:hover .ql-add-label {
+            color: rgba(255, 255, 255, 0.85);
+        }
+
+        /* Brief accent glow used to draw the eye to a settings section we just
+           scrolled to (e.g. Pinned Apps, from the first-launch "Add app" invite). */
+        .settings-flash {
+            animation: settings-flash 1.6s ease;
+            border-radius: 16px;
+        }
+
+        @keyframes settings-flash {
+            0% { box-shadow: 0 0 0 0 rgba(var(--accent), 0); }
+            25% { box-shadow: 0 0 0 3px rgba(var(--accent), 0.35); }
+            100% { box-shadow: 0 0 0 0 rgba(var(--accent), 0); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .settings-flash { animation: none; }
+        }
+
         /* Settings → Quick Launch 6-slot board: uniform cell height, plus drag
            feedback (the grabbed card dims, the hovered drop target highlights). */
         .ql-slot-cell {

@@ -45,7 +45,7 @@
                         onerror="this.outerHTML='<div class=\'w-9 h-9 bg-white rounded-2xl flex items-center justify-center text-xl font-bold text-black\'>M</div>'">
                     <div>
                         <h1 class="text-2xl font-semibold tracking-tight text-white">main</h1>
-                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.48.5</p>
+                        <p class="text-[10px] text-neutral-500 tracking-widest">v3.48.6</p>
                     </div>
                 </div>
                 <div class="no-drag flex items-center gap-3 text-sm">
@@ -863,6 +863,19 @@
                                 crashes, and session info.</p>
                         </div>
 
+                        <div class="settings-group-label"><i class="fas fa-circle-question"></i><span>Help &amp; Support</span></div>
+
+                        <div class="mb-10" id="help-section">
+                            <h3 class="text-sm font-medium mb-4 text-neutral-300">Need a hand?</h3>
+                            <div class="flex flex-wrap gap-3">
+                                <button onclick="openSupport()"
+                                    class="px-5 py-2.5 border border-neutral-700 rounded-xl hover:bg-neutral-800 text-sm transition-colors inline-flex items-center gap-2">
+                                    <i class="fas fa-headset text-xs" style="margin-right:8px"></i>Support &amp; FAQ</button>
+                            </div>
+                            <p class="text-xs text-neutral-400 mt-2">Opens the support page in your browser — setup help,
+                                troubleshooting, and how to get in touch.</p>
+                        </div>
+
                         <button onclick="closeSettingsDone()"
                             class="w-full bg-white text-black py-3.5 rounded-2xl font-medium hover:bg-neutral-200 transition-colors">Done</button>
                     </div>
@@ -946,7 +959,7 @@
                 class="absolute bottom-5 left-8 right-8 text-[10px] text-neutral-600 flex justify-between tracking-wide reveal-item"
                 style="animation-delay:0.5s">
                 <div id="footer-hotkeys" class="font-mono"></div>
-                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.48.5</div>
+                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v3.48.6</div>
             </div>
         </div>
         <!-- Log out confirmation (glass dialog, styled to match the app) -->

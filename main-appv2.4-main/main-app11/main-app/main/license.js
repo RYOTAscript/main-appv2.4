@@ -572,6 +572,10 @@ function openAccount() {
   shell.openExternal(`${SITE_URL}/account`);
 }
 
+function openSupport() {
+  shell.openExternal(`${SITE_URL}/support`);
+}
+
 function signOut() {
   clearStore();
 }
@@ -579,7 +583,7 @@ function signOut() {
 function init(ctx) {
   logger = ctx.logger;
   storePath = path.join(ctx.userDataPath, 'license.json');
-  return { check, getCachedUnlock, verifyInBackground, verifyKey, signInWithGoogle, getState, getAccount, openPricing, openAccount, signOut, SITE_URL };
+  return { check, getCachedUnlock, verifyInBackground, verifyKey, signInWithGoogle, getState, getAccount, openPricing, openAccount, openSupport, signOut, SITE_URL };
 }
 
 module.exports = { init };

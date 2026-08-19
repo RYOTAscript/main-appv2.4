@@ -114,6 +114,22 @@
             return slots;
         }
 
+        // First-launch only: a ghost "add your own app" tile shown as the 6th
+        // Quick Launch slot, inviting a brand-new user to pin something of their
+        // own next to the starter defaults. Opens Settings. Gated on
+        // window.__mainFirstLaunch (set at boot in renderer/spotify-widget.js) so
+        // it only ever appears on the very first launch, then disappears for good.
+        function quickLaunchAddTile(reveal, delayIndex) {
+            return `
+                <button type="button" onclick="openQuickLaunchSettings()" aria-label="Add your own app to Quick Launch"
+                    class="app-icon ql-add-tile flex flex-col items-center py-3 px-2 rounded-3xl${reveal ? ' app-reveal' : ''}"${reveal ? ` style="animation-delay:${(0.12 + delayIndex * 0.05).toFixed(2)}s"` : ''}>
+                    <div class="icon-tile w-16 h-16 rounded-3xl flex items-center justify-center mb-2.5">
+                        <i class="fas fa-plus text-2xl text-neutral-400"></i>
+                    </div>
+                    <span class="ql-add-label text-[11px] text-center leading-tight">Add app</span>
+                </button>`;
+        }
+
         function renderApps() {
             const grid = document.getElementById('apps-grid');
             const reveal = !appsRevealPlayed;
@@ -128,8 +144,14 @@
                 // sit in their chosen positions (with gaps) but the launcher stays
                 // clean — slots are assigned from Settings, not by dragging here.
                 const slots = baseSlotLayout(QL_BASE_SLOTS);
+                // First launch only: turn the first empty slot into an "add your
+                // own app" invite. Returning users keep the clean invisible-spacer
+                // behaviour untouched.
+                const addSlot = window.__mainFirstLaunch ? slots.findIndex(c => !c) : -1;
                 grid.innerHTML = slots.map((cell, slot) => {
-                    if (!cell) return `<div class="app-slot-empty" aria-hidden="true"></div>`;
+                    if (!cell) return slot === addSlot
+                        ? quickLaunchAddTile(reveal, slot)
+                        : `<div class="app-slot-empty" aria-hidden="true"></div>`;
                     const { app, index } = cell;
                     return `
                     <div class="app-icon flex flex-col items-center cursor-pointer py-3 px-2 rounded-3xl border border-transparent hover:border-white/10${reveal ? ' app-reveal' : ''}"${reveal ? ` style="animation-delay:${0.12 + slot * 0.05}s"` : ''} data-index="${index}">
@@ -152,7 +174,7 @@
                 .map((app, i) => ({ app, i }))
                 .filter(({ app }) => appMatchesFolder(app, activeFolder));
 
-            grid.innerHTML = entries.map(({ app, i }, pos) => {
+            let html = entries.map(({ app, i }, pos) => {
                 const running = runningSet && appIsRunning(app, runningSet);
                 return `
                 <div class="app-icon flex flex-col items-center cursor-pointer py-3 px-2 rounded-3xl border border-transparent hover:border-white/10${reveal ? ' app-reveal' : ''}"${reveal ? ` style="animation-delay:${0.12 + pos * 0.05}s"` : ''} data-index="${i}">
@@ -164,6 +186,15 @@
                     <span class="text-[11px] ${running ? 'text-emerald-400' : 'text-neutral-500'} text-center leading-tight">${esc(app.name)}</span>
                 </div>`;
             }).join('');
+
+            // First launch only: append an "add your own app" invite as the next
+            // tile in the default (All) view, so a new user sees a 6th slot to
+            // make the launcher their own. Only while the first row has room —
+            // once they've filled all six, the invite disappears.
+            if (window.__mainFirstLaunch && activeFolder === 'All' && entries.length < QL_BASE_SLOTS) {
+                html += quickLaunchAddTile(reveal, entries.length);
+            }
+            grid.innerHTML = html;
 
             if (typeof renderQuickLaunchBar === 'function') renderQuickLaunchBar();
         }

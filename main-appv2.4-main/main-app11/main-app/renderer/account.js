@@ -66,6 +66,10 @@ function openAccountWebsite() {
     window.electronAPI?.licenseOpenAccount?.();
 }
 
+function openSupport() {
+    window.electronAPI?.licenseOpenSupport?.();
+}
+
 async function recheckLicense() {
     const status = document.getElementById('account-recheck-status');
     const btn = document.getElementById('account-recheck-btn');

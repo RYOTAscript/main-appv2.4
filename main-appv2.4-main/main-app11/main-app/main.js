@@ -602,6 +602,7 @@ if (!gotSingleInstanceLock) {
   // ── Account management (in-app Settings) ──
   ipcMain.handle('license:account', () => licenseModule.getAccount());
   ipcMain.handle('license:open-account', () => { licenseModule.openAccount(); return { success: true }; });
+  ipcMain.handle('license:open-support', () => { licenseModule.openSupport(); return { success: true }; });
   ipcMain.handle('license:recheck', async () => {
     try {
       const status = await licenseModule.check();

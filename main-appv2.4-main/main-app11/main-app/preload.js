@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   licenseGetAccount: () => ipcRenderer.invoke('license:account'),
   licenseRecheck: () => ipcRenderer.invoke('license:recheck'),
   licenseOpenAccount: () => ipcRenderer.invoke('license:open-account'),
+  licenseOpenSupport: () => ipcRenderer.invoke('license:open-support'),
   licenseLogout: () => ipcRenderer.invoke('license:logout'),
 
   // Updates (auto-updater)

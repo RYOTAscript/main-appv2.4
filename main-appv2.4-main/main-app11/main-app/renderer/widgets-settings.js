@@ -415,6 +415,22 @@
             document.getElementById('settings-modal').classList.remove('hidden');
         }
 
+        // Opens Settings and lands the user directly on the Pinned Apps board,
+        // with a brief highlight — used by the first-launch "Add app" invite in
+        // Quick Launch so a new user knows exactly where to add their own app.
+        async function openQuickLaunchSettings() {
+            await openSettings();
+            // Wait a frame so the modal's entrance cascade has laid out before we
+            // scroll/flash the target section.
+            requestAnimationFrame(() => {
+                const el = document.getElementById('settings-apps');
+                if (!el) return;
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('settings-flash');
+                setTimeout(() => el.classList.remove('settings-flash'), 1600);
+            });
+        }
+
         function deleteApp(i) {
             pinnedApps.splice(i, 1);
             renderSettingsApps();

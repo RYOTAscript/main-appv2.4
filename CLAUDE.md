@@ -17,10 +17,13 @@ Windows gaming/productivity launcher):
 | **ValClips Quality** | `main-appv2.4-main/valclips-quality/` | electron-vite, React 19, TypeScript, Vitest | Standalone TikTok/Valorant clip quality tool, launched from Main. |
 | **Website (main-website)** | `website/` | Next.js 14 (App Router), Prisma + Postgres, NextAuth, PayPal | Marketing + commerce site: sells licenses, provisions keys. |
 
-There is also a nested helper Electron app, **fps-optimizer-electron**
-(`main-app11/main-app/fps-optimizer-electron/`), spawned by Main via IPC.
+FPS optimization used to live in a nested helper Electron app
+(`fps-optimizer-electron/`); that app is **gone**. It is now a first-class
+feature module, `main/fpsOptimizer.js` — an in-process `tasklist`/`taskkill`
+sweep with a hard self-protection whitelist (never kills the launcher, its child
+windows, or system processes). Don't reintroduce a separate FPS app.
 
-The desktop app and website share a version number (currently **3.48.0**);
+The desktop app and website share a version number (currently **3.48.6**);
 ValClips versions independently (**1.2.0**).
 
 ---
@@ -31,20 +34,35 @@ Windows-only, always-on Electron overlay for gamers/power users. Glass-morphism
 UI, system tray background operation.
 
 ### Entry points & process model
-- **Main process:** `main.js` (~665 lines) — window/tray/IPC setup. Feature
-  logic lives in `main/*.js` modules (one per feature: `spotify.js`,
-  `fileSearch.js`, `controllerMacros.js`, …).
-- **Preload:** `preload.js` — the **only** bridge. Exposes `window.electronAPI`
-  via `contextBridge`. Context isolation is on; the renderer has no direct Node
-  access. Add a method here to expose new main-process capability.
-- **Renderer:** `main.html` + `renderer/core.js` (bootstrap) + one
-  `renderer/<feature>.js` per feature (~35 files). Vanilla JS, no framework.
+- **Main process:** `main.js` (~800 lines) — window/tray/IPC setup, then it
+  requires ~31 feature modules from `main/`. Feature logic lives in `main/*.js`
+  modules, roughly one per feature (`spotify.js`, `fileSearch.js`,
+  `controllerMacros.js`, `fpsOptimizer.js`, `debloat.js`, …). Alongside the
+  feature modules sit five **shared infrastructure modules** that most features
+  build on — treat these as the low-level toolkit, not features:
+  `shellUtils.js` (`runCmd`/`runCmdSync`, ~13 requirers), `scriptCache.js`
+  (`ensureVersionedScript`, ~11 requirers), `httpClient.js` (`safeFetch` — a
+  fetch-shaped wrapper over Node `https`), `boundedCache.js` (LRU-ish cache),
+  and `elevate.js` (relaunches the *whole app* under UAC for admin-gated work).
+- **Preload:** `preload.js` (~320 lines) — the **only** bridge. Exposes
+  `window.electronAPI` via `contextBridge`. Context isolation is on; the
+  renderer has no direct Node access. Add a method here to expose new
+  main-process capability.
+- **Renderer:** `main.html` + `renderer/core.js` (bootstrap, ~470 lines, holds
+  the `MINI_WIDGETS` registry) + one `renderer/<feature>.js` per feature (~41
+  files). Vanilla JS, no framework.
+- **Child windows:** besides the main overlay, Main spawns dedicated
+  frameless/transparent windows — e.g. the crosshair overlay
+  (`main/crosshair.js`), the mic-mute overlay (`main/micMute.js`), and the
+  license gate. FPS-optimizer kill sweeps protect all of them by PID + image
+  name so they can never self-terminate.
 
 ### IPC pattern (follow it exactly)
 Renderer → `window.electronAPI.someCall()` (in `preload.js`) →
 `ipcRenderer.invoke('channel', …)` → `ipcMain.handle('channel', …)` in the
-feature's `main/*.js`. ~26 main modules register handlers. Never reach around
-the preload bridge; never enable `nodeIntegration` in the renderer.
+feature's `main/*.js`. ~30 main modules register handlers (~190 channels total).
+Never reach around the preload bridge; never enable `nodeIntegration` in the
+renderer.
 
 ### Mini-Widget registry — single source of truth
 `MINI_WIDGETS` in **`renderer/core.js`** is the one registry for all Launcher
@@ -57,9 +75,12 @@ mini widgets. To add a widget:
    `main/<id>.js` + a `preload.js` method.
 3. Add any Tailwind classes → **rebuild CSS** (see gotchas).
 
-The Widget Library, its search index, the dashboard Mini Widgets strip, and the
-Settings summary **all generate from this registry** — never hardcode widget
-lists in UI code. Config panels (`panelId`) render inside the library detail
+The registry currently holds **25 widgets** across 12 categories (Audio,
+Clipboard, Displays, Gaming, Media, Productivity, Searching, Social, Spotify,
+System, Utilities, Weather). The Widget Library, its search index, the dashboard
+Mini Widgets strip, and the Settings summary **all generate from this
+registry** — never hardcode widget lists in UI code. Config panels (`panelId`)
+render inside the library detail
 view and must no-op when their div is absent (`if (!panel) return;`) — the div
 only exists while the detail is open. Enabled state → `miniWidgetPrefs`,
 favourites → `miniWidgetFavs`, recents → `miniWidgetRecents` (all localStorage;
@@ -69,10 +90,13 @@ keep keys stable).
 ```bash
 npm start            # electron . — run the app in dev
 npm run build:css    # REQUIRED after adding/removing any Tailwind class
-npm run build        # electron-builder --win → NSIS installer + portable exe
+npm run build        # electron-builder --win --publish never → NSIS + portable
 ```
-There is **no automated test suite** for the desktop app (`npm test` is a stub).
-See §6 for how this app is actually tested.
+The build runs an `afterPack` hook (`build/fuses.js`, `@electron/fuses`) that
+flips Electron security fuses (disables `runAsNode`, cookie-encryption off, etc.)
+— packaging-sensitive; leave it wired. There is **no automated test suite** for
+the desktop app (`npm test` is a stub). See §6 for how this app is actually
+tested.
 
 ### Runtime data
 Stored under `%APPDATA%/main-launcher/`: Spotify tokens, settings JSON, caches,
