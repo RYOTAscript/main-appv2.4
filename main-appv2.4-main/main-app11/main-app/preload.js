@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   iconsBasePath,
   backgroundsBasePath,
 
+  // Running OS ('win32' | 'darwin' | 'linux'). Read synchronously here so the
+  // renderer can gate Windows-only mini widgets out of the registry at load
+  // (see renderer/widget-platform.js) with no flash of unavailable widgets.
+  platform: process.platform,
+
   // Background Studio (custom background library)
   backgroundSelect: () => ipcRenderer.invoke('background-select'),
   backgroundList: () => ipcRenderer.invoke('background-list'),
@@ -319,5 +324,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
   debloatRestartExplorer: () => ipcRenderer.invoke('debloat:restart-explorer'),
   debloatRestorePoint: () => ipcRenderer.invoke('debloat:restore-point'),
   onDebloatProgress: (callback) => ipcRenderer.on('debloat:progress', (_event, data) => callback(data)),
+
+  // ── macOS-only mini widgets ──
+  // Shared: detect / 1-click-install the free Homebrew CLIs some mac widgets use
+  macToolsStatus: () => ipcRenderer.invoke('mac-tools:status'),
+  macToolsInstall: (tool) => ipcRenderer.invoke('mac-tools:install', tool),
+
+  // Mini Widgets: Dock Styler (macOS — reversible com.apple.dock defaults)
+  dockStylerGet: () => ipcRenderer.invoke('dock-styler:get'),
+  dockStylerSet: (key, value) => ipcRenderer.invoke('dock-styler:set', key, value),
+  dockStylerReset: () => ipcRenderer.invoke('dock-styler:reset'),
+
+  // Mini Widgets: macOS Tweaks (macOS — reversible per-user `defaults` toggles)
+  macTweaksGet: () => ipcRenderer.invoke('mac-tweaks:get'),
+  macTweaksSet: (id, on) => ipcRenderer.invoke('mac-tweaks:set', id, on),
+
+  // Mini Widgets: App Uninstaller (macOS — trash app + ~/Library leftovers)
+  appUninstallerList: () => ipcRenderer.invoke('app-uninstaller:list'),
+  appUninstallerScan: (app) => ipcRenderer.invoke('app-uninstaller:scan', app),
+  appUninstallerRemove: (payload) => ipcRenderer.invoke('app-uninstaller:remove', payload),
+
+  // Mini Widgets: Macros (macOS — build-and-play, osascript/cliclick)
+  macMacrosGet: () => ipcRenderer.invoke('mac-macros:get'),
+  macMacrosSetEnabled: (enabled) => ipcRenderer.invoke('mac-macros:set-enabled', enabled),
+  macMacrosSave: (macro) => ipcRenderer.invoke('mac-macros:save', macro),
+  macMacrosDelete: (id) => ipcRenderer.invoke('mac-macros:delete', id),
+  macMacrosPlay: (id) => ipcRenderer.invoke('mac-macros:play', id),
+
+  // Mini Widgets: Free Up & Quiet (macOS — purge memory, quit background apps)
+  macFreeUpFreeMemory: () => ipcRenderer.invoke('mac-freeup:free-memory'),
+  macFreeUpListApps: () => ipcRenderer.invoke('mac-freeup:list-apps'),
+  macFreeUpQuitApps: (names) => ipcRenderer.invoke('mac-freeup:quit-apps', names),
+
+  // Mini Widgets: App Installer — Homebrew Cask (macOS)
+  appInstallerMacCatalog: () => ipcRenderer.invoke('app-installer-mac:catalog'),
+  appInstallerMacInstalled: () => ipcRenderer.invoke('app-installer-mac:installed'),
+  appInstallerMacInstall: (ids) => ipcRenderer.invoke('app-installer-mac:install', ids),
+  appInstallerMacCancel: () => ipcRenderer.invoke('app-installer-mac:cancel'),
+  onAppInstallerMacProgress: (callback) => ipcRenderer.on('app-installer-mac:progress', (_event, data) => callback(data)),
 
 });

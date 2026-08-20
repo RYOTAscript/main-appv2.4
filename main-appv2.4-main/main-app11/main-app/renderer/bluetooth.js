@@ -140,6 +140,12 @@
                 bluetoothLoading = false;
             }
             if (!isBluetoothEnabled()) { panel.innerHTML = ''; return; }
+            // macOS: the blueutil CLI isn't installed yet → offer a 1-click install.
+            if (res && res.needsTool && !bluetoothData.devices.length) {
+                stopBluetoothAutoRefresh();
+                panel.innerHTML = macToolMissingMarkup(res.needsTool, res.toolLabel, 'renderBluetoothPanel');
+                return;
+            }
             if (res?.ok) {
                 bluetoothData = { devices: res.devices || [] };
                 if ('radio' in res) bluetoothRadio = res.radio || null;

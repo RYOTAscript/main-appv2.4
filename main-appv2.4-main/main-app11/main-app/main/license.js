@@ -116,38 +116,11 @@ let storePath = null;
 
 // ── Machine fingerprint ───────────────────────────────────────────────────────
 // Stable, non-PII hardware id used to bind a license token to this machine.
-// Primary source is the Windows MachineGuid (survives app reinstalls, changes
-// only on OS reinstall); falls back to hostname + first physical MAC.
+// Windows: MachineGuid · macOS: IOPlatformUUID · else: hostname + first MAC.
+// The compute/hash logic lives in ./machineId (electron-free + unit-tested); the
+// Windows result is byte-identical to before so existing users aren't logged out.
+const { computeMachineId } = require('./machineId');
 let _machineId = null;
-function computeMachineId() {
-  let raw = '';
-  try {
-    const out = execSync(
-      'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
-      { encoding: 'utf8', windowsHide: true, timeout: 4000 },
-    );
-    const m = out.match(/MachineGuid\s+REG_SZ\s+([\w-]+)/i);
-    if (m) raw = m[1];
-  } catch (e) {
-    /* fall through to the network-interface fallback */
-  }
-  if (!raw) {
-    try {
-      const nets = os.networkInterfaces();
-      let mac = '';
-      for (const name of Object.keys(nets)) {
-        for (const ni of nets[name] || []) {
-          if (!ni.internal && ni.mac && ni.mac !== '00:00:00:00:00:00') { mac = ni.mac; break; }
-        }
-        if (mac) break;
-      }
-      raw = `${os.hostname()}|${mac}`;
-    } catch (e) {
-      raw = os.hostname() || 'unknown';
-    }
-  }
-  return crypto.createHash('sha256').update(`main-license|${raw}`).digest('hex').slice(0, 32);
-}
 function machineId() {
   if (!_machineId) _machineId = computeMachineId();
   return _machineId;

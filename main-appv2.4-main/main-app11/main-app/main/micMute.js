@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electro
 const path = require('path');
 const { ensureVersionedScript } = require('./scriptCache');
 const { runCmd } = require('./shellUtils');
+const { isMac } = require('./platform');
+const { runAppleScript, scripts } = require('./osascript');
+const { inputMuteDecision } = require('./audioMac');
 
 const MIC_MUTE_SCRIPT_VERSION = 1;
 const DEFAULT_MIC_MUTE_HOTKEY = 'Control+Shift+M';
@@ -90,12 +93,38 @@ function init(ctx) {
   let micMuteHotkeyAccel = null;
   let micMuteOverlayWindow = null;
   let micMuteOverlayEnabled = false;
+  // macOS has no "input muted" flag — we mute by driving the input gain to 0, so
+  // remember the level to restore when unmuting.
+  let macSavedInputVolume = 50;
 
   function ensureMicMuteScript() {
     ensureVersionedScript(MIC_MUTE_SCRIPT, MIC_MUTE_SCRIPT_VERSION, MIC_MUTE_SCRIPT_CONTENT);
   }
 
+  // macOS mic mute via osascript: read the input volume, then toggle it to 0 /
+  // restore. Returns the resulting muted state, or null on failure. Matches
+  // runMicMuteScript's contract.
+  async function macRunMicMute(action) {
+    const read = await runAppleScript(scripts.getInputVolume);
+    const cur = read.ok ? parseInt(read.stdout, 10) : NaN;
+    const decision = inputMuteDecision(action, Number.isFinite(cur) ? cur : null, macSavedInputVolume);
+    if (decision.muted === null) {
+      logger.error('Mic mute (macOS) could not read input volume', new Error(read.stderr || 'no volume'), { action });
+      return null;
+    }
+    if (decision.setVolume !== null) {
+      const set = await runAppleScript(scripts.setInputVolume(decision.setVolume));
+      if (!set.ok) {
+        logger.error('Mic mute (macOS) could not set input volume', new Error(set.stderr || 'set failed'), { action });
+        return null;
+      }
+      if (typeof decision.remember === 'number') macSavedInputVolume = decision.remember;
+    }
+    return decision.muted;
+  }
+
   async function runMicMuteScript(action) {
+    if (isMac) return macRunMicMute(action);
     ensureMicMuteScript();
     const { ok, stdout, stderr } = await runCmd(`powershell -NoProfile -ExecutionPolicy Bypass -File "${MIC_MUTE_SCRIPT}" ${action}`);
     if (!ok) {

@@ -1,4 +1,4 @@
-const { exec, execSync } = require('child_process');
+const { exec, execSync, execFile } = require('child_process');
 
 // timeoutMs (optional): kill the child and resolve with ok:false if it runs
 // longer than this. Left unset (0) means wait indefinitely, preserving the
@@ -21,4 +21,16 @@ function runCmdSync(cmd) {
   }
 }
 
-module.exports = { runCmd, runCmdSync };
+// Run an executable with an explicit argv array (no shell) — the injection-safe
+// counterpart to runCmd. Prefer this whenever any argument is dynamic (e.g. the
+// macOS `defaults`/`blueutil`/`displayplacer` helpers), so values never need
+// shell-escaping. Same resolve-only { ok, stdout, stderr, code } contract.
+function runFile(file, args = [], timeoutMs = 0) {
+  return new Promise((resolve) => {
+    execFile(file, args, { windowsHide: true, timeout: timeoutMs, maxBuffer: 1024 * 1024 * 8 }, (err, stdout, stderr) => {
+      resolve({ ok: !err, stdout: stdout || '', stderr: stderr || '', code: err ? err.code : 0 });
+    });
+  });
+}
+
+module.exports = { runCmd, runCmdSync, runFile };

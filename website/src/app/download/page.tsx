@@ -5,6 +5,7 @@ import { getUserLicense } from "@/lib/license";
 import { SectionLabel } from "@/components/ui/SectionLabel";
 import { Logo } from "@/components/ui/Logo";
 import { LicenseKeyPill } from "@/components/account/LicenseKeyPill";
+import { DownloadButtons } from "@/components/download/DownloadButtons";
 import { VERSION_LABEL } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -14,8 +15,8 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 const STEPS = [
-  "Run the installer — Windows may show a SmartScreen prompt; choose “More info → Run anyway.”",
-  "main launches into your system tray and opens the glass window.",
+  "Open the download — on Windows run the installer (at the SmartScreen prompt choose “More info → Run anyway”); on macOS open the .dmg and drag main to Applications.",
+  "main launches into your menu bar / system tray and opens the glass window.",
   "Open Settings → paste your license key if prompted, then make it yours: pick an accent, a background, and your widgets.",
 ];
 
@@ -27,7 +28,10 @@ export default async function DownloadPage() {
   // Purchase-gated: no active license → send them to buy.
   if (!license?.active) redirect("/#pricing");
 
-  const downloadUrl = process.env.DOWNLOAD_URL || "#";
+  // One license unlocks both builds. DOWNLOAD_URL = Windows (kept for back-compat);
+  // DOWNLOAD_URL_MAC = the macOS .dmg (optional — Mac button hidden when unset).
+  const winUrl = process.env.DOWNLOAD_URL || "";
+  const macUrl = process.env.DOWNLOAD_URL_MAC || "";
 
   return (
     <section className="relative mx-auto max-w-2xl px-6 pb-24 pt-32">
@@ -39,25 +43,19 @@ export default async function DownloadPage() {
               Download main
             </h1>
             <p className="font-mono text-[11px] tracking-widest text-neutral-500">
-              {VERSION_LABEL} · Windows 10/11 · 64-bit
+              {VERSION_LABEL} · Windows 10/11 · macOS 11+ · 64-bit
             </p>
           </div>
         </div>
 
-        <a
-          href={downloadUrl}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-7 py-3.5 text-base font-medium text-black transition-all duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:bg-neutral-200 active:scale-[0.98]"
-        >
-          <i className="fa-solid fa-download text-sm" />
-          Download for Windows
-        </a>
+        <DownloadButtons winUrl={winUrl} macUrl={macUrl} />
 
         <div className="mt-8">
           <SectionLabel className="mb-3">Your license key</SectionLabel>
           <LicenseKeyPill licenseKey={license.key} />
           <p className="mt-2 text-xs text-neutral-500">
             Keep this safe — it&apos;s tied to your account and unlocks main on
-            your PC.
+            your Mac or PC.
           </p>
         </div>
 

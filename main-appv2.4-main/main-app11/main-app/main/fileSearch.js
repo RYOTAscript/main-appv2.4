@@ -473,6 +473,16 @@ function init(ctx) {
         const root = String.fromCharCode(c) + ':\\';
         try { if (fs.existsSync(root)) drives.push(root); } catch (e) { /* skip */ }
       }
+    } else if (process.platform === 'darwin') {
+      drives.push('/');
+      // Mounted volumes (external drives, disk images, network shares) live
+      // under /Volumes on macOS — offer each as an indexable root.
+      try {
+        for (const name of fs.readdirSync('/Volumes')) {
+          const p = path.join('/Volumes', name);
+          try { if (fs.statSync(p).isDirectory()) drives.push(p); } catch (e) { /* skip */ }
+        }
+      } catch (e) { /* /Volumes unreadable — just offer / */ }
     } else {
       drives.push('/');
     }

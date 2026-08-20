@@ -30,20 +30,48 @@ ValClips versions independently (**1.2.0**).
 
 ## 2. Desktop app (Main) — the primary codebase
 
-Windows-only, always-on Electron overlay for gamers/power users. Glass-morphism
-UI, system tray background operation.
+Always-on Electron overlay for gamers/power users. Glass-morphism UI, tray/menu-bar
+background operation. **Windows and macOS are both supported** (see
+`MACOS_PORT_REPORT.md`). Branch OS-specific work on `main/platform.js`
+(`isWindows`/`isMac`): Windows → `shellUtils`/PowerShell, macOS → `osascript`
+(+ `defaults`/`runFile`, or a free Homebrew CLI via `main/macTools.js`).
+
+**Registry: 31 widget entries.** Windows shows 25, macOS shows 24. Three kinds:
+- **Cross-platform** (no `platforms` field): most widgets, incl. some with a
+  different backend per OS — bluetooth (WinRT ↔ `blueutil`), screenResolution
+  (↔ `displayplacer`), claudeLimit (SendKeys ↔ osascript; the `~/.claude` reader
+  is shared), gameMode (Win32 watcher ↔ osascript poll). A `main/<feat>Mac.js`
+  registers the SAME IPC channels on mac; the Windows module is init-skipped there.
+- **`platforms: ['win32']`** — Windows-only. Only **controllerMacros** has NO mac
+  equivalent (a virtual gamepad needs a DriverKit kext). Six have a **mac
+  substitute** shipped as a separate darwin-only widget: taskbar→**dockStyler**,
+  debloat→**macTweaks**, revoUninstaller→**appUninstaller**,
+  appInstaller→**appInstallerMac** (Homebrew), fpsOptimizer→**macFreeUp**,
+  macros→**macMacros** (build-and-play via osascript/`cliclick`, no recording).
+- **`platforms: ['darwin']`** — the 6 mac-only substitute widgets above.
+
+Windows-only `main/` modules are still skipped at init on non-Windows; the mac
+modules run in a parallel `if (isMac)` init block (see main.js). Tools that need a
+Homebrew CLI (blueutil/displayplacer/casks) return `{ needsTool }`; the shared
+`renderer/mac-tools.js` renders a legal **1-click install** (official brew.sh
+installer, MIT tools, install-on-demand — see [[legal-to-sell-rule]]).
 
 ### Entry points & process model
 - **Main process:** `main.js` (~800 lines) — window/tray/IPC setup, then it
   requires ~31 feature modules from `main/`. Feature logic lives in `main/*.js`
   modules, roughly one per feature (`spotify.js`, `fileSearch.js`,
   `controllerMacros.js`, `fpsOptimizer.js`, `debloat.js`, …). Alongside the
-  feature modules sit five **shared infrastructure modules** that most features
+  feature modules sit **shared infrastructure modules** that most features
   build on — treat these as the low-level toolkit, not features:
   `shellUtils.js` (`runCmd`/`runCmdSync`, ~13 requirers), `scriptCache.js`
   (`ensureVersionedScript`, ~11 requirers), `httpClient.js` (`safeFetch` — a
   fetch-shaped wrapper over Node `https`), `boundedCache.js` (LRU-ish cache),
-  and `elevate.js` (relaunches the *whole app* under UAC for admin-gated work).
+  `elevate.js` (relaunches the *whole app* under UAC for admin-gated work),
+  `platform.js` (`isWindows`/`isMac`/`isLinux` + `pick()` — OS branching, from
+  the macOS port) and `osascript.js` (`runAppleScript` + shared AppleScript
+  builders — the mac counterpart to `shellUtils`). When a feature needs OS work,
+  branch on `platform.js` and route Windows through `shellUtils`/PowerShell,
+  macOS through `osascript`.
 - **Preload:** `preload.js` (~320 lines) — the **only** bridge. Exposes
   `window.electronAPI` via `contextBridge`. Context isolation is on; the
   renderer has no direct Node access. Add a method here to expose new
@@ -69,8 +97,8 @@ renderer.
 mini widgets. To add a widget:
 1. Add **one** registry entry (id, label, icon, description, longDescription,
    category, keywords, version, author, features, optional `defaultHotkey`,
-   optional `panelId` + `panelRenderer`). The full field reference is the
-   comment block directly above `MINI_WIDGETS`.
+   optional `panelId` + `panelRenderer`, optional `platforms`). The full field
+   reference is the comment block directly above `MINI_WIDGETS_ALL`.
 2. Add the widget's own `renderer/<id>.js` and, if it needs OS/privileged work,
    `main/<id>.js` + a `preload.js` method.
 3. Add any Tailwind classes → **rebuild CSS** (see gotchas).
@@ -79,8 +107,19 @@ The registry currently holds **25 widgets** across 12 categories (Audio,
 Clipboard, Displays, Gaming, Media, Productivity, Searching, Social, Spotify,
 System, Utilities, Weather). The Widget Library, its search index, the dashboard
 Mini Widgets strip, and the Settings summary **all generate from this
-registry** — never hardcode widget lists in UI code. Config panels (`panelId`)
-render inside the library detail
+registry** — never hardcode widget lists in UI code.
+
+**Platform gating (macOS port):** the full catalogue is `MINI_WIDGETS_ALL`; the
+app derives `MINI_WIDGETS` from it by filtering to the current OS via
+`renderer/widget-platform.js` (loaded before `core.js`; uses
+`window.electronAPI.platform`). A widget with no `platforms` field runs
+everywhere; `platforms: ['win32']` marks it Windows-only (currently the taskbar
+styler, debloat, deep-uninstaller, app-installer and controller-macros widgets).
+On Windows the filter is a no-op (all 25 kept) and it defaults to `win32` when
+the platform can't be read, so behaviour there is unchanged. Every consumer reads
+the filtered `MINI_WIDGETS`, so gating one entry hides it everywhere at once.
+
+Config panels (`panelId`) render inside the library detail
 view and must no-op when their div is absent (`if (!panel) return;`) — the div
 only exists while the detail is open. Enabled state → `miniWidgetPrefs`,
 favourites → `miniWidgetFavs`, recents → `miniWidgetRecents` (all localStorage;
@@ -91,12 +130,35 @@ keep keys stable).
 npm start            # electron . — run the app in dev
 npm run build:css    # REQUIRED after adding/removing any Tailwind class
 npm run build        # electron-builder --win --publish never → NSIS + portable
+npm run build:mac    # electron-builder --mac → dmg + zip (arm64 + x64). MAC ONLY.
+npm run build:mac:dir #  unsigned .app for a quick local smoke test. MAC ONLY.
 ```
-The build runs an `afterPack` hook (`build/fuses.js`, `@electron/fuses`) that
-flips Electron security fuses (disables `runAsNode`, cookie-encryption off, etc.)
-— packaging-sensitive; leave it wired. There is **no automated test suite** for
-the desktop app (`npm test` is a stub). See §6 for how this app is actually
-tested.
+**macOS builds must run on a Mac** (dmg creation + code-signing + notarization
+are mac-only) — electron-builder refuses `--mac` on Windows. The `mac` target
+ships a **dmg** (installer) and a **zip** (the auto-update feed needs zip), both
+`arm64` + `x64`, with hardened runtime + `build/entitlements.mac.plist`. Icon is
+generated from `assets/icon-source.png` (1254² PNG → `.icns` at build time).
+
+Two electron-builder hooks (packaging-sensitive; leave them wired):
+- **`afterPack` → `build/fuses.js`** flips Electron security fuses (disables
+  `runAsNode`, NODE_OPTIONS/inspect, cookie-encryption on, asar-only). Now hardens
+  **win32 *and* darwin** (mac re-signs ad-hoc after flipping; asar-integrity stays
+  win-only until it can be verified on a Mac).
+- **`afterSign` → `build/notarize.js`** notarizes the mac app **only when Apple
+  creds are in the env** (`APPLE_ID`+`APPLE_APP_SPECIFIC_PASSWORD`+`APPLE_TEAM_ID`,
+  or an `APPLE_API_KEY` set); otherwise it cleanly skips, so an unsigned local
+  `build:mac:dir` still succeeds. Needs an Apple Developer account for a real
+  release — unsigned mac apps are Gatekeeper-blocked with no easy "run anyway".
+
+```bash
+npm test             # node --test — unit/integration suite under test/
+```
+`npm test` now runs a **`node:test` suite** (`test/*.test.js`, zero extra deps)
+covering the platform-detection helper (`main/platform.js`) and the widget
+gating (`renderer/widget-platform.js` + the real registry, incl. a `vm`
+simulation of a macOS/Windows renderer boot). Run it after touching platform or
+registry logic. There is still **no end-to-end/UI harness** — see §6 for how the
+app is otherwise tested (the user drives it live on Windows).
 
 ### Runtime data
 Stored under `%APPDATA%/main-launcher/`: Spotify tokens, settings JSON, caches,
@@ -146,14 +208,24 @@ Next.js 14 App Router marketing + commerce site. Sells the desktop app and
 provisions license keys.
 
 - **Auth:** NextAuth (Auth.js) with Google provider (`src/lib/auth.ts`), Prisma
-  adapter. Models in `prisma/schema.prisma` (User/Account/Session/License/
-  Purchase).
+  adapter. Models in `prisma/schema.prisma`: `User`, `Account`, `Session`,
+  `VerificationToken`, `License`, `Activation`, `Purchase`.
 - **DB:** **Postgres in every environment** (SQLite breaks on Vercel's
   ephemeral FS — see the schema comment). `DATABASE_URL` must be a hosted
   Postgres. `prisma/dev.db` is a local artifact and gitignored.
 - **Commerce:** PayPal checkout (`src/lib/paypal.ts`), license provisioning
   (`src/lib/provision.ts`, `src/lib/license.ts`), product config
   (`src/lib/product.ts`).
+- **License hardening:** licenses are **Ed25519-signed, machine-bound tokens**.
+  The server signs a token (`src/lib/licenseToken.ts`) tied to a machine on
+  `Activation`; the desktop app verifies the signature offline against a public
+  key (`main/license.js`). This closes the forge / fake-server / key-sharing
+  bypasses — keep the signing key server-side and the verify path client-side.
+- **Static data & types:** copy/config for accents, features and the widget
+  catalog live in `src/data/` (`accents.ts`, `features.ts`, `widgets.ts`);
+  shared TS types in `src/types/`. Other notable `src/lib/`: `activation.ts`,
+  `licenseToken.ts`, `admin.ts`/`adminEmails.ts`, `email.ts`, `rateLimit.ts`,
+  `site.ts`, `prisma.ts`.
 - **Theming:** accent-variable driven (`AccentProvider` / `AccentPicker`,
   `globals.css`). Prefer CSS accent vars over hardcoded colors.
 - **`cn()`** (`src/lib/cn.ts`) is the className-merge helper used across every
@@ -167,9 +239,13 @@ provisions license keys.
   npm run db:migrate # prisma migrate dev (local schema changes)
   npm run db:studio  # inspect the DB
   ```
+- **Downloads:** the gated `/download` page serves both builds via
+  `DownloadButtons` (OS-auto-detected). `DOWNLOAD_URL` = the Windows installer,
+  `DOWNLOAD_URL_MAC` = the macOS `.dmg` (optional — the Mac button hides when
+  unset). One license unlocks both.
 - **Env:** never commit `.env*` (gitignored). Needs `DATABASE_URL`, Google OAuth
-  creds, NextAuth secret, PayPal creds. Keep a `.env.example` in sync when you
-  add a new required var.
+  creds, NextAuth secret, PayPal creds, `DOWNLOAD_URL` (+ optional
+  `DOWNLOAD_URL_MAC`). Keep a `.env.example` in sync when you add a new required var.
 
 ---
 

@@ -11,6 +11,19 @@ const Logger = require('./logger');
 try { os.setPriority(0, os.constants.priority.PRIORITY_HIGH); } catch (e) { /* non-fatal */ }
 
 const autostart = require('./main/autostart');
+const { resolveTrayIcon } = require('./main/trayIcon');
+const { isWindows, isMac } = require('./main/platform');
+const dockStyler = require('./main/dockStyler');
+const macTweaks = require('./main/macTweaks');
+const appUninstaller = require('./main/appUninstaller');
+const macTools = require('./main/macTools');
+const bluetoothMac = require('./main/bluetoothMac');
+const screenResolutionMac = require('./main/screenResolutionMac');
+const appInstallerMac = require('./main/appInstallerMac');
+const macFreeUp = require('./main/macFreeUp');
+const gameModeMac = require('./main/gameModeMac');
+const claudeLimitMac = require('./main/claudeLimitMac');
+const macMacros = require('./main/macMacros');
 const systemStats = require('./main/systemStats');
 const appLauncher = require('./main/appLauncher');
 const fpsOptimizer = require('./main/fpsOptimizer');
@@ -401,8 +414,18 @@ if (!gotSingleInstanceLock) {
   function createTray() {
     if (appTray) return;
 
-    const trayIcon = path.join(__dirname, 'icons', 'main.ico');
-    appTray = new Tray(trayIcon);
+    // Windows takes the .ico path directly; macOS needs a small nativeImage for
+    // the menu bar (a raw .ico won't render there). See main/trayIcon.js.
+    const spec = resolveTrayIcon(process.platform, __dirname);
+    let trayImage = spec.iconPath;
+    if (spec.resize) {
+      try {
+        const img = nativeImage.createFromPath(spec.iconPath).resize({ width: spec.resize, height: spec.resize });
+        if (spec.isTemplate) img.setTemplateImage(true);
+        if (!img.isEmpty()) trayImage = img;
+      } catch (e) { /* fall back to the raw path */ }
+    }
+    appTray = new Tray(trayImage);
     appTray.setToolTip('main launcher');
     appTray.setContextMenu(buildTrayMenu());
     appTray.on('double-click', () => focusMainWindow());
@@ -490,40 +513,66 @@ if (!gotSingleInstanceLock) {
 
     createWindow();
 
+    // Cross-platform feature modules — run everywhere.
     elevate.init(ctx);
     micModule = micMute.init(ctx);
     spotifyModule = spotify.init(ctx);
     autostart.init(ctx);
     systemStats.init(ctx);
     appLauncher.init(ctx);
-    fpsOptimizer.init(ctx);
     lyrics.init(ctx);
     weather.init(ctx);
     displaySettings.init(ctx);
-    macrosModule = macros.init(ctx);
-    // Controller Macros rides the Macros engine's key watcher for its trigger
-    // hotkeys and refuses bindings the Macros widget already owns.
-    controllerMacrosModule = controllerMacros.init(ctx, {
-      keyWatch: macrosModule.setExternalWatch,
-      getKeyboardMacroHotkeys: macrosModule.getOwnedHotkeys
-    });
     clipboardHistory.init(ctx);
-    screenResolution.init(ctx);
-    bluetooth.init(ctx);
-    taskbar.init(ctx);
     fileSearch.init(ctx);
-    claudeLimitModule = claudeLimit.init(ctx);
     videoEditorModule = videoEditor.init(ctx);
     valclipsModule = valclips.init(ctx);
     crosshairModule = crosshair.init(ctx);
     backgrounds.init(ctx);
     quickLaunch.init(ctx);
-    appInstaller.init(ctx);
-    debloat.init(ctx);
-    revoUninstaller.init(ctx);
     volumeMixerModule = volumeMixer.init(ctx);
     discordRpc.init(ctx);
-    gameModeModule = gameMode.init(ctx);
+
+    // Windows-only feature modules. Their backends rely on PowerShell / WinRT /
+    // Win32 / winget / ViGEm with no macOS equivalent, and their widgets are
+    // gated out of the registry on non-Windows (renderer/widget-platform.js). We
+    // skip their init() entirely off Windows so they never spawn PowerShell or
+    // register handlers the (hidden) widgets would never call. Every later
+    // reference to the modules they return is already `if (module)`-guarded.
+    if (isWindows) {
+      fpsOptimizer.init(ctx);
+      macrosModule = macros.init(ctx);
+      // Controller Macros rides the Macros engine's key watcher for its trigger
+      // hotkeys and refuses bindings the Macros widget already owns.
+      controllerMacrosModule = controllerMacros.init(ctx, {
+        keyWatch: macrosModule.setExternalWatch,
+        getKeyboardMacroHotkeys: macrosModule.getOwnedHotkeys
+      });
+      screenResolution.init(ctx);
+      bluetooth.init(ctx);
+      taskbar.init(ctx);
+      claudeLimitModule = claudeLimit.init(ctx);
+      appInstaller.init(ctx);
+      debloat.init(ctx);
+      revoUninstaller.init(ctx);
+      gameModeModule = gameMode.init(ctx);
+    }
+
+    // macOS-only feature modules (mac substitutes for the Windows-only widgets).
+    // Gated to darwin in the registry; their init runs only on macOS.
+    if (isMac) {
+      macTools.init(ctx);
+      dockStyler.init(ctx);
+      macTweaks.init(ctx);
+      appUninstaller.init(ctx);
+      bluetoothMac.init(ctx);
+      screenResolutionMac.init(ctx);
+      appInstallerMac.init(ctx);
+      macFreeUp.init(ctx);
+      gameModeMac.init(ctx);
+      claudeLimitMac.init(ctx);
+      macMacros.init(ctx);
+    }
 
     createTray();
     registerFocusHotkey(focusHotkey);

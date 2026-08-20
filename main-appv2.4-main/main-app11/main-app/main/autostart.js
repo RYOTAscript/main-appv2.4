@@ -4,6 +4,8 @@ const path = require('path');
 const os = require('os');
 const { ensureVersionedScript } = require('./scriptCache');
 const { runCmd } = require('./shellUtils');
+const { isMac } = require('./platform');
+const { runAppleScript, scripts } = require('./osascript');
 
 const MINIMIZE_SCRIPT_VERSION = 1;
 
@@ -136,10 +138,10 @@ function init(ctx) {
   }
 
   async function minimizeOtherWindowsOnStartup() {
-    ensureMinimizeWindowsScript();
     try {
       setTimeout(() => {
-        runCmd(`powershell -NoProfile -ExecutionPolicy Bypass -File "${MINIMIZE_WINDOWS_SCRIPT}"`).then(({ ok, stderr }) => {
+        // Shared success handler: raise main once the desktop has been cleared.
+        const onDone = ({ ok, stderr }) => {
           if (!ok) {
             logger.error('Minimize windows on startup failed', new Error(stderr || 'unknown error'));
             return;
@@ -154,7 +156,16 @@ function init(ctx) {
               logger.success('Main window focused after startup minimization');
             }
           }, 300);
-        });
+        };
+
+        if (isMac) {
+          // No Shell.Application on macOS — hide every other visible app so main
+          // comes up on a clear desktop (best-effort; needs Automation permission).
+          runAppleScript(scripts.hideOtherApps).then(onDone);
+        } else {
+          ensureMinimizeWindowsScript();
+          runCmd(`powershell -NoProfile -ExecutionPolicy Bypass -File "${MINIMIZE_WINDOWS_SCRIPT}"`).then(onDone);
+        }
       }, 3000);
     } catch (e) {
       logger.error('Minimize windows on startup failed', e);

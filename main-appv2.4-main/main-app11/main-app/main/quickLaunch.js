@@ -1,7 +1,9 @@
 const { ipcMain, shell } = require('electron');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { runCmd } = require('./shellUtils');
+const { listCommand, parseRunningNames } = require('./procList');
 
 // Quick Launch Enhanced backend.
 //
@@ -32,6 +34,14 @@ function init(ctx) {
   // Read the Steam install path from the registry (falls back to the two
   // common default install locations if the key is missing).
   async function getSteamPath() {
+    // macOS: Steam installs to a fixed location under the user library. The rest
+    // of readSteamGames() (libraryfolders.vdf + appmanifest_*.acf) is identical
+    // on mac, so pointing at this path is all that's needed. Epic isn't a thing
+    // on mac (readEpicGames returns [] there).
+    if (process.platform === 'darwin') {
+      const macSteam = path.join(os.homedir(), 'Library', 'Application Support', 'Steam');
+      return fs.existsSync(macSteam) ? macSteam : null;
+    }
     try {
       const { ok, stdout } = await runCmd(
         'reg query "HKCU\\Software\\Valve\\Steam" /v SteamPath',
@@ -199,17 +209,14 @@ function init(ctx) {
   ipcMain.handle('quicklaunch-running', async (_event, names) => {
     if (!Array.isArray(names) || !names.length) return [];
     try {
-      const { ok, stdout } = await runCmd('tasklist /fo csv /nh', 8000);
+      // One process-list call covers every app (tasklist on Windows, `ps` on
+      // macOS/Linux). parseRunningNames returns a lowercased name set.
+      const { ok, stdout } = await runCmd(listCommand(process.platform), 8000);
       if (!ok || !stdout) return [];
-      // Lower-cased set of running image names, e.g. "game.exe".
-      const running = new Set();
-      for (const line of stdout.split(/\r?\n/)) {
-        const m = line.match(/^"([^"]+)"/);
-        if (m) running.add(m[1].toLowerCase());
-      }
+      const running = parseRunningNames(process.platform, stdout);
       return names.filter(n => n && running.has(String(n).toLowerCase()));
     } catch (e) {
-      logger.warn('quicklaunch-running tasklist failed', e);
+      logger.warn('quicklaunch-running process list failed', e);
       return [];
     }
   });

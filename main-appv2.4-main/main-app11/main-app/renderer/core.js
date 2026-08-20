@@ -1,4 +1,4 @@
-        const APP_VERSION = 'v3.48.6';
+        const APP_VERSION = 'v4.0.0';
         const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M', crosshair: 'Control+Shift+X' };
 
         // Registry of "Mini Widgets" -- small, self-contained utilities. This is the
@@ -24,7 +24,12 @@
         //   defaultHotkey optional global hotkey; renders a bind button
         //   panelId       optional id of the config panel hosted in the detail view
         //   panelRenderer optional name of the global function that fills panelId
-        const MINI_WIDGETS = [
+        //   platforms     optional OS allow-list, e.g. ['win32']. Omit for "all
+        //                 platforms". Windows-only widgets carry ['win32'] so
+        //                 they're hidden on macOS (see renderer/widget-platform.js).
+        //                 The full catalogue lives in MINI_WIDGETS_ALL below; the
+        //                 app then derives the OS-filtered MINI_WIDGETS from it.
+        const MINI_WIDGETS_ALL = [
             {
                 id: 'micMute',
                 label: 'Mic Mute',
@@ -40,6 +45,7 @@
             },
             {
                 id: 'macros',
+                platforms: ['win32'], // Win32 SendInput; needs a native input module on macOS
                 label: 'Macros',
                 icon: 'fa-keyboard',
                 description: 'Record and replay mouse & keyboard actions system-wide, with per-macro hotkeys.',
@@ -54,7 +60,23 @@
                 panelRenderer: 'renderMacrosPanel'
             },
             {
+                id: 'macMacros',
+                platforms: ['darwin'], // macOS Macros — build-and-play (no recording)
+                label: 'Macros',
+                icon: 'fa-keyboard',
+                description: 'Build keyboard & mouse macros and play them back with a hotkey.',
+                longDescription: 'A macros tool for macOS. Because macOS doesn’t let apps silently record your input, you build a macro from steps instead of recording one — type text, press a key (with ⌘/⌥/⌃/⇧ modifiers), wait, click at a screen position, or move the pointer — then play it back with a button or a global hotkey. Keyboard-only macros run straight away (you just grant Accessibility permission the first time); macros that click or move the mouse use cliclick, a tiny free tool the widget can install for you in one click. Great for repetitive typing, boilerplate, and multi-step shortcuts.',
+                category: 'Productivity',
+                keywords: ['macro', 'macros', 'automation', 'keyboard', 'mouse', 'hotkey', 'replay', 'text expander', 'cliclick', 'osascript', 'macos', 'mac', 'keystroke', 'click'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Build macros from steps (type / key / wait / click / move)', 'Play by button or a global hotkey', 'Modifier keys — ⌘ ⌥ ⌃ ⇧', 'Keyboard macros need no install (Accessibility permission)', 'Mouse steps via cliclick (1-click install)', 'Note: live recording isn’t possible on macOS'],
+                panelId: 'mac-macros-panel',
+                panelRenderer: 'renderMacMacrosPanel'
+            },
+            {
                 id: 'controllerMacros',
+                platforms: ['win32'], // ViGEm virtual-gamepad driver is Windows-only
                 label: 'Controller Macros',
                 icon: 'fa-gamepad',
                 description: 'Press PlayStation/Xbox controller buttons for you — combos games really see.',
@@ -111,6 +133,7 @@
             },
             {
                 id: 'screenResolution',
+                // Cross-platform: native display APIs on Windows, displayplacer on macOS.
                 label: 'Screen Resolution',
                 icon: 'fa-display',
                 description: 'Instantly switch each monitor\'s resolution and refresh rate, with favourites.',
@@ -125,6 +148,7 @@
             },
             {
                 id: 'bluetooth',
+                // Cross-platform: WinRT radios on Windows, blueutil on macOS (main/bluetoothMac.js).
                 label: 'Bluetooth Manager',
                 icon: 'fa-bluetooth-b',
                 iconStyle: 'fab',
@@ -140,6 +164,7 @@
             },
             {
                 id: 'taskbar',
+                platforms: ['win32'], // macOS has no taskbar (menu bar + Dock)
                 label: 'Translucent Taskbar',
                 icon: 'fa-window-maximize',
                 description: 'Make the Windows taskbar transparent, blurred or acrylic — a TranslucentTB-style styler.',
@@ -153,7 +178,23 @@
                 panelRenderer: 'renderTaskbarPanel'
             },
             {
+                id: 'dockStyler',
+                platforms: ['darwin'], // macOS substitute for Translucent Taskbar
+                label: 'Dock Styler',
+                icon: 'fa-window-maximize',
+                description: 'Style the macOS Dock — auto-hide, size, magnification, position, minimize effect and more.',
+                longDescription: 'The macOS take on the taskbar styler. macOS has no taskbar, so this styles the Dock — its equivalent row of app icons. Auto-hide it, resize the icons, turn magnification on and set the magnified size, move it to the left, right or bottom, pick the minimize animation (Genie, Scale or Suck), tune the auto-hide speed and delay, make hidden apps’ icons translucent, hide recent apps, minimize windows into their app icon, or show only running apps. Every option is a real macOS setting applied instantly, and one button restores all the Dock defaults. Uses only Apple’s own settings — nothing is installed.',
+                category: 'System',
+                keywords: ['dock', 'taskbar', 'macos', 'mac', 'autohide', 'magnification', 'size', 'position', 'minimize', 'genie', 'translucent', 'hidden', 'style', 'appearance'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Auto-hide the Dock + tune hide speed & delay', 'Resize icons and set magnification', 'Move the Dock to bottom / left / right', 'Genie / Scale / Suck minimize animation', 'Translucent hidden-app icons', 'Show running apps only / hide recents', 'One-click restore to Dock defaults'],
+                panelId: 'dock-styler-panel',
+                panelRenderer: 'renderDockStylerPanel'
+            },
+            {
                 id: 'claudeLimit',
+                // Cross-platform: reads ~/.claude for the reset (both OSes); send via SendKeys on Windows, osascript on macOS (main/claudeLimitMac.js).
                 label: 'Claude Limit Auto-Continue',
                 icon: 'fa-robot',
                 description: 'Detects a Claude usage limit from Claude Code\'s own session log and auto-continues the chat when it resets.',
@@ -281,6 +322,7 @@
             },
             {
                 id: 'gameMode',
+                // Cross-platform: Win32 foreground watcher on Windows, osascript poll on macOS (main/gameModeMac.js).
                 label: 'Game Mode',
                 icon: 'fa-gamepad',
                 description: 'Detects when a game launches and automatically runs the actions you choose.',
@@ -324,6 +366,7 @@
             },
             {
                 id: 'appInstaller',
+                platforms: ['win32'], // winget-backed; Mac equivalent would be Homebrew
                 label: 'App Installer',
                 icon: 'fa-box-open',
                 description: 'Tick a bunch of popular apps and install them all silently in one go.',
@@ -337,7 +380,23 @@
                 panelRenderer: 'renderAppInstallerPanel'
             },
             {
+                id: 'appInstallerMac',
+                platforms: ['darwin'], // macOS substitute for the winget App Installer
+                label: 'App Installer',
+                icon: 'fa-box-open',
+                description: 'Tick popular Mac apps and install them all with Homebrew in one go.',
+                longDescription: 'The macOS take on the bulk app installer. Tick the apps you want from a category grid — browsers, messaging, media, productivity, dev tools, utilities, creative and more — and install them one after another with Homebrew Cask, so each app is downloaded straight from its real publisher and always at the latest version. Apps you already have are detected and skipped, a live progress list shows each install as it happens, and everything is validated against a fixed catalog before anything runs. Needs Homebrew (the standard macOS package manager) — if it isn’t installed, one click opens its official installer for you.',
+                category: 'Utilities',
+                keywords: ['install', 'installer', 'apps', 'homebrew', 'brew', 'cask', 'bulk', 'setup', 'new mac', 'silent', 'batch', 'package', 'macos'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Category grid of popular Mac apps — tick what you want', 'Installs everything selected via Homebrew Cask', 'Real publishers, latest versions', 'Detects & skips apps you already have', 'Live per-app install progress', '1-click Homebrew install if it’s missing'],
+                panelId: 'app-installer-mac-panel',
+                panelRenderer: 'renderAppInstallerMacPanel'
+            },
+            {
                 id: 'debloat',
+                platforms: ['win32'], // removes Windows AppX packages / HKCU tweaks
                 label: 'Windows Debloat',
                 icon: 'fa-broom',
                 description: 'Uninstall preinstalled Windows bloatware and flip reversible privacy & UX tweaks.',
@@ -351,7 +410,23 @@
                 panelRenderer: 'renderDebloatPanel'
             },
             {
+                id: 'macTweaks',
+                platforms: ['darwin'], // macOS substitute for Windows Debloat (Tweaks tab)
+                label: 'macOS Tweaks',
+                icon: 'fa-wand-magic-sparkles',
+                description: 'Curated, reversible macOS power-user tweaks — Finder, keyboard, screenshots and dialogs.',
+                longDescription: 'The macOS take on the Debloat tweaks tab: a curated set of the well-known “macOS defaults” power-user switches, each a genuine on/off you can flip back any time. Finder: show hidden files, path & status bars, all file extensions, folders-on-top, list view and search-current-folder by default, and stop .DS_Store files on network/USB drives. Keyboard: faster key repeat, shorter repeat delay, enable key-repeat over the accent popup, and turn off auto-correct, auto-capitalise and smart quotes/dashes. Screenshots: save as PNG and drop the window shadow. Dialogs: expand Save/Print panels and save new documents to disk instead of iCloud by default. Everything applies to your account only, needs no admin, installs nothing, and uses Apple’s own settings.',
+                category: 'System',
+                keywords: ['tweaks', 'defaults', 'macos', 'mac', 'finder', 'hidden files', 'key repeat', 'screenshot', 'debloat', 'power user', 'settings', 'dsstore', 'autocorrect', 'customize'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Finder: hidden files, path/status bar, extensions, list view', 'Stop .DS_Store on network & USB drives', 'Faster key repeat + disable press-and-hold', 'Turn off auto-correct / smart quotes / capitalise', 'Screenshots as PNG with no shadow', 'Expand Save/Print dialogs; save to disk not iCloud', 'Every tweak is a real, reversible macOS setting'],
+                panelId: 'mac-tweaks-panel',
+                panelRenderer: 'renderMacTweaksPanel'
+            },
+            {
                 id: 'revoUninstaller',
+                platforms: ['win32'], // Windows registry / winget uninstall model
                 label: 'Deep Uninstaller',
                 icon: 'fa-trash-can',
                 description: 'Fully remove a program in 6 stages — run its uninstaller, then sweep up the leftover files & registry keys.',
@@ -365,7 +440,23 @@
                 panelRenderer: 'renderRevoUninstallerPanel'
             },
             {
+                id: 'appUninstaller',
+                platforms: ['darwin'], // macOS substitute for the Windows Deep Uninstaller
+                label: 'App Uninstaller',
+                icon: 'fa-trash-can',
+                description: 'Fully remove a Mac app — trash the app and sweep up its leftover files in ~/Library.',
+                longDescription: 'The macOS take on the Deep Uninstaller. Dragging an app to the Trash leaves behind caches, preferences, logs and support files scattered across your Library — this cleans those up too. Pick an installed app from a searchable list and it finds the leftovers that belong to it (matched by the app’s bundle identifier across Application Support, Caches, Preferences, Logs, Saved Application State, Containers, HTTP storage, cookies and more), shows each with its size, and lets you tick which to remove. Then it moves the app and everything you picked to the Trash — so nothing is ever permanently deleted and you can put anything back. Apple and system apps are locked out, and every path is re-checked against a fixed allow-list of safe locations before it’s touched, so it can only ever affect the app’s own footprint.',
+                category: 'System',
+                keywords: ['uninstall', 'uninstaller', 'remove', 'delete', 'app', 'leftovers', 'appcleaner', 'clean', 'library', 'caches', 'preferences', 'residue', 'trash', 'macos', 'mac'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Searchable list of installed apps', 'Finds leftovers by bundle id across ~/Library', 'Shows each leftover with its size — tick what to remove', 'Moves everything to the Trash (fully reversible)', 'Apple / system apps are protected', 'Allow-list guard — only ever touches the app’s own files'],
+                panelId: 'app-uninstaller-panel',
+                panelRenderer: 'renderAppUninstallerPanel'
+            },
+            {
                 id: 'fpsOptimizer',
+                platforms: ['win32'], // Windows registry/powercfg/services tweaks; no macOS equivalent
                 label: 'FPS Optimizer',
                 icon: 'fa-gauge-high',
                 description: 'One-stop game booster: free RAM, kill background apps, and apply power/network tweaks.',
@@ -377,8 +468,33 @@
                 features: ['One-click Optimize (power, CPU, RAM, temp, network, Game Mode)', 'Kill background apps — Discord-only or nuke — without touching Windows/the launcher', 'Power plans: Ultimate / High / Balanced + game CPU priority + HAGS', 'Memory: release standby RAM, clear temp, toggle Superfetch', 'Network: flush DNS, low-latency tweak, reset', 'Battery Saver mode for laptops', 'Restore everything to Windows defaults', 'Live per-step progress'],
                 panelId: 'fps-optimizer-panel',
                 panelRenderer: 'renderFpsOptimizerPanel'
+            },
+            {
+                id: 'macFreeUp',
+                platforms: ['darwin'], // macOS take on the FPS Optimizer
+                label: 'Free Up & Quiet',
+                icon: 'fa-gauge-high',
+                description: 'Free inactive memory and quit background apps to give games and heavy apps more headroom.',
+                longDescription: 'The macOS take on the FPS Optimizer. macOS manages power, scheduling and performance itself — there’s no registry or power-plan to tweak — so this stays light and safe: one tap purges inactive (standby) memory back to the free pool, and a reviewable list lets you gracefully quit the background apps eating RAM before you launch a game or a heavy render. Your foreground app, Finder and the launcher itself are always protected, apps are asked to quit (so unsaved work still prompts you), and nothing is force-killed.',
+                category: 'Gaming',
+                keywords: ['fps', 'optimize', 'boost', 'memory', 'ram', 'purge', 'free', 'quit', 'background', 'apps', 'performance', 'game', 'gaming', 'macos', 'mac', 'cleanup'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Purge inactive memory back to the free pool', 'Reviewable list of background apps to quit', 'Graceful quit — unsaved work still prompts', 'Foreground app, Finder & launcher always protected', 'No force-kills, no system tweaks'],
+                panelId: 'mac-freeup-panel',
+                panelRenderer: 'renderMacFreeUpPanel'
             }
         ];
+
+        // The registry the rest of the app actually consumes: MINI_WIDGETS_ALL
+        // filtered to the current OS. On Windows this keeps every entry (each is
+        // either unmarked or lists 'win32'), so behaviour is unchanged; on macOS
+        // the Windows-only widgets drop out everywhere at once. Defaults to
+        // 'win32' when the platform can't be read, so the full Windows catalogue
+        // is never hidden by accident. widget-platform.js loads before this file.
+        const MINI_WIDGETS = (typeof window !== 'undefined' && window.WidgetPlatform)
+            ? window.WidgetPlatform.filterWidgetsForPlatform(MINI_WIDGETS_ALL, window.WidgetPlatform.currentPlatform())
+            : MINI_WIDGETS_ALL;
 
         // Canonical category list for the Widget Library filter bar. Categories a
         // registered widget can belong to; the library only shows chips for

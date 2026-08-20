@@ -3,6 +3,9 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { ensureVersionedScript } = require('./scriptCache');
+const { isMac } = require('./platform');
+const { runAppleScript, scripts } = require('./osascript');
+const { parseVolumeSettings, macEngineCommand } = require('./audioMac');
 
 // ── Volume Mixer widget (backend) ──
 // A per-application volume mixer, like the Windows tray mixer, plus master
@@ -323,6 +326,9 @@ function init(ctx) {
 
   // ── Engine process ──
   function ensureEngine() {
+    // macOS drives system volume per-call via osascript — no persistent helper
+    // process, so "the engine" is always ready.
+    if (isMac) return Promise.resolve();
     return new Promise((resolve, reject) => {
       if (engineProc && engineReady) { resolve(); return; }
       engineReadyWaiters.push({ resolve, reject });
@@ -387,6 +393,14 @@ function init(ctx) {
   }
 
   function engineSend(line) {
+    if (isMac) {
+      // Translate the engine's stdin protocol to osascript. Per-app SET/MUTE have
+      // no public macOS API, so those become no-ops (see macEngineCommand).
+      const cmd = macEngineCommand(line);
+      if (cmd.kind === 'setOutputVolume') runAppleScript(scripts.setOutputVolume(cmd.value));
+      else if (cmd.kind === 'setOutputMuted') runAppleScript(scripts.setOutputMuted(cmd.value));
+      return;
+    }
     if (engineProc && engineProc.stdin.writable) engineProc.stdin.write(line + '\n');
   }
 
@@ -420,6 +434,16 @@ function init(ctx) {
 
   // Requests a fresh session list; resolves null if the engine is unavailable.
   async function requestList() {
+    if (isMac) {
+      // macOS: query system output volume/mute via osascript. There is no public
+      // per-app volume API, so the session list is always empty.
+      const { ok, stdout } = await runAppleScript(scripts.getVolumeSettings);
+      if (!ok) return null;
+      const v = parseVolumeSettings(stdout);
+      const master = { volume: v.outputVolume == null ? -1 : v.outputVolume, muted: v.outputMuted };
+      if (master.volume >= 0) lastMasterVolume = master.volume;
+      return { master, sessions: [] };
+    }
     try {
       await ensureEngine();
     } catch (e) {

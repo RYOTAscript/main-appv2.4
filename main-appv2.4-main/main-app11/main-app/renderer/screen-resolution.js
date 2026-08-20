@@ -41,6 +41,11 @@
             panel.innerHTML = `<p class="text-xs text-neutral-600 mt-3"><i class="fas fa-circle-notch fa-spin mr-1.5"></i>Detecting displays…</p>`;
             const res = await window.electronAPI.screenResolutionList();
             if (!isScreenResEnabled()) { panel.innerHTML = ''; return; }
+            // macOS: displayplacer isn't installed yet → offer a 1-click install.
+            if (res && res.needsTool) {
+                panel.innerHTML = macToolMissingMarkup(res.needsTool, res.toolLabel, 'renderScreenResolutionPanel');
+                return;
+            }
             screenResData = res;
             if (!res.ok || !res.monitors.length) {
                 panel.innerHTML = `<p class="text-xs text-neutral-600 mt-3">Couldn't detect any displays.

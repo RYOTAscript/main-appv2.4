@@ -1,8 +1,11 @@
 const { ipcMain, clipboard, nativeImage } = require('electron');
 const { execFile } = require('child_process');
+const { fileURLToPath } = require('url');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { isWindows, isMac } = require('./platform');
+const { runAppleScript, scripts } = require('./osascript');
 
 const POLL_INTERVAL_MS = 700;
 const MAX_HISTORY = 50;
@@ -179,6 +182,15 @@ function init(ctx) {
   // copied; the full multi-file list then comes from one PowerShell call.
   function readClipboardFirstFile() {
     try {
+      if (isMac) {
+        // macOS: Finder puts copied files on the pasteboard as public.file-url
+        // (a file:// URL). Read the first one — multi-file enumeration isn't
+        // available without a native pasteboard read.
+        const url = clipboard.read('public.file-url');
+        if (!url) return null;
+        try { return fileURLToPath(url); } catch { return null; }
+      }
+      // Windows: Explorer registers the first path as the FileNameW format.
       const buf = clipboard.readBuffer('FileNameW');
       if (!buf || !buf.length) return null;
       const p = buf.toString('ucs2').replace(/\0+$/, '');
@@ -189,6 +201,13 @@ function init(ctx) {
   }
 
   function readFileDropList(cb) {
+    if (!isWindows) {
+      // macOS/other: best-effort single file from the pasteboard (the full
+      // multi-file list needs a native read we don't have off Windows).
+      const first = readClipboardFirstFile();
+      cb(first ? [first] : null);
+      return;
+    }
     execFile('powershell.exe',
       ['-NoProfile', '-NonInteractive', '-STA', '-Command', 'Get-Clipboard -Format FileDropList | ForEach-Object { "$_" }'],
       { windowsHide: true, timeout: 10000 },
@@ -203,6 +222,11 @@ function init(ctx) {
   }
 
   function writeFileDropList(paths) {
+    if (isMac) {
+      // macOS: set the clipboard to file references via AppleScript.
+      return runAppleScript(scripts.setClipboardFiles(paths)).then(({ ok }) => ok);
+    }
+    if (!isWindows) return Promise.resolve(false);
     return new Promise((resolve) => {
       const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',');
       execFile('powershell.exe',

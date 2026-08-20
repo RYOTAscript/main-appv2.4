@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const { ensureVersionedScript } = require('./scriptCache');
 const { runCmd } = require('./shellUtils');
+const { isMac } = require('./platform');
+const { runAppleScript } = require('./osascript');
 
 const MEDIA_SCRIPT_VERSION = 2;
 
@@ -15,7 +17,9 @@ const BUNDLED_ICON_NAMES = new Set([
 ]);
 
 function isSpotifyPath(fullPath) {
-  return /spotify\.exe$/i.test(fullPath.replace(/\\/g, '/'));
+  const p = fullPath.replace(/\\/g, '/');
+  // Spotify.exe on Windows, Spotify.app on macOS.
+  return /spotify\.exe$/i.test(p) || /spotify\.app\/?$/i.test(p);
 }
 
 function init(ctx) {
@@ -77,6 +81,16 @@ Start-Sleep -Milliseconds 300
   }
 
   function triggerSpotifyAutoPlay(delayMs = 2800) {
+    if (isMac) {
+      // macOS: tell Spotify to play directly — no window-focus + media-key dance.
+      setTimeout(() => {
+        runAppleScript('tell application "Spotify" to play').then(({ ok, stderr }) => {
+          if (!ok) logger.error('Spotify auto-play failed', new Error(stderr || 'unknown error'), { delayMs });
+          else logger.success('Spotify auto-play (macOS)', { delayMs });
+        });
+      }, delayMs);
+      return;
+    }
     ensureMediaPlayScript();
     setTimeout(() => {
       runCmd(`powershell -NoProfile -ExecutionPolicy Bypass -File "${MEDIA_PLAY_SCRIPT}"`).then(({ ok, stderr }) => {
