@@ -116,5 +116,23 @@ GPL-3.0-or-later; `electron-updater`, MIT). Their licenses are included in each
 package's folder under `node_modules/` in the source distribution, and can be
 obtained from the npm registry (https://www.npmjs.com) by package name.
 
+--------------------------------------------------------------------------------
+6. macOS on-demand command-line tools  (NOT bundled)
+--------------------------------------------------------------------------------
+
+On macOS, some widgets offer a one-click install of small, permissively-licensed
+command-line tools. These are NOT distributed with "main" — they are downloaded
+and installed on demand, as the user's own action, from their official sources
+via the user's own Homebrew installation:
+
+  - Homebrew       BSD-2-Clause  https://brew.sh
+  - blueutil       MIT           https://github.com/toy/blueutil        (Bluetooth)
+  - displayplacer  MIT           https://github.com/jakehilborn/displayplacer  (Screen Resolution)
+  - cliclick       MIT           https://github.com/BlueM/cliclick      (Macros mouse steps)
+
+"main" only invokes these tools if the user chooses to install them; it does not
+redistribute them, and no copy of them ships inside the application.
+
+
 For any question about the licenses above, or to request source code for any
 GPL-covered component, contact mainappsupport@gmail.com.

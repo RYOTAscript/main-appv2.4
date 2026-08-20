@@ -12,9 +12,11 @@
             return `
                 <label class="flex items-center justify-between gap-3 py-1.5 no-drag cursor-pointer">
                     <span class="text-xs text-neutral-300">${esc(t.label)}</span>
-                    <input type="checkbox" ${on ? 'checked' : ''}
-                        onchange="macTweaksSet('${esc(t.id)}', this.checked, this)"
-                        class="h-4 w-4 accent-white no-drag flex-shrink-0">
+                    <span class="ios-toggle">
+                        <input type="checkbox" class="ios-toggle-input" ${on ? 'checked' : ''}
+                            onchange="macTweaksSet('${esc(t.id)}', this.checked, this)">
+                        <span class="ios-toggle-track"></span>
+                    </span>
                 </label>`;
         }
 

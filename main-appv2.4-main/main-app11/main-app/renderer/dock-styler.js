@@ -15,9 +15,11 @@
                 return `
                     <label class="flex items-center justify-between gap-3 py-1.5 no-drag cursor-pointer">
                         <span class="text-xs text-neutral-300">${esc(s.label)}</span>
-                        <input type="checkbox" ${on ? 'checked' : ''}
-                            onchange="dockStylerSet('${esc(s.key)}', this.checked)"
-                            class="h-4 w-4 accent-white no-drag">
+                        <span class="ios-toggle">
+                            <input type="checkbox" class="ios-toggle-input" ${on ? 'checked' : ''}
+                                onchange="dockStylerSet('${esc(s.key)}', this.checked)">
+                            <span class="ios-toggle-track"></span>
+                        </span>
                     </label>`;
             }
             if (s.type === 'enum') {

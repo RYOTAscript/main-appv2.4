@@ -60,7 +60,10 @@
             panel.innerHTML = `<div class="mt-3 space-y-3">
                 <label class="flex items-center justify-between gap-3 no-drag cursor-pointer">
                     <span class="text-xs text-neutral-300">Enable macros &amp; hotkeys</span>
-                    <input type="checkbox" ${mmEnabled ? 'checked' : ''} onchange="mmSetEnabled(this.checked)" class="h-4 w-4 accent-white no-drag">
+                    <span class="ios-toggle">
+                        <input type="checkbox" class="ios-toggle-input" ${mmEnabled ? 'checked' : ''} onchange="mmSetEnabled(this.checked)">
+                        <span class="ios-toggle-track"></span>
+                    </span>
                 </label>
                 <p class="text-[11px] text-neutral-500">Recording isn’t available on macOS — build a macro from steps, then play it by button or hotkey. Keyboard macros need Accessibility permission; mouse steps use cliclick.</p>
                 <div class="space-y-1.5">${rows || '<p class="text-[11px] text-neutral-500">No macros yet.</p>'}</div>

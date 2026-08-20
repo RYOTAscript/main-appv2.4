@@ -23,8 +23,8 @@ feature module, `main/fpsOptimizer.js` — an in-process `tasklist`/`taskkill`
 sweep with a hard self-protection whitelist (never kills the launcher, its child
 windows, or system processes). Don't reintroduce a separate FPS app.
 
-The desktop app and website share a version number (currently **3.48.6**);
-ValClips versions independently (**1.2.0**).
+The desktop app and website share a version number (currently **4.0.0** — the
+release that introduced macOS support); ValClips versions independently (**1.2.0**).
 
 ---
 
@@ -103,21 +103,25 @@ mini widgets. To add a widget:
    `main/<id>.js` + a `preload.js` method.
 3. Add any Tailwind classes → **rebuild CSS** (see gotchas).
 
-The registry currently holds **25 widgets** across 12 categories (Audio,
-Clipboard, Displays, Gaming, Media, Productivity, Searching, Social, Spotify,
-System, Utilities, Weather). The Widget Library, its search index, the dashboard
-Mini Widgets strip, and the Settings summary **all generate from this
-registry** — never hardcode widget lists in UI code.
+The registry holds **31 widget entries** across 12 categories (Audio, Clipboard,
+Displays, Gaming, Media, Productivity, Searching, Social, Spotify, System,
+Utilities, Weather); the Widget Library shows the OS-filtered subset — **25 on
+Windows, 24 on macOS**. The Widget Library, its search index, the dashboard Mini
+Widgets strip, and the Settings summary **all generate from this registry** —
+never hardcode widget lists in UI code.
 
 **Platform gating (macOS port):** the full catalogue is `MINI_WIDGETS_ALL`; the
 app derives `MINI_WIDGETS` from it by filtering to the current OS via
 `renderer/widget-platform.js` (loaded before `core.js`; uses
 `window.electronAPI.platform`). A widget with no `platforms` field runs
-everywhere; `platforms: ['win32']` marks it Windows-only (currently the taskbar
-styler, debloat, deep-uninstaller, app-installer and controller-macros widgets).
-On Windows the filter is a no-op (all 25 kept) and it defaults to `win32` when
-the platform can't be read, so behaviour there is unchanged. Every consumer reads
-the filtered `MINI_WIDGETS`, so gating one entry hides it everywhere at once.
+everywhere. `platforms: ['win32']` marks Windows-only widgets — `macros` and
+`controllerMacros` (no mac equivalent) plus `taskbar`, `debloat`,
+`revoUninstaller`, `appInstaller`, `fpsOptimizer` (each has a separate
+`platforms: ['darwin']` substitute widget). See §2's registry note for the full
+mapping. On Windows the filter keeps all 25 Windows widgets and defaults to
+`win32` when the platform can't be read, so behaviour there is unchanged. Every
+consumer reads the filtered `MINI_WIDGETS`, so gating one entry hides it
+everywhere at once.
 
 Config panels (`panelId`) render inside the library detail
 view and must no-op when their div is absent (`if (!panel) return;`) — the div

@@ -78,7 +78,13 @@ function isFaststart(file: string): boolean {
   }
 }
 
-describe('end-to-end: drop fixture → full pipeline → TikTok-perfect output', () => {
+// The full pipeline needs ValClips's FFmpeg+VMAF toolchain (a large one-time
+// download). When it isn't present, skip the e2e suite gracefully — matching
+// pipeline.integration.test.ts — so `npm test` is green on any machine instead
+// of hard-failing in beforeAll. (ensureToolchain is detect-only here.)
+const e2eToolchainReady = (await ensureToolchain()).status === 'ready'
+
+describe.skipIf(!e2eToolchainReady)('end-to-end: drop fixture → full pipeline → TikTok-perfect output', () => {
   beforeAll(async () => {
     const state = await ensureToolchain()
     expect(state.status).toBe('ready')
