@@ -213,6 +213,23 @@ state.
   they apply before first paint (no flash). Don't move that read later.
 - **FFmpeg** ships via `ffmpeg-static` and is `asarUnpack`ed — packaging-
   sensitive, don't assume the binary path is inside the asar.
+- **Never set `win.publisherName` while the build is unsigned.** It is written
+  into `app-update.yml`, and electron-updater's `NsisUpdater.verifySignature()`
+  skips signature checking *only* when that key is absent
+  (`if (publisherName == null) return null`). With it set, every downloaded
+  update is put through `Get-AuthenticodeSignature`, and an unsigned installer
+  is rejected with `ERR_UPDATER_INVALID_SIGNATURE` — auto-update dies silently
+  for **every** release, and the failure only surfaces on a second machine that
+  actually has an older version installed. It was set from `f465a1b` to v4.1.0
+  and broke updates for that whole range. When real code signing is added the
+  value is derived from the certificate's CN automatically, so it still should
+  not be hardcoded. Note also that the *installed* app does the verifying: a
+  client shipped with the bad key can never be fixed by a later release, only
+  by a manual reinstall.
+- **`build` in package.json is schema-validated.** electron-builder rejects
+  unknown keys outright, so you cannot leave a `"_comment_"` field in there to
+  explain a decision — the build fails at `validateConfiguration`. Document it
+  here instead.
 - **Spotify:** preserve the PKCE OAuth flow and safe token-refresh logic.
 - **Lyrics:** LRC timing is race-sensitive; don't introduce async that reorders
   line application.
