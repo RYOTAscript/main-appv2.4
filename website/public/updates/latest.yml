@@ -1,8 +1,8 @@
-version: 4.0.1
+version: 4.1.0
 files:
-  - url: https://tkoozjkpskvlj2st.public.blob.vercel-storage.com/downloads/main-Setup-4.0.1.exe
-    sha512: Mca/Ox5pmaNAeAmzLMOaRv1Pg++WpIuQOPS4ogpE5k3AejMiwNBUu04QegVtG7OOPOmoMxnNcImghyWgmH5m2w==
-    size: 130727135
-path: https://tkoozjkpskvlj2st.public.blob.vercel-storage.com/downloads/main-Setup-4.0.1.exe
-sha512: Mca/Ox5pmaNAeAmzLMOaRv1Pg++WpIuQOPS4ogpE5k3AejMiwNBUu04QegVtG7OOPOmoMxnNcImghyWgmH5m2w==
-releaseDate: '2026-08-20T02:59:44.205Z'
+  - url: https://tkoozjkpskvlj2st.public.blob.vercel-storage.com/downloads/main-Setup-4.1.0.exe
+    sha512: cGCHrnEWuZWmvGYb4DfDxeFNtf1owjdPug1XJIVh6zqVqtRoXP4pPTS/p8OSWrUykVQAaqVFd40SOptngP6M4g==
+    size: 130847962
+path: https://tkoozjkpskvlj2st.public.blob.vercel-storage.com/downloads/main-Setup-4.1.0.exe
+sha512: cGCHrnEWuZWmvGYb4DfDxeFNtf1owjdPug1XJIVh6zqVqtRoXP4pPTS/p8OSWrUykVQAaqVFd40SOptngP6M4g==
+releaseDate: '2026-08-31T09:10:24.575Z'
