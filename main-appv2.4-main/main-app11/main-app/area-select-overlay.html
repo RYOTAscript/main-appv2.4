@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <!-- Content-Security-Policy: this overlay renders only its own local markup and
+         talks to the main process over IPC, so everything else is denied. script-src
+         keeps 'unsafe-inline' for this file's own inline <script> block. -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'none';
+        script-src 'self' 'unsafe-inline' file:;
+        style-src 'self' 'unsafe-inline' file:;
+        img-src 'self' file: data: blob:;
+        media-src 'self' file: data: blob:;
+        font-src 'self' file: data:;
+        connect-src 'none';
+        object-src 'none';
+        frame-src 'none';
+        child-src 'none';
+        worker-src 'none';
+        base-uri 'none';
+        form-action 'none';">
+    <title>Select</title>
+    <style>
+        /* ── Screen area / colour picker overlay ──
+           A full-display window showing a frozen screenshot with the selection
+           UI drawn on top. Self-contained styling (like crosshair-overlay.html):
+           this window never loads the app's stylesheet, so everything the
+           overlay needs lives here. The accent colour is injected at init so it
+           matches whatever theme the launcher is running. */
+
+        :root {
+            --accent: 255, 255, 255;
+            --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+            --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Inter, system-ui, sans-serif;
+            color: #fff;
+            -webkit-user-select: none;
+            user-select: none;
+            cursor: crosshair;
+        }
+
+        #stage {
+            position: fixed;
+            inset: 0;
+            opacity: 0;
+            animation: stageIn 0.28s var(--ease-out) forwards;
+        }
+
+        @keyframes stageIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        body.closing #stage {
+            animation: stageOut 0.16s ease forwards;
+        }
+
+        @keyframes stageOut {
+            to {
+                opacity: 0;
+            }
+        }
+
+        /* The dimmed frame everyone sees, and a pristine copy revealed only
+           inside the current selection via clip-path. */
+        .shot {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: fill;
+            pointer-events: none;
+        }
+
+        #shot-dim {
+            filter: brightness(0.38) saturate(0.6) contrast(1.02);
+        }
+
+        #shot-clear {
+            clip-path: inset(50% 50% 50% 50%);
+            transition: clip-path 0.08s linear;
+        }
+
+        body.dragging #shot-clear {
+            transition: none;
+        }
+
+        /* Vignette + a faint accent wash so the overlay reads as "app chrome"
+           rather than a broken screenshot. */
+        #wash {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(120% 90% at 50% 45%, rgba(var(--accent), 0.05), transparent 60%),
+                radial-gradient(140% 120% at 50% 50%, transparent 45%, rgba(0, 0, 0, 0.55));
+        }
+
+        /* Guide lines that track the cursor. */
+        .guide {
+            position: absolute;
+            background: linear-gradient(var(--dir, 90deg), transparent, rgba(var(--accent), 0.5) 12%, rgba(var(--accent), 0.5) 88%, transparent);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        body.live .guide {
+            opacity: 1;
+        }
+
+        #guide-x {
+            left: 0;
+            right: 0;
+            height: 1px;
+            --dir: 90deg;
+        }
+
+        #guide-y {
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            --dir: 180deg;
+        }
+
+        /* ── Selection ── */
+        #sel {
+            position: absolute;
+            display: none;
+            border: 1px solid rgba(var(--accent), 0.95);
+            box-shadow:
+                0 0 0 1px rgba(0, 0, 0, 0.55),
+                0 0 34px rgba(var(--accent), 0.32),
+                inset 0 0 44px rgba(var(--accent), 0.07);
+            pointer-events: none;
+        }
+
+        #sel.on {
+            display: block;
+        }
+
+        /* Marching ants. Built from four repeating gradients rather than a dashed
+           border — a dashed border's dash offset can't be animated. */
+        #sel::after {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            opacity: 0.8;
+            background-image:
+                repeating-linear-gradient(90deg, #fff 0 8px, transparent 8px 16px),
+                repeating-linear-gradient(90deg, #fff 0 8px, transparent 8px 16px),
+                repeating-linear-gradient(0deg, #fff 0 8px, transparent 8px 16px),
+                repeating-linear-gradient(0deg, #fff 0 8px, transparent 8px 16px);
+            background-size: 100% 1px, 100% 1px, 1px 100%, 1px 100%;
+            background-position: 0 0, 0 100%, 0 0, 100% 0;
+            background-repeat: no-repeat;
+            animation: ants 0.7s linear infinite;
+        }
+
+        @keyframes ants {
+            to {
+                background-position: 16px 0, -16px 100%, 0 -16px, 100% 16px;
+            }
+        }
+
+        #sel::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(rgba(var(--accent), 0.22), transparent 30%),
+                repeating-linear-gradient(45deg, rgba(var(--accent), 0.05) 0 8px, transparent 8px 16px);
+            opacity: 0;
+            animation: selFill 0.35s var(--ease-out) forwards;
+            mix-blend-mode: screen;
+        }
+
+        @keyframes selFill {
+            to {
+                opacity: 1;
+            }
+        }
+
+        .handle {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(var(--accent), 1);
+            background: rgba(10, 10, 10, 0.6);
+            border-radius: 3px;
+            transform: scale(0);
+            animation: handlePop 0.3s var(--ease-spring) forwards;
+        }
+
+        .handle.tl {
+            left: -7px;
+            top: -7px;
+            border-right: none;
+            border-bottom: none;
+            border-radius: 4px 0 0 0;
+            animation-delay: 0.02s;
+        }
+
+        .handle.tr {
+            right: -7px;
+            top: -7px;
+            border-left: none;
+            border-bottom: none;
+            border-radius: 0 4px 0 0;
+            animation-delay: 0.05s;
+        }
+
+        .handle.bl {
+            left: -7px;
+            bottom: -7px;
+            border-right: none;
+            border-top: none;
+            border-radius: 0 0 0 4px;
+            animation-delay: 0.08s;
+        }
+
+        .handle.br {
+            right: -7px;
+            bottom: -7px;
+            border-left: none;
+            border-top: none;
+            border-radius: 0 0 4px 0;
+            animation-delay: 0.11s;
+        }
+
+        @keyframes handlePop {
+            to {
+                transform: scale(1);
+            }
+        }
+
+        /* Size readout pinned to the selection. */
+        #size {
+            position: absolute;
+            display: none;
+            padding: 5px 10px;
+            border-radius: 9px;
+            background: rgba(8, 8, 8, 0.88);
+            border: 1px solid rgba(var(--accent), 0.35);
+            backdrop-filter: blur(14px);
+            font-size: 11.5px;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.02em;
+            white-space: nowrap;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+        }
+
+        #size.on {
+            display: block;
+        }
+
+        #size b {
+            font-weight: 600;
+            color: rgb(var(--accent));
+        }
+
+        #size span {
+            opacity: 0.5;
+            margin: 0 5px;
+        }
+
+        /* ── Eyedropper loupe ── */
+        #loupe {
+            position: absolute;
+            display: none;
+            width: 148px;
+            pointer-events: none;
+            transform: translate(-50%, -50%) scale(0.92);
+            opacity: 0;
+            transition: opacity 0.18s ease, transform 0.18s var(--ease-spring);
+        }
+
+        body.picking #loupe.on {
+            display: block;
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        #loupe canvas {
+            display: block;
+            width: 148px;
+            height: 148px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.9);
+            box-shadow:
+                0 0 0 1px rgba(0, 0, 0, 0.7),
+                0 18px 44px rgba(0, 0, 0, 0.7),
+                0 0 40px rgba(var(--accent), 0.25);
+            image-rendering: pixelated;
+        }
+
+        #loupe-chip {
+            margin: 10px auto 0;
+            width: max-content;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px 6px 6px;
+            border-radius: 999px;
+            background: rgba(8, 8, 8, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            backdrop-filter: blur(14px);
+            font-size: 11.5px;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.04em;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+        }
+
+        #loupe-swatch {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+        }
+
+        /* ── Existing-selection ghost ── */
+        #ghost {
+            position: absolute;
+            display: none;
+            border: 1px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+            pointer-events: none;
+        }
+
+        #ghost.on {
+            display: block;
+        }
+
+        #ghost-label {
+            position: absolute;
+            top: -20px;
+            left: 0;
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.45);
+        }
+
+        /* ── Hint bar ── */
+        #hint {
+            position: absolute;
+            left: 50%;
+            bottom: 40px;
+            transform: translateX(-50%) translateY(18px);
+            opacity: 0;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 11px 18px;
+            border-radius: 16px;
+            background: rgba(10, 10, 10, 0.86);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(28px);
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            font-size: 12px;
+            animation: hintIn 0.42s 0.1s var(--ease-out) forwards;
+        }
+
+        @keyframes hintIn {
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+
+        #hint.hushed {
+            animation: hintOut 0.3s var(--ease-out) forwards;
+            pointer-events: none;
+        }
+
+        @keyframes hintOut {
+            to {
+                opacity: 0.2;
+                transform: translateX(-50%) translateY(10px) scale(0.97);
+            }
+        }
+
+        #hint .title {
+            font-weight: 600;
+            letter-spacing: 0.01em;
+        }
+
+        #hint .title i {
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: rgb(var(--accent));
+            margin-right: 8px;
+            vertical-align: middle;
+            box-shadow: 0 0 12px rgba(var(--accent), 0.9);
+            animation: dotBreathe 1.8s ease-in-out infinite;
+        }
+
+        @keyframes dotBreathe {
+
+            0%,
+            100% {
+                opacity: 0.45;
+                transform: scale(0.85);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        #hint .sep {
+            width: 1px;
+            height: 18px;
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        #hint .step {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            color: rgba(255, 255, 255, 0.62);
+        }
+
+        #cancel-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 12px 5px 8px;
+            border-radius: 10px;
+            font: inherit;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.72);
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            cursor: pointer;
+            transition: background 0.18s var(--ease-out), color 0.18s var(--ease-out);
+        }
+
+        #cancel-btn:hover {
+            background: rgba(239, 68, 68, 0.22);
+            border-color: rgba(239, 68, 68, 0.5);
+            color: #fff;
+        }
+
+        kbd {
+            font-family: 'Consolas', ui-monospace, monospace;
+            font-size: 10.5px;
+            padding: 3px 7px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-bottom-width: 2px;
+            color: #fff;
+        }
+
+        #badge {
+            position: absolute;
+            top: 34px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-14px);
+            opacity: 0;
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 10.5px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.6);
+            background: rgba(10, 10, 10, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            animation: hintIn 0.42s 0.16s var(--ease-out) forwards;
+        }
+
+        #badge:empty {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="stage">
+        <img id="shot-dim" class="shot" alt="">
+        <img id="shot-clear" class="shot" alt="">
+        <div id="wash"></div>
+        <div id="ghost"><span id="ghost-label"></span></div>
+        <div id="guide-x" class="guide"></div>
+        <div id="guide-y" class="guide"></div>
+        <div id="sel">
+            <div class="handle tl"></div>
+            <div class="handle tr"></div>
+            <div class="handle bl"></div>
+            <div class="handle br"></div>
+        </div>
+        <div id="size"></div>
+        <div id="loupe">
+            <canvas id="loupe-canvas" width="148" height="148"></canvas>
+            <div id="loupe-chip">
+                <span id="loupe-swatch"></span>
+                <span id="loupe-hex">#000000</span>
+            </div>
+        </div>
+        <div id="badge"></div>
+        <div id="hint">
+            <span class="title"><i></i><span id="hint-title">Select an area</span></span>
+            <span class="sep"></span>
+            <span class="step" id="hint-step-1"></span>
+            <span class="sep"></span>
+            <button type="button" id="cancel-btn"><kbd>Esc</kbd> Cancel</button>
+        </div>
+    </div>
+
+    <script>
+        // The overlay speaks CSS px relative to its own window (= DIP relative to
+        // this display's origin); main/areaSelect.js adds the display origin. The
+        // eyedropper instead reads the screenshot at its NATIVE pixel size, so the
+        // colour it reports is the exact pixel value, not a resampled one.
+        const el = (id) => document.getElementById(id);
+        const stage = el('stage');
+        const selBox = el('sel');
+        const sizeBox = el('size');
+        const guideX = el('guide-x');
+        const guideY = el('guide-y');
+        const loupe = el('loupe');
+        const loupeCanvas = el('loupe-canvas');
+        const loupeCtx = loupeCanvas.getContext('2d', { willReadFrequently: true });
+        const hint = el('hint');
+
+        let cfg = null;
+        let pixels = null;        // offscreen canvas holding the shot at native size
+        let pixelCtx = null;
+        let dragging = false;
+        let answered = false;
+        let start = { x: 0, y: 0 };
+        let rect = null;
+        let hoverColor = '#000000';
+
+        const LOUPE_CELLS = 11;   // odd, so there's a true centre pixel
+        const LOUPE_SIZE = 148;
+
+        function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+        function hex2(n) { return n.toString(16).padStart(2, '0'); }
+
+        // The screenshot is stretched to fill the window, so a CSS pixel maps to a
+        // display pixel by the ratio between the display and the window — 1:1 when
+        // the window matches the display exactly, which is the normal case. Doing
+        // it by ratio rather than assuming 1:1 means a window that is briefly the
+        // wrong size (the fullscreen transition takes a moment to settle) still
+        // yields correct coordinates instead of silently-off ones.
+        function toDisplay(x, y) {
+            const sx = (cfg && cfg.width ? cfg.width : window.innerWidth) / (window.innerWidth || 1);
+            const sy = (cfg && cfg.height ? cfg.height : window.innerHeight) / (window.innerHeight || 1);
+            return { x: x * sx, y: y * sy };
+        }
+
+        // Same idea for reading pixels: go off the image's own dimensions rather
+        // than the display scale factor.
+        function toImage(x, y) {
+            if (!pixels) return { x: 0, y: 0 };
+            return {
+                x: x * (pixels.width / (window.innerWidth || 1)),
+                y: y * (pixels.height / (window.innerHeight || 1))
+            };
+        }
+
+        window.areaSelectAPI.onInit((payload) => {
+            cfg = payload;
+            document.documentElement.style.setProperty('--accent', payload.accent || '255, 255, 255');
+            el('shot-dim').src = payload.image;
+            el('shot-clear').src = payload.image;
+            el('badge').textContent = payload.displayLabel || '';
+
+            if (payload.mode === 'color') {
+                document.body.classList.add('picking');
+                el('hint-title').textContent = 'Pick a colour';
+                el('hint-step-1').innerHTML = '<kbd>Click</kbd> sample the pixel under the loupe';
+            } else if (payload.mode === 'point') {
+                document.body.classList.add('picking');
+                el('hint-title').textContent = 'Pick the click point';
+                el('hint-step-1').innerHTML = '<kbd>Click</kbd> the exact spot — the loupe shows the pixel';
+            } else {
+                el('hint-title').textContent = 'Select an area';
+                el('hint-step-1').innerHTML = '<kbd>Drag</kbd> a box over the region to click';
+            }
+
+            if (payload.existingRect) {
+                // Given in display coordinates; invert toDisplay to place it.
+                const g = el('ghost');
+                const kx = (window.innerWidth || 1) / (payload.width || window.innerWidth || 1);
+                const ky = (window.innerHeight || 1) / (payload.height || window.innerHeight || 1);
+                g.style.left = (payload.existingRect.x * kx) + 'px';
+                g.style.top = (payload.existingRect.y * ky) + 'px';
+                g.style.width = (payload.existingRect.w * kx) + 'px';
+                g.style.height = (payload.existingRect.h * ky) + 'px';
+                el('ghost-label').textContent = payload.ghostLabel || 'current area';
+                g.classList.add('on');
+            }
+
+            // Native-resolution copy for exact pixel reads + the pixelated loupe.
+            const img = new Image();
+            img.onload = () => {
+                pixels = document.createElement('canvas');
+                pixels.width = img.naturalWidth;
+                pixels.height = img.naturalHeight;
+                pixelCtx = pixels.getContext('2d', { willReadFrequently: true });
+                pixelCtx.drawImage(img, 0, 0);
+            };
+            img.src = payload.image;
+        });
+
+        function colorAt(cssX, cssY) {
+            if (!pixelCtx) return null;
+            const p = toImage(cssX, cssY);
+            const px = clamp(Math.floor(p.x), 0, pixels.width - 1);
+            const py = clamp(Math.floor(p.y), 0, pixels.height - 1);
+            const d = pixelCtx.getImageData(px, py, 1, 1).data;
+            return '#' + hex2(d[0]) + hex2(d[1]) + hex2(d[2]);
+        }
+
+        function drawLoupe(cssX, cssY) {
+            if (!pixelCtx) return;
+            const c = toImage(cssX, cssY);
+            const cx = c.x;
+            const cy = c.y;
+            const half = (LOUPE_CELLS - 1) / 2;
+            const sx = Math.floor(cx) - half;
+            const sy = Math.floor(cy) - half;
+
+            loupeCtx.imageSmoothingEnabled = false;
+            loupeCtx.clearRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
+            loupeCtx.fillStyle = '#111';
+            loupeCtx.fillRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
+            loupeCtx.drawImage(pixels, sx, sy, LOUPE_CELLS, LOUPE_CELLS, 0, 0, LOUPE_SIZE, LOUPE_SIZE);
+
+            // Pixel grid + the centre cell the click would sample.
+            const cell = LOUPE_SIZE / LOUPE_CELLS;
+            loupeCtx.strokeStyle = 'rgba(0,0,0,0.22)';
+            loupeCtx.lineWidth = 1;
+            for (let i = 1; i < LOUPE_CELLS; i++) {
+                const p = Math.round(i * cell) + 0.5;
+                loupeCtx.beginPath();
+                loupeCtx.moveTo(p, 0); loupeCtx.lineTo(p, LOUPE_SIZE);
+                loupeCtx.moveTo(0, p); loupeCtx.lineTo(LOUPE_SIZE, p);
+                loupeCtx.stroke();
+            }
+            const c0 = Math.round(half * cell);
+            loupeCtx.strokeStyle = 'rgba(255,255,255,0.95)';
+            loupeCtx.lineWidth = 2;
+            loupeCtx.strokeRect(c0 + 0.5, c0 + 0.5, Math.round(cell) - 1, Math.round(cell) - 1);
+            loupeCtx.strokeStyle = 'rgba(0,0,0,0.8)';
+            loupeCtx.lineWidth = 1;
+            loupeCtx.strokeRect(c0 - 0.5, c0 - 0.5, Math.round(cell) + 1, Math.round(cell) + 1);
+        }
+
+        function updateSelection(r) {
+            selBox.classList.add('on');
+            selBox.style.left = r.x + 'px';
+            selBox.style.top = r.y + 'px';
+            selBox.style.width = r.w + 'px';
+            selBox.style.height = r.h + 'px';
+            el('shot-clear').style.clipPath =
+                `inset(${r.y}px ${window.innerWidth - (r.x + r.w)}px ${window.innerHeight - (r.y + r.h)}px ${r.x}px)`;
+
+            sizeBox.classList.add('on');
+            const tl = toDisplay(r.x, r.y);
+            const br = toDisplay(r.x + r.w, r.y + r.h);
+            sizeBox.innerHTML = `<b>${Math.round(br.x - tl.x)} × ${Math.round(br.y - tl.y)}</b><span>·</span>${Math.round(tl.x)}, ${Math.round(tl.y)}`;
+            // Prefer below-right of the selection; flip inside when it would clip.
+            const bw = sizeBox.offsetWidth || 120;
+            const bh = sizeBox.offsetHeight || 26;
+            let bx = r.x;
+            let by = r.y + r.h + 10;
+            if (by + bh > window.innerHeight - 8) by = Math.max(8, r.y - bh - 10);
+            if (bx + bw > window.innerWidth - 8) bx = Math.max(8, window.innerWidth - bw - 8);
+            sizeBox.style.left = bx + 'px';
+            sizeBox.style.top = by + 'px';
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            document.body.classList.add('live');
+            guideX.style.top = e.clientY + 'px';
+            guideY.style.left = e.clientX + 'px';
+
+            if (isPicking()) {
+                loupe.classList.add('on');
+                // Keep the loupe clear of the cursor and inside the display.
+                const lx = clamp(e.clientX + 100, 90, window.innerWidth - 90);
+                const ly = clamp(e.clientY - 96, 100, window.innerHeight - 110);
+                loupe.style.left = lx + 'px';
+                loupe.style.top = ly + 'px';
+                drawLoupe(e.clientX, e.clientY);
+                const c = colorAt(e.clientX, e.clientY);
+                if (c) {
+                    hoverColor = c;
+                    el('loupe-swatch').style.background = c;
+                    const dp = toDisplay(e.clientX, e.clientY);
+                    el('loupe-hex').textContent = cfg.mode === 'point'
+                        ? `${Math.round(dp.x)}, ${Math.round(dp.y)}`
+                        : c.toUpperCase();
+                }
+                return;
+            }
+
+            if (!dragging) return;
+            rect = {
+                x: Math.min(start.x, e.clientX),
+                y: Math.min(start.y, e.clientY),
+                w: Math.abs(e.clientX - start.x),
+                h: Math.abs(e.clientY - start.y)
+            };
+            updateSelection(rect);
+        });
+
+        // Colour and point picking share the loupe UI and commit on mouseup.
+        function isPicking() { return !!cfg && (cfg.mode === 'color' || cfg.mode === 'point'); }
+
+        document.addEventListener('mousedown', (e) => {
+            if (e.button !== 0 || answered) return;
+            if (isPicking()) return;
+            dragging = true;
+            document.body.classList.add('dragging');
+            hint.classList.add('hushed');
+            start = { x: e.clientX, y: e.clientY };
+            rect = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
+            updateSelection(rect);
+        });
+
+        function finish(result) {
+            if (answered) return;
+            answered = true;
+            document.body.classList.add('closing');
+            // Let the fade play before the window is destroyed.
+            setTimeout(() => {
+                if (result && result.color) window.areaSelectAPI.submitColor(result.color);
+                else if (result && result.point) window.areaSelectAPI.submitPoint(result.point);
+                else if (result && result.rect) window.areaSelectAPI.submitArea(result.rect);
+                else window.areaSelectAPI.cancel();
+            }, 140);
+        }
+
+        document.addEventListener('mouseup', (e) => {
+            if (e.button !== 0 || answered) return;
+            if (cfg && cfg.mode === 'point') {
+                const p = toDisplay(e.clientX, e.clientY);
+                finish({ point: { x: Math.round(p.x), y: Math.round(p.y) } });
+                return;
+            }
+            if (cfg && cfg.mode === 'color') {
+                const c = colorAt(e.clientX, e.clientY);
+                finish(c ? { color: c } : null);
+                return;
+            }
+            if (!dragging) return;
+            dragging = false;
+            document.body.classList.remove('dragging');
+            // A stray click (or a 3px twitch) is a cancel, not a 3px click area.
+            if (!rect || rect.w < 6 || rect.h < 6) {
+                hint.classList.remove('hushed');
+                selBox.classList.remove('on');
+                sizeBox.classList.remove('on');
+                el('shot-clear').style.clipPath = 'inset(50% 50% 50% 50%)';
+                rect = null;
+                return;
+            }
+            const tl = toDisplay(rect.x, rect.y);
+            const br = toDisplay(rect.x + rect.w, rect.y + rect.h);
+            finish({
+                rect: {
+                    x: Math.round(tl.x),
+                    y: Math.round(tl.y),
+                    w: Math.round(br.x - tl.x),
+                    h: Math.round(br.y - tl.y)
+                }
+            });
+        });
+
+        // Right-click / Escape cancel. Both windows in a multi-monitor session
+        // are torn down by main, so cancelling on either one is enough.
+        el('cancel-btn').addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+        el('cancel-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            finish(null);
+        });
+
+        document.addEventListener('contextmenu', (e) => { e.preventDefault(); finish(null); });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); finish(null); }
+        });
+        window.addEventListener('blur', () => { document.body.classList.remove('live'); });
+    </script>
+</body>
+
+</html>

@@ -17,7 +17,7 @@
                         <span class="text-xs text-neutral-300">${esc(s.label)}</span>
                         <span class="ios-toggle">
                             <input type="checkbox" class="ios-toggle-input" ${on ? 'checked' : ''}
-                                onchange="dockStylerSet('${esc(s.key)}', this.checked)">
+                                onchange="dockStylerSet(${jsAttr(s.key)}, this.checked)">
                             <span class="ios-toggle-track"></span>
                         </span>
                     </label>`;
@@ -28,7 +28,7 @@
                 return `
                     <label class="flex items-center justify-between gap-3 py-1.5 no-drag">
                         <span class="text-xs text-neutral-300">${esc(s.label)}</span>
-                        <select onchange="dockStylerSet('${esc(s.key)}', this.value)"
+                        <select onchange="dockStylerSet(${jsAttr(s.key)}, this.value)"
                             class="bg-neutral-900 border border-neutral-800 rounded-lg px-2 py-1 text-[11px] text-neutral-200 focus:outline-none focus:border-neutral-600 no-drag capitalize">${opts}</select>
                     </label>`;
             }
@@ -41,8 +41,8 @@
                         <span id="dock-val-${esc(s.key)}" class="text-[11px] text-neutral-400 tabular-nums">${esc(String(v))}</span>
                     </div>
                     <input type="range" min="${s.min}" max="${s.max}" step="${step}" value="${esc(String(v))}"
-                        oninput="document.getElementById('dock-val-${esc(s.key)}').textContent = this.value"
-                        onchange="dockStylerSet('${esc(s.key)}', this.value)"
+                        oninput="document.getElementById(${jsAttr(`dock-val-${s.key}`)}).textContent = this.value"
+                        onchange="dockStylerSet(${jsAttr(s.key)}, this.value)"
                         class="w-full mt-1.5 accent-white no-drag">
                 </div>`;
         }

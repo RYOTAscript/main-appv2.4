@@ -293,9 +293,9 @@
                     meta.push(`<span class="bt-dot"></span><span class="text-[10px] text-neutral-600">Disconnected${lastUsed ? ' · ' + esc(lastUsed) : ''}</span>`);
                 }
                 const primaryBtn = d.connected
-                    ? `<button type="button" onclick="bluetoothAction('disconnect','${d.address}')" ${busy ? 'disabled' : ''}
+                    ? `<button type="button" onclick="bluetoothAction('disconnect',${jsAttr(d.address)})" ${busy ? 'disabled' : ''}
                          class="px-2.5 py-1 rounded-lg text-[11px] border bg-neutral-800/40 border-neutral-700/50 text-neutral-300 hover:text-white transition-colors no-drag">Disconnect</button>`
-                    : `<button type="button" onclick="bluetoothAction('connect','${d.address}')" ${busy ? 'disabled' : ''}
+                    : `<button type="button" onclick="bluetoothAction('connect',${jsAttr(d.address)})" ${busy ? 'disabled' : ''}
                          class="px-2.5 py-1 rounded-lg text-[11px] border bg-blue-600/20 border-blue-600/40 text-blue-300 hover:bg-blue-600/30 transition-colors no-drag">Connect</button>`;
                 return `<div class="bt-device flex items-center gap-2.5 border border-white/10 rounded-xl p-2.5${d.connected ? ' bt-device-on' : ''}">
                     <span class="bt-icon"><i class="fas ${bluetoothDeviceIcon(d)} ${iconClass}"></i></span>
@@ -305,10 +305,10 @@
                     </div>
                     ${busy ? '<i class="fas fa-circle-notch fa-spin text-neutral-500 text-xs mr-1"></i>' : ''}
                     <div class="flex items-center gap-1 shrink-0">
-                        <button type="button" title="${fav ? 'Unfavourite' : 'Favourite'}" onclick="bluetoothToggleFav('${d.address}')"
+                        <button type="button" title="${fav ? 'Unfavourite' : 'Favourite'}" onclick="bluetoothToggleFav(${jsAttr(d.address)})"
                             class="bt-iconbtn ${fav ? 'bt-fav-on' : ''} no-drag"><i class="${fav ? 'fas' : 'far'} fa-star text-[10px]"></i></button>
                         ${primaryBtn}
-                        <button type="button" title="Remove device" onclick="bluetoothRemove('${d.address}','${esc(d.name || '')}')" ${busy ? 'disabled' : ''}
+                        <button type="button" title="Remove device" onclick="bluetoothRemove(${jsAttr(d.address)},${jsAttr(d.name || '')})" ${busy ? 'disabled' : ''}
                             class="bt-iconbtn bt-iconbtn-danger no-drag"><i class="fas fa-trash text-[10px]"></i></button>
                     </div>
                 </div>`;
@@ -360,7 +360,7 @@
                             <div class="min-w-0 flex-1"><p class="text-xs text-neutral-200 truncate">${esc(d.name || 'Unknown device')}</p>
                                 <span class="text-[10px] text-neutral-600">${esc(bluetoothTypeLabel(d))} · Not paired</span></div>
                             ${busy ? '<i class="fas fa-circle-notch fa-spin text-neutral-500 text-xs mr-1"></i>' : ''}
-                            <button type="button" onclick="bluetoothPair('${d.address}','${esc(d.name || '')}')" ${busy ? 'disabled' : ''}
+                            <button type="button" onclick="bluetoothPair(${jsAttr(d.address)},${jsAttr(d.name || '')})" ${busy ? 'disabled' : ''}
                                 class="px-2.5 py-1 rounded-lg text-[11px] border bg-blue-600/20 border-blue-600/40 text-blue-300 hover:bg-blue-600/30 transition-colors no-drag shrink-0">Pair</button>
                         </div>`;
                     }).join('')}</div>`;

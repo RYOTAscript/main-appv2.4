@@ -140,7 +140,7 @@
 
         function fpsTabsHtml() {
             return `<div class="fps-tabs">${FPS_TABS.map((t) => `
-                <button type="button" class="fps-tab no-drag ${fpsTab === t.id ? 'fps-tab-on' : ''}" onclick="fpsSwitchTab('${t.id}')">
+                <button type="button" class="fps-tab no-drag ${fpsTab === t.id ? 'fps-tab-on' : ''}" onclick="fpsSwitchTab(${jsAttr(t.id)})">
                     <i class="fas ${t.icon} mr-1.5"></i>${t.label}
                 </button>`).join('')}</div>`;
         }
@@ -156,7 +156,7 @@
                         <div class="fps-card-desc">${esc(a.desc)}</div>
                     </div>
                     <button type="button" class="fps-run fps-run-${a.tone} no-drag" ${fpsBusy ? 'disabled' : ''}
-                        onclick="fpsRunAction('${fpsTab}', ${i})">${esc(a.btn || 'Run')}</button>
+                        onclick="fpsRunAction(${jsAttr(fpsTab)}, ${i})">${esc(a.btn || 'Run')}</button>
                 </div>`;
             }).join('')}</div>`;
         }

@@ -51,9 +51,9 @@
                         <span class="block text-[10px] text-neutral-500 truncate">${m.steps.length} step${m.steps.length === 1 ? '' : 's'}${m.hotkey ? ` · ${esc(m.hotkey)}` : ''}</span>
                     </span>
                     <span class="flex items-center gap-1 flex-shrink-0">
-                        <button type="button" onclick="mmPlay('${esc(m.id)}')" title="Play" class="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-emerald-400 no-drag"><i class="fas fa-play text-[11px]"></i></button>
-                        <button type="button" onclick="mmEdit('${esc(m.id)}')" title="Edit" class="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 no-drag"><i class="fas fa-pen text-[11px]"></i></button>
-                        <button type="button" onclick="mmDelete('${esc(m.id)}')" title="Delete" class="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 no-drag"><i class="fas fa-trash-can text-[11px]"></i></button>
+                        <button type="button" onclick="mmPlay(${jsAttr(m.id)})" title="Play" class="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-emerald-400 no-drag"><i class="fas fa-play text-[11px]"></i></button>
+                        <button type="button" onclick="mmEdit(${jsAttr(m.id)})" title="Edit" class="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 no-drag"><i class="fas fa-pen text-[11px]"></i></button>
+                        <button type="button" onclick="mmDelete(${jsAttr(m.id)})" title="Delete" class="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 no-drag"><i class="fas fa-trash-can text-[11px]"></i></button>
                     </span>
                 </div>`).join('');
 

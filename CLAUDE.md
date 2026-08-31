@@ -36,14 +36,18 @@ background operation. **Windows and macOS are both supported** (see
 (`isWindows`/`isMac`): Windows → `shellUtils`/PowerShell, macOS → `osascript`
 (+ `defaults`/`runFile`, or a free Homebrew CLI via `main/macTools.js`).
 
-**Registry: 31 widget entries.** Windows shows 25, macOS shows 24. Three kinds:
+**Registry: 33 widget entries.** Windows shows 27, macOS shows 24. Three kinds:
 - **Cross-platform** (no `platforms` field): most widgets, incl. some with a
   different backend per OS — bluetooth (WinRT ↔ `blueutil`), screenResolution
   (↔ `displayplacer`), claudeLimit (SendKeys ↔ osascript; the `~/.claude` reader
   is shared), gameMode (Win32 watcher ↔ osascript poll). A `main/<feat>Mac.js`
   registers the SAME IPC channels on mac; the Windows module is init-skipped there.
-- **`platforms: ['win32']`** — Windows-only. Only **controllerMacros** has NO mac
-  equivalent (a virtual gamepad needs a DriverKit kext). Six have a **mac
+- **`platforms: ['win32']`** — Windows-only. Three have NO mac equivalent:
+  **controllerMacros** (a virtual gamepad needs a DriverKit kext),
+  **autoClicker** (SendInput + GDI screen capture; macOS needs a signed
+  Accessibility/Screen-Recording path) and **voiceAssistant** (offline
+  grammar recognition via .NET `System.Speech`; macOS exposes no equivalent
+  command recognizer through osascript). Six have a **mac
   substitute** shipped as a separate darwin-only widget: taskbar→**dockStyler**,
   debloat→**macTweaks**, revoUninstaller→**appUninstaller**,
   appInstaller→**appInstallerMac** (Homebrew), fpsOptimizer→**macFreeUp**,
@@ -67,8 +71,12 @@ installer, MIT tools, install-on-demand — see [[legal-to-sell-rule]]).
   (`ensureVersionedScript`, ~11 requirers), `httpClient.js` (`safeFetch` — a
   fetch-shaped wrapper over Node `https`), `boundedCache.js` (LRU-ish cache),
   `elevate.js` (relaunches the *whole app* under UAC for admin-gated work),
+  `voiceHostScript.js` (the speech host's C#, kept out of its module for size),
   `platform.js` (`isWindows`/`isMac`/`isLinux` + `pick()` — OS branching, from
-  the macOS port) and `osascript.js` (`runAppleScript` + shared AppleScript
+  the macOS port), `windowGuard.js` (`lockNavigation` — denies `window.open` and
+  in-window navigation; **every** BrowserWindow must go through it, except the
+  Spotify auth window, which has to navigate and keeps its own handlers) and
+  `osascript.js` (`runAppleScript` + shared AppleScript
   builders — the mac counterpart to `shellUtils`). When a feature needs OS work,
   branch on `platform.js` and route Windows through `shellUtils`/PowerShell,
   macOS through `osascript`.
@@ -103,9 +111,9 @@ mini widgets. To add a widget:
    `main/<id>.js` + a `preload.js` method.
 3. Add any Tailwind classes → **rebuild CSS** (see gotchas).
 
-The registry holds **31 widget entries** across 12 categories (Audio, Clipboard,
+The registry holds **33 widget entries** across 12 categories (Audio, Clipboard,
 Displays, Gaming, Media, Productivity, Searching, Social, Spotify, System,
-Utilities, Weather); the Widget Library shows the OS-filtered subset — **25 on
+Utilities, Weather); the Widget Library shows the OS-filtered subset — **27 on
 Windows, 24 on macOS**. The Widget Library, its search index, the dashboard Mini
 Widgets strip, and the Settings summary **all generate from this registry** —
 never hardcode widget lists in UI code.
@@ -114,11 +122,11 @@ never hardcode widget lists in UI code.
 app derives `MINI_WIDGETS` from it by filtering to the current OS via
 `renderer/widget-platform.js` (loaded before `core.js`; uses
 `window.electronAPI.platform`). A widget with no `platforms` field runs
-everywhere. `platforms: ['win32']` marks Windows-only widgets — `macros` and
-`controllerMacros` (no mac equivalent) plus `taskbar`, `debloat`,
-`revoUninstaller`, `appInstaller`, `fpsOptimizer` (each has a separate
-`platforms: ['darwin']` substitute widget). See §2's registry note for the full
-mapping. On Windows the filter keeps all 25 Windows widgets and defaults to
+everywhere. `platforms: ['win32']` marks Windows-only widgets — `macros`,
+`controllerMacros`, `autoClicker` and `voiceAssistant` (no mac equivalent) plus
+`taskbar`, `debloat`, `revoUninstaller`, `appInstaller`, `fpsOptimizer` (each has a
+separate `platforms: ['darwin']` substitute widget). See §2's registry note for the full
+mapping. On Windows the filter keeps all 27 Windows widgets and defaults to
 `win32` when the platform can't be read, so behaviour there is unchanged. Every
 consumer reads the filtered `MINI_WIDGETS`, so gating one entry hides it
 everywhere at once.
@@ -158,10 +166,12 @@ Two electron-builder hooks (packaging-sensitive; leave them wired):
 npm test             # node --test — unit/integration suite under test/
 ```
 `npm test` now runs a **`node:test` suite** (`test/*.test.js`, zero extra deps)
-covering the platform-detection helper (`main/platform.js`) and the widget
-gating (`renderer/widget-platform.js` + the real registry, incl. a `vm`
-simulation of a macOS/Windows renderer boot). Run it after touching platform or
-registry logic. There is still **no end-to-end/UI harness** — see §6 for how the
+covering the platform-detection helper (`main/platform.js`), the widget gating
+(`renderer/widget-platform.js` + the real registry, incl. a `vm` simulation of a
+macOS/Windows renderer boot), and the voice assistant's intent layer + contracts
+(`test/voice-commands.test.js`, `test/voice-assistant.test.js` — the latter also
+compiles and handshakes the real PowerShell speech host). Run it after touching
+platform, registry or voice logic. There is still **no end-to-end/UI harness** — see §6 for how the
 app is otherwise tested (the user drives it live on Windows).
 
 ### Runtime data
@@ -171,6 +181,30 @@ persisted data or localStorage keys** without a migration — users have live
 state.
 
 ### Gotchas (these bite silently)
+- **Never interpolate a value into a JS string inside an inline handler.** Write
+  `onclick="fn(${jsAttr(x)})"`, never `onclick="fn('${esc(x)}')"`. `esc()` turns
+  `'` into `&#39;`, and the HTML parser decodes that back to a real quote *before*
+  the handler is compiled — so `esc()` there lets a crafted value (a Bluetooth
+  device name, an imported preset name, a registry DisplayName) break out of the
+  string and run as code with the full `electronAPI` surface. `jsAttr()`
+  (`renderer/ui-utils.js`) supplies its own quotes; don't wrap it in any.
+  `test/ui-escaping.test.js` fails the build if the old shape reappears.
+- **Every renderer document ships a CSP** (`<meta http-equiv>` in all six HTML
+  files). It denies remote script, `connect-src`, frames and forms. `script-src`
+  still carries `'unsafe-inline'` only because of the inline `on*` handlers —
+  migrate those to delegated listeners and it can be dropped. If you add a
+  genuinely new remote resource, widen the policy or it fails silently.
+- **Licensing config is baked in, not env-driven.** `MAIN_SITE_URL`,
+  `LICENSE_VERIFY_SECRET` and the Google OAuth env vars are honoured **only when
+  `!app.isPackaged`** (`main/license.js`), so a shipped build can't be pointed at
+  another licensing authority. Google desktop credentials go in the
+  `GOOGLE_DESKTOP_CLIENT_ID`/`_SECRET` constants at the top of that file — while
+  they're blank the gate hides the Google button and key-paste is the only route in.
+- **A guard must never treat missing evidence as a pass.** The rollback watermark
+  (`main/licenseWatermark.js`, pure + unit-tested) is kept in *two* places —
+  `license.json` and a `safeStorage`-encrypted mirror — because the original
+  `typeof stored.maxSeen === 'number' && …` check let deleting one field skip the
+  check itself. Same shape to watch for anywhere else entitlement is decided.
 - **Tailwind is a static vendored build** (`styles/vendor/tailwind.css`), not
   the CDN. A new Tailwind class in HTML/JS does nothing at runtime until you run
   `npm run build:css` and commit the regenerated file.
@@ -288,6 +322,35 @@ AST — no LLM). Useful facts it surfaced, worth knowing before refactoring:
   privileged/PowerShell feature (autostart, appInstaller, appLauncher,
   controllerMacros, fpsOptimizer) routes through them. Change their signatures
   with care — the blast radius is large.
+- **Persistent-helper pattern.** Two features can't afford a process spawn per
+  action, so they keep a long-lived PowerShell/C# helper and talk to it over a
+  line protocol on stdin/stdout: `main/macros.js` (input engine) and
+  `main/voiceAssistant.js` (`main/voiceHostScript.js` — offline speech
+  recognition + TTS + a passive push-to-talk key watch). Both compile their core
+  with `Add-Type`, both version their cached `.ps1` through
+  `scriptCache.ensureVersionedScript`, and both are torn down on `will-quit`.
+  If you change one side of either protocol, change the other — the tests assert
+  the two halves still agree.
+- **Voice mic ownership.** The speech host has two listening modes: `command`
+  (full grammar, streams audio levels for the overlay) and `wake` (only the
+  "hey main" grammar, silent, continuous). `MODE` switches between them by
+  toggling `Grammar.Enabled` — it never re-acquires the audio device, which is
+  what makes waking instant. Only `STOP` releases the mic. Everything routes
+  through `setHostMode()`/`reconcileMic()` in `main/voiceAssistant.js`; never
+  send `LISTEN`/`STOP` from anywhere else, or wake and command mode will fight
+  over the device. The wake word is **off by default** because turning it on
+  keeps the microphone open while idle.
+- **Voice command catalogue.** `main/voiceCommands.js` holds ~90 commands; every
+  one MUST have an executor in `renderer/voice-assistant.js` (or be one of the
+  four assistant-meta commands handled in `main/voiceAssistant.js`) — a test
+  fails the build otherwise, so a command can never be advertised without an
+  implementation. Slots fed by live data (apps, widgets, Bluetooth devices,
+  audio sessions, playlists, routines) come from the renderer via
+  `voice:set-vocabulary`. Chaining ("do X and Y") is a grammar REPETITION, not a
+  cross product — keep it that way or the grammar squares. Routines are the
+  user's own named sequences, stored in `voiceRoutines` (localStorage); each
+  step is resolved through the same matcher over `voice:match`, so a routine can
+  never reach a capability a spoken command couldn't.
 - Several communities (controller-macros UI, valclips UI, background) have **low
   internal cohesion** (~0.06) — candidates to split into tighter modules.
 - ~569 weakly-connected nodes are mostly library imports / config, but some may

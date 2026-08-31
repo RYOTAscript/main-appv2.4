@@ -322,9 +322,22 @@
                 }
                 if (video && video.classList.contains('bg-active')) video.play().catch(() => {});
             }
-            // The Transparent preset's live screen capture is also stopped
-            // while hidden and restarted on return — applyBackground handles
-            // both directions via its document.hidden check.
+            // The live screen capture is NOT torn down on every flip — see
+            // BG_LIVE_HIDE_GRACE_MS. Only a sustained absence promotes this to
+            // "deeply hidden" and lets applyBackground stop the capture; coming
+            // back before then cancels the pending stop, so an alt-tab round
+            // trip never restarts the stream.
+            clearTimeout(bgHideGraceTimer);
+            bgHideGraceTimer = null;
+            if (document.hidden) {
+                bgHideGraceTimer = setTimeout(() => {
+                    bgHideGraceTimer = null;
+                    bgDeepHidden = true;
+                    if (getBgSettings().preset === 'clear') applyBackground();
+                }, BG_LIVE_HIDE_GRACE_MS);
+            } else {
+                bgDeepHidden = false;
+            }
             if (getBgSettings().preset === 'clear') applyBackground();
         });
 
@@ -492,6 +505,11 @@
             const docStyle = document.documentElement.style;
             docStyle.setProperty('--accent', bgAccentRgbStr);
             docStyle.setProperty('--accent-solid', accent);
+            // The voice overlay is a separate window and cannot see this CSS
+            // variable, so it is handed the accent with its vocabulary. Without
+            // this nudge the overlay kept whatever colour it had at startup and
+            // changing the theme appeared to do nothing to it.
+            if (typeof pushVoiceVocabulary === 'function') pushVoiceVocabulary(true);
             // Quick Launch tiles: a colored theme deep-tints the tile face behind
             // each icon (accent at ~16% over black) and its border. Pure white
             // (unthemed) keeps the app's original neutral tile exactly.
@@ -543,6 +561,8 @@
 
         let bgDesktopInfo = null;   // { wallpaper, display: {x,y,width,height} }
         let bgWinPos = null;        // window top-left in screen coords, kept live
+        let bgWinPosStamp = 0;      // when bgWinPos last came from the live move stream
+        let bgBackdropDisplayId = null;  // display the backdrop layers are aligned to
 
         // ── Live capture (real blur, rounded corners) ──
         // The compositor-level blur tried first (SetWindowCompositionAttribute)
@@ -562,6 +582,21 @@
         let bgLiveDisplay = null;     // display bounds for screen-alignment
         let bgLiveStarting = false;
         let bgLiveIpcOn = false;      // main has capture-exclusion enabled
+        // Monotonic request number shared by every start/stop. It orders the IPC
+        // in main (a stale stop can never undo a newer start) and lets an async
+        // start abort when something superseded it mid-flight.
+        let bgLiveGen = 0;
+
+        // The page flips hidden/visible constantly in normal use — every alt-tab
+        // that fully covers the window marks it hidden. Tearing the capture down
+        // and rebuilding it on each flip is what produced the recursive-mirror
+        // flashes: in the gap between lifting the capture exclusion and the
+        // stream actually ending, the window captures ITSELF. So only a real
+        // absence (tray / minimise) stops it; a quick alt-tab round-trip keeps
+        // the stream alive and costs nothing to come back to.
+        const BG_LIVE_HIDE_GRACE_MS = 5000;
+        let bgDeepHidden = false;
+        let bgHideGraceTimer = null;
 
         function bgLiveWanted(s) {
             if (s.preset !== 'clear' || bgLiveAvailable === false) return false;
@@ -580,20 +615,35 @@
                 return;
             }
             bgLiveStarting = true;
+            const startedAt = Date.now();
+            const gen = ++bgLiveGen;
             try {
-                const info = await window.electronAPI.backgroundLiveCapture(true);
+                const info = await window.electronAPI.backgroundLiveCapture(true, gen);
                 // A sourceId means the main process turned the capture
                 // exclusion on — remember that so bgLiveStop() can lift it
                 // even if the stream itself fails to start below.
                 if (info?.sourceId) bgLiveIpcOn = true;
+                // Superseded while the IPC was in flight (a stop, or a newer
+                // start): whoever bumped the generation owns the stream now.
+                // Carrying on would race them into showing a stream the other
+                // path is about to tear the exclusion out from under.
+                if (gen !== bgLiveGen) return;
                 // Settings may have changed while the IPC was in flight.
-                if (!bgLiveWanted(getBgSettings())) { bgLiveStop(); return; }
+                if (!bgLiveWanted(getBgSettings()) || bgDeepHidden) { bgLiveStop(); return; }
                 if (!info?.sourceId) throw new Error('no capture source');
-                bgWinPos = info.window;
+                // A drag easily outruns this IPC round-trip, so the live move
+                // stream wins: only adopt the snapshot position if nothing
+                // newer arrived while the call was in flight, or the backdrop
+                // snaps back to where the window was when it started.
+                if (bgWinPosStamp < startedAt) bgWinPos = info.window;
                 bgLiveDisplay = info.display;
+                if (info.displayId) bgBackdropDisplayId = info.displayId;
                 if (!bgLiveStream || bgLiveSourceId !== info.sourceId) {
                     const old = bgLiveStream;
-                    bgLiveStream = await navigator.mediaDevices.getUserMedia({
+                    // Land the new stream in a local until it's committed:
+                    // assigning bgLiveStream before the re-check below would
+                    // hand a stop (or a newer start) a stream it doesn't own.
+                    const fresh = await navigator.mediaDevices.getUserMedia({
                         audio: false,
                         video: {
                             mandatory: {
@@ -605,6 +655,16 @@
                             }
                         }
                     });
+                    // getUserMedia is the second await — re-check, or a stop
+                    // that landed during it would be undone by the reveal below
+                    // while main has already lifted the capture exclusion.
+                    // Whoever superseded us owns bgLiveStream now; just drop
+                    // the stream we opened and leave their state alone.
+                    if (gen !== bgLiveGen) {
+                        fresh.getTracks().forEach(t => t.stop());
+                        return;
+                    }
+                    bgLiveStream = fresh;
                     bgLiveSourceId = info.sourceId;
                     if (old) old.getTracks().forEach(t => t.stop());
                     video.srcObject = bgLiveStream;
@@ -616,6 +676,7 @@
                         applyBackground();
                     });
                 }
+                bgMeasureBackdropOrigin();
                 bgPositionWallpaper();
                 video.classList.add('bg-active');
                 video.play().catch(() => {});
@@ -651,10 +712,14 @@
             }
             // Lift the screenshot/recording exclusion again — including when
             // the stream never got past the IPC step, so a failed start can't
-            // leave the app permanently hidden from captures.
+            // leave the app permanently hidden from captures. The generation
+            // goes up first: it both cancels any start still in flight and
+            // stops this disable from being applied out of order in main.
             if (bgLiveIpcOn && window.electronAPI?.backgroundLiveCapture) {
                 bgLiveIpcOn = false;
-                window.electronAPI.backgroundLiveCapture(false).catch(() => {});
+                window.electronAPI.backgroundLiveCapture(false, ++bgLiveGen).catch(() => {});
+            } else {
+                bgLiveGen += 1;
             }
         }
 
@@ -666,17 +731,49 @@
             return s.blur > 0 || s.saturation !== 100 || s.brightness > 100;
         }
 
+        // Where #bg-backdrop's own origin sits inside the window, in CSS px.
+        // This used to be assumed to be exactly -96 (the bleed in
+        // backgrounds.css), but that assumption is wrong in several ways at
+        // once: `inset: -96px` is measured from #main-window's PADDING box, so
+        // the card's 1px border shifts it (at dpr 1.5 Chromium snaps that
+        // border to 0.667px, putting the real origin at -95.333), and it also
+        // assumes the card sits flush at the window's top-left. Measure it
+        // instead — then the backdrop stays screen-locked no matter what the
+        // page layout does.
+        let bgBackdropOrigin = { x: -96, y: -96 };
+
+        function bgMeasureBackdropOrigin() {
+            const host = document.getElementById('bg-backdrop');
+            if (!host) return;
+            // Safe to use a bounding rect here: parallax always clears
+            // #bg-root's transform while a backdrop layer is active
+            // (parallaxApply), so no ancestor transform can skew this. Only
+            // called on activation / resize, never per drag step — it forces
+            // a layout flush.
+            const r = host.getBoundingClientRect();
+            bgBackdropOrigin = { x: r.left, y: r.top };
+        }
+
         function bgPositionWallpaper() {
             if (!bgWinPos) return;
-            // #bg-root's origin sits 96px above/left of the window (its bleed —
-            // must match #bg-root's inset in backgrounds.css), hence the +96 to
-            // convert screen coords into layer coords.
+            // Convert screen coords into layer coords: subtracting the window's
+            // screen position gives viewport coords, and subtracting the
+            // backdrop's own viewport origin gives the local offset.
+            //
+            // The offset is written as a TRANSFORM, never left/top: these layers
+            // live under #bg-root's blur filter, where a left/top write dirties
+            // layout for the entire filtered subtree — i.e. a full re-layout and
+            // re-blur of a screen-sized video on every step of a window drag.
+            // The size only changes when the display does, so it's only written
+            // when it actually differs (see .bg-wallpaper in backgrounds.css).
             const place = (el, d) => {
                 if (!el || !d) return;
-                el.style.left = `${d.x - bgWinPos.x + 96}px`;
-                el.style.top = `${d.y - bgWinPos.y + 96}px`;
-                el.style.width = `${d.width}px`;
-                el.style.height = `${d.height}px`;
+                const w = `${d.width}px`;
+                const h = `${d.height}px`;
+                if (el.style.width !== w) el.style.width = w;
+                if (el.style.height !== h) el.style.height = h;
+                el.style.transform = `translate3d(${d.x - bgWinPos.x - bgBackdropOrigin.x}px, ` +
+                    `${d.y - bgWinPos.y - bgBackdropOrigin.y}px, 0)`;
             };
             place(document.getElementById('bg-wallpaper'), bgDesktopInfo?.display);
             place(document.getElementById('bg-live'), bgLiveDisplay);
@@ -689,6 +786,7 @@
                 wp.classList.remove('bg-active');
                 return;
             }
+            const startedAt = Date.now();
             try {
                 bgDesktopInfo = await window.electronAPI.backgroundDesktopInfo();
             } catch (e) {
@@ -699,9 +797,13 @@
                 wp.classList.remove('bg-active');
                 return;
             }
-            bgWinPos = bgDesktopInfo.window;
+            // Same as bgLiveEnsure: a drag in progress outruns the round-trip,
+            // so the live move stream wins over this snapshot.
+            if (bgWinPosStamp < startedAt) bgWinPos = bgDesktopInfo.window;
+            if (bgDesktopInfo.displayId) bgBackdropDisplayId = bgDesktopInfo.displayId;
             const url = iconFileUrl(bgDesktopInfo.wallpaper);
             if (wp.getAttribute('src') !== url) wp.src = url;
+            bgMeasureBackdropOrigin();
             bgPositionWallpaper();
             wp.classList.add('bg-active');
             // Same parallax release as the live backdrop (see parallaxApply).
@@ -797,10 +899,11 @@
             const scene = root.querySelector('.bg-scene');
             const wallpaperEl = document.getElementById('bg-wallpaper');
             if (root.dataset.preset === 'clear') {
-                // While hidden (tray), everything shuts off — the live capture
-                // especially must not keep burning CPU; visibilitychange below
-                // re-applies on return.
-                const live = bgLiveWanted(s) && !document.hidden;
+                // While genuinely away (tray/minimised for a while), everything
+                // shuts off — the live capture especially must not keep burning
+                // CPU. A momentary hide (alt-tab) does NOT count: see
+                // BG_LIVE_HIDE_GRACE_MS and the visibilitychange handler.
+                const live = bgLiveWanted(s) && !bgDeepHidden;
                 const frost = !live && bgFrostWanted(s);
                 // Blur & co. need the live stream or the wallpaper stand-in,
                 // but plain DIMMING works on the real see-through view: a
@@ -1070,7 +1173,7 @@
                     ? `<div class="bg-card-preview" id="bg-diy-preview" style="${esc(bgDiyPreviewCss(s))}"></div>`
                     : `<div class="bg-card-preview" data-preview="${p.id}"></div>`;
                 return `
-                <div class="bg-card${s.preset === p.id ? ' selected' : ''}" onclick="bgSelectPreset('${p.id}')" title="${esc(p.name)}">
+                <div class="bg-card${s.preset === p.id ? ' selected' : ''}" onclick="bgSelectPreset(${jsAttr(p.id)})" title="${esc(p.name)}">
                     ${preview}
                     <span class="bg-card-name">${esc(p.name)}</span>
                     <i class="fas fa-check bg-card-check"></i>
@@ -1086,12 +1189,12 @@
                 // Escape quotes for the inline handler args (filenames can contain ').
                 const fileArg = esc(c.file).replace(/&#39;/g, "\\'");
                 return `
-                <div class="bg-card${selected ? ' selected' : ''}" onclick="bgSelectCustom('${fileArg}', '${c.type}')" title="${esc(c.file)}">
+                <div class="bg-card${selected ? ' selected' : ''}" onclick="bgSelectCustom(${jsAttr(fileArg)}, ${jsAttr(c.type)})" title="${esc(c.file)}">
                     ${media}
                     <span class="bg-card-badge">${c.type === 'video' ? 'video' : 'image'}</span>
                     <span class="bg-card-name">${esc(c.file.replace(/\.[^.]+$/, ''))}</span>
                     <i class="fas fa-check bg-card-check"></i>
-                    <button type="button" class="bg-card-delete no-drag" onclick="bgDeleteCustom('${fileArg}', event)" title="Remove">✕</button>
+                    <button type="button" class="bg-card-delete no-drag" onclick="bgDeleteCustom(${jsAttr(fileArg)}, event)" title="Remove">✕</button>
                 </div>`;
             });
 
@@ -1124,7 +1227,7 @@
                 if (t.id === 'auto') {
                     return `<span class="bg-swatch bg-swatch-auto${sel}" onclick="bgSelectTheme('auto')" title="${esc(t.name)}"><i class="fas fa-wand-magic-sparkles"></i></span>`;
                 }
-                return `<span class="bg-swatch${sel}" style="background:${t.accent}" onclick="bgSelectTheme('${t.id}')" title="${esc(t.name)}"></span>`;
+                return `<span class="bg-swatch${sel}" style="background:${t.accent}" onclick="bgSelectTheme(${jsAttr(t.id)})" title="${esc(t.name)}"></span>`;
             }).join('');
             const customSel = s.theme === 'custom' ? ' selected' : '';
             const custom = `<span class="bg-swatch bg-swatch-custom${customSel}" style="background:${esc(s.customAccent)}" title="Custom color — click to pick">` +
@@ -1141,7 +1244,7 @@
                 if (t.id === 'auto') {
                     return `<span class="bg-swatch bg-swatch-auto${sel}" onclick="bgSelectTextTheme('auto')" title="${esc(t.name)}"><i class="fas fa-font"></i></span>`;
                 }
-                return `<span class="bg-swatch${sel}" style="background:${t.color}" onclick="bgSelectTextTheme('${t.id}')" title="${esc(t.name)}"></span>`;
+                return `<span class="bg-swatch${sel}" style="background:${t.color}" onclick="bgSelectTextTheme(${jsAttr(t.id)})" title="${esc(t.name)}"></span>`;
             }).join('');
             const customSel = s.textTheme === 'custom' ? ' selected' : '';
             const custom = `<span class="bg-swatch bg-swatch-custom${customSel}" style="background:${esc(s.customText)}" title="Custom text color — click to pick">` +
@@ -1179,26 +1282,61 @@
                     }, 600);
                 });
             }
+            // Anything that can move the card inside the window (a resize, a
+            // Ctrl +/- zoom step — which rescales every CSS px) invalidates the
+            // measured backdrop origin. Re-measure and re-place, or the
+            // backdrop sits offset from the desktop behind it.
+            window.addEventListener('resize', () => {
+                bgMeasureBackdropOrigin();
+                bgPositionWallpaper();
+            });
+
             if (window.electronAPI?.onWindowMoved) {
                 let bgMoveSampleTimer = null;
-                let bgMoveLiveTimer = null;
-                window.electronAPI.onWindowMoved((pos) => {
-                    bgWinPos = pos;
+                let bgMoveDisplayTimer = null;
+                let bgMoveRaf = null;
+                let bgMovePending = null;
+
+                // Main already throttles the move stream to ~60 Hz; folding it
+                // into a single rAF here guarantees at most ONE backdrop re-place
+                // per painted frame even if a burst slips through, and lands that
+                // write in the frame the compositor is about to draw instead of
+                // somewhere between frames (which is what made the backdrop tear
+                // and swim while the window was being dragged).
+                const bgApplyMove = () => {
+                    bgMoveRaf = null;
+                    const pos = bgMovePending;
+                    bgMovePending = null;
+                    if (!pos) return;
+                    bgWinPos = { x: pos.x, y: pos.y };
+                    bgWinPosStamp = Date.now();
                     bgPositionWallpaper();
+
                     // Dragged somewhere new — re-sample what's behind once
                     // the drag settles (only while the sampler is active).
                     if (bgBehindTimer) {
                         clearTimeout(bgMoveSampleTimer);
                         bgMoveSampleTimer = setTimeout(bgSampleBehind, 400);
                     }
-                    // A drag can also land on another display — re-check the
-                    // live capture source once the drag settles.
-                    if (bgLiveStream) {
-                        clearTimeout(bgMoveLiveTimer);
-                        bgMoveLiveTimer = setTimeout(() => {
+
+                    // Dragged onto ANOTHER display: the backdrop's screen
+                    // alignment — and, for the live capture, the source screen
+                    // itself — is now wrong, so re-sync as soon as the drag
+                    // pauses. Same-display drags no longer pay for this: the
+                    // alignment they need is just the transform above.
+                    const backdropOn = !!document.querySelector('#bg-backdrop .bg-active');
+                    if (backdropOn && pos.displayId && bgBackdropDisplayId && pos.displayId !== bgBackdropDisplayId) {
+                        clearTimeout(bgMoveDisplayTimer);
+                        bgMoveDisplayTimer = setTimeout(() => {
                             if (bgLiveStream) bgLiveEnsure(true);
-                        }, 400);
+                            else applyBackground();   // re-resolves frost for the new display
+                        }, 250);
                     }
+                };
+
+                window.electronAPI.onWindowMoved((pos) => {
+                    bgMovePending = pos;
+                    if (!bgMoveRaf) bgMoveRaf = requestAnimationFrame(bgApplyMove);
                 });
             }
             applyBackground();

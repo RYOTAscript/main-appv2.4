@@ -180,19 +180,19 @@
                     `<option value="${value}" ${m.trigger === value ? 'selected' : ''}>${label}</option>`).join('');
                 html += `<div class="border border-white/10 rounded-xl p-3 mb-2 ${m.on ? '' : 'opacity-60'}">
                     <div class="flex items-center gap-2">
-                        <input type="checkbox" ${m.on ? 'checked' : ''} onchange="setMacroOn('${m.id}', this.checked)"
+                        <input type="checkbox" ${m.on ? 'checked' : ''} onchange="setMacroOn(${jsAttr(m.id)}, this.checked)"
                             class="accent-white shrink-0" title="Enable this macro">
-                        <input type="text" value="${esc(m.name)}" onchange="renameMacro('${m.id}', this.value)"
+                        <input type="text" value="${esc(m.name)}" onchange="renameMacro(${jsAttr(m.id)}, this.value)"
                             class="flex-1 min-w-0 bg-transparent border border-transparent hover:border-neutral-700 focus:border-neutral-500 rounded-lg px-2 py-1 text-sm focus:outline-none">
                         <button type="button" id="macro-hotkey-btn-${m.id}" class="hotkey-bind no-drag" title="Trigger — click then press a key or mouse button, Esc while binding to clear"
-                            onclick="startMacroHotkeyBind('macro', '${m.id}')">${esc(formatMacroHotkey(m.hotkey))}</button>
+                            onclick="startMacroHotkeyBind('macro', ${jsAttr(m.id)})">${esc(formatMacroHotkey(m.hotkey))}</button>
                         <select class="bg-neutral-900 border border-neutral-700 rounded-lg px-1.5 py-1 text-xs focus:outline-none focus:border-neutral-500 shrink-0"
-                            title="${esc(MACRO_TRIGGER_HINTS[m.trigger] || '')}" onchange="setMacroTrigger('${m.id}', this.value)">${triggerOptions}</select>
+                            title="${esc(MACRO_TRIGGER_HINTS[m.trigger] || '')}" onchange="setMacroTrigger(${jsAttr(m.id)}, this.value)">${triggerOptions}</select>
                         ${isPlaying
                             ? `<button type="button" class="hotkey-bind no-drag" title="Stop" onclick="stopMacros()"><i class="fas fa-stop"></i></button>`
-                            : `<button type="button" class="hotkey-bind no-drag" title="Play" onclick="playMacro('${m.id}')" ${busy ? 'disabled' : ''}><i class="fas fa-play"></i></button>`}
-                        <button type="button" class="hotkey-bind no-drag" title="Edit steps" onclick="toggleMacroEditor('${m.id}')"><i class="fas fa-pen"></i></button>
-                        <button type="button" class="hotkey-bind no-drag" title="Delete" onclick="deleteMacro('${m.id}')"><i class="fas fa-trash"></i></button>
+                            : `<button type="button" class="hotkey-bind no-drag" title="Play" onclick="playMacro(${jsAttr(m.id)})" ${busy ? 'disabled' : ''}><i class="fas fa-play"></i></button>`}
+                        <button type="button" class="hotkey-bind no-drag" title="Edit steps" onclick="toggleMacroEditor(${jsAttr(m.id)})"><i class="fas fa-pen"></i></button>
+                        <button type="button" class="hotkey-bind no-drag" title="Delete" onclick="deleteMacro(${jsAttr(m.id)})"><i class="fas fa-trash"></i></button>
                     </div>
                     ${expanded ? renderMacroEditor(m, busy) : ''}
                 </div>`;
@@ -200,7 +200,7 @@
 
             const filterItems = MACRO_RECORD_FILTERS.map(([key, label]) =>
                 `<label class="flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-300 hover:bg-white/5 cursor-pointer">
-                    <input type="checkbox" ${macrosRecordFilters[key] ? 'checked' : ''} onchange="setRecordFilter('${key}', this.checked)" class="accent-white">
+                    <input type="checkbox" ${macrosRecordFilters[key] ? 'checked' : ''} onchange="setRecordFilter(${jsAttr(key)}, this.checked)" class="accent-white">
                     ${label}
                 </label>`).join('');
             html += `<div class="flex items-center justify-between gap-2 mt-2">
@@ -232,7 +232,7 @@
             const numCls = 'bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-0.5 text-xs focus:outline-none focus:border-neutral-500 text-center';
             if (s.t === 'delay') {
                 return `Wait <input type="number" min="0" max="600000" value="${Number(s.ms) || 0}"
-                    onchange="setMacroDelay('${m.id}', ${i}, this.value)" class="w-20 ${numCls}"> ms`;
+                    onchange="setMacroDelay(${jsAttr(m.id)}, ${i}, this.value)" class="w-20 ${numCls}"> ms`;
             }
             if (s.t === 'key') return `Press <b>${esc(s.k)}</b>`;
             if (s.t === 'kd') return `Hold <b>${esc(s.k)}</b>`;
@@ -248,16 +248,16 @@
             }
             if (s.t === 'scroll') {
                 const d = Number(s.d) || 1;
-                return `Scroll <select onchange="setMacroScroll('${m.id}', ${i}, null, this.value)"
+                return `Scroll <select onchange="setMacroScroll(${jsAttr(m.id)}, ${i}, null, this.value)"
                         class="bg-neutral-900 border border-neutral-700 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:border-neutral-500">
                         <option value="1" ${d > 0 ? 'selected' : ''}>up</option>
                         <option value="-1" ${d < 0 ? 'selected' : ''}>down</option>
                     </select> <input type="number" min="1" max="100" value="${Math.abs(d)}"
-                        onchange="setMacroScroll('${m.id}', ${i}, this.value, null)" class="w-14 ${numCls}"> notch(es)`;
+                        onchange="setMacroScroll(${jsAttr(m.id)}, ${i}, this.value, null)" class="w-14 ${numCls}"> notch(es)`;
             }
             if (s.t === 'text') {
                 return `Type <input type="text" value="${esc(s.s || '')}" placeholder="text to type…"
-                    onchange="setMacroText('${m.id}', ${i}, this.value)"
+                    onchange="setMacroText(${jsAttr(m.id)}, ${i}, this.value)"
                     class="flex-1 min-w-0 bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-0.5 text-xs focus:outline-none focus:border-neutral-500">`;
             }
             if (s.t === 'path') {
@@ -274,20 +274,20 @@
                 const armed = macrosCaptureTarget && macrosCaptureTarget.id === m.id && macrosCaptureTarget.index === i;
                 let posBtns = '';
                 if (canPos) {
-                    posBtns = `<button type="button" class="hotkey-bind no-drag ${armed ? 'listening' : ''}" title="Alt + X for position — hover the target and press Alt+X"
-                        onclick="armMacroPointCapture('${m.id}', ${i})">${armed ? 'Alt+X…' : '<i class="fas fa-crosshairs"></i>'}</button>`;
+                    posBtns = `<button type="button" class="hotkey-bind no-drag ${armed ? 'listening' : ''}" title="Alt + X for position — hover the spot in any app and press Alt+X"
+                        onclick="armMacroPointCapture(${jsAttr(m.id)}, ${i})">${armed ? 'Alt+X…' : '<i class="fas fa-crosshairs"></i>'}</button>`;
                     if (s.t === 'click' && Number.isFinite(s.x)) {
                         posBtns += `<button type="button" class="hotkey-bind no-drag" title="Remove fixed position (click wherever the cursor is)"
-                            onclick="clearMacroClickPos('${m.id}', ${i})"><i class="fas fa-eraser"></i></button>`;
+                            onclick="clearMacroClickPos(${jsAttr(m.id)}, ${i})"><i class="fas fa-eraser"></i></button>`;
                     }
                 }
                 rows += `<div class="flex items-center gap-2 text-xs text-neutral-400 py-1 border-b border-white/5">
                     <span class="flex-1 min-w-0 truncate flex items-center gap-1.5">${macroStepBody(m, s, i)}</span>
                     ${posBtns}
-                    <button type="button" class="hotkey-bind no-drag" title="Move up" onclick="moveMacroStep('${m.id}', ${i}, -1)" ${i === 0 ? 'disabled' : ''}><i class="fas fa-chevron-up"></i></button>
-                    <button type="button" class="hotkey-bind no-drag" title="Move down" onclick="moveMacroStep('${m.id}', ${i}, 1)" ${i === (m.steps || []).length - 1 ? 'disabled' : ''}><i class="fas fa-chevron-down"></i></button>
-                    <button type="button" class="hotkey-bind no-drag" title="Duplicate this step" onclick="duplicateMacroStep('${m.id}', ${i})"><i class="fas fa-copy"></i></button>
-                    <button type="button" class="hotkey-bind no-drag" title="Remove" onclick="removeMacroStep('${m.id}', ${i})"><i class="fas fa-xmark"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Move up" onclick="moveMacroStep(${jsAttr(m.id)}, ${i}, -1)" ${i === 0 ? 'disabled' : ''}><i class="fas fa-chevron-up"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Move down" onclick="moveMacroStep(${jsAttr(m.id)}, ${i}, 1)" ${i === (m.steps || []).length - 1 ? 'disabled' : ''}><i class="fas fa-chevron-down"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Duplicate this step" onclick="duplicateMacroStep(${jsAttr(m.id)}, ${i})"><i class="fas fa-copy"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Remove" onclick="removeMacroStep(${jsAttr(m.id)}, ${i})"><i class="fas fa-xmark"></i></button>
                 </div>`;
             });
             if (!rows) rows = `<p class="text-xs text-neutral-600 py-1">No steps yet.</p>`;
@@ -297,11 +297,11 @@
                 ? `<span class="text-xs text-neutral-600"><i class="fas fa-hand mr-1"></i>Loops for as long as the key is held</span>`
                 : `<span class="text-xs text-neutral-400">Repeat</span>
                     <input type="number" min="1" max="9999" value="${forever ? '' : (m.repeat || 1)}" ${forever ? 'disabled' : ''}
-                        onchange="setMacroRepeat('${m.id}', this.value)"
+                        onchange="setMacroRepeat(${jsAttr(m.id)}, this.value)"
                         class="w-16 bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-0.5 text-xs focus:outline-none focus:border-neutral-500 text-center disabled:opacity-40">
                     <span class="text-xs text-neutral-400">time(s)</span>
                     <label class="flex items-center gap-1.5 cursor-pointer text-xs text-neutral-400">
-                        <input type="checkbox" ${forever ? 'checked' : ''} onchange="setMacroRepeatForever('${m.id}', this.checked)" class="accent-white">
+                        <input type="checkbox" ${forever ? 'checked' : ''} onchange="setMacroRepeatForever(${jsAttr(m.id)}, this.checked)" class="accent-white">
                         until stopped
                     </label>`;
             const speedOptions = MACRO_SPEEDS.map((v) =>
@@ -313,7 +313,7 @@
                     ${playbackRow}
                     <span class="flex-1"></span>
                     <span class="text-xs text-neutral-400">Speed</span>
-                    <select onchange="setMacroSpeed('${m.id}', this.value)"
+                    <select onchange="setMacroSpeed(${jsAttr(m.id)}, this.value)"
                         class="bg-neutral-900 border border-neutral-700 rounded-lg px-1.5 py-0.5 text-xs focus:outline-none focus:border-neutral-500">${speedOptions}</select>
                 </div>
                 <p class="text-xs text-neutral-600 mb-2">${esc(MACRO_TRIGGER_HINTS[m.trigger] || '')}${dur > 0 ? ` · ~${(dur / 1000).toFixed(1)}s per run` : ''}</p>
@@ -332,10 +332,10 @@
                         <option value="text">Type text</option>
                         <option value="delay">Delay</option>
                     </select>
-                    <button type="button" id="macro-add-step-btn-${m.id}" class="hotkey-bind no-drag" onclick="addMacroStep('${m.id}')">Add step</button>
-                    <button type="button" class="hotkey-bind no-drag" title="Duplicate this macro" onclick="duplicateMacro('${m.id}')"><i class="fas fa-copy"></i></button>
-                    <button type="button" class="hotkey-bind no-drag" title="Clear all steps" onclick="clearMacroSteps('${m.id}')" ${(m.steps || []).length ? '' : 'disabled'}><i class="fas fa-eraser"></i></button>
-                    <button type="button" class="hotkey-bind no-drag" title="Re-record this macro (replaces its steps)" onclick="recordNewMacro('${m.id}')" ${busy ? 'disabled' : ''}>
+                    <button type="button" id="macro-add-step-btn-${m.id}" class="hotkey-bind no-drag" onclick="addMacroStep(${jsAttr(m.id)})">Add step</button>
+                    <button type="button" class="hotkey-bind no-drag" title="Duplicate this macro" onclick="duplicateMacro(${jsAttr(m.id)})"><i class="fas fa-copy"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Clear all steps" onclick="clearMacroSteps(${jsAttr(m.id)})" ${(m.steps || []).length ? '' : 'disabled'}><i class="fas fa-eraser"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Re-record this macro (replaces its steps)" onclick="recordNewMacro(${jsAttr(m.id)})" ${busy ? 'disabled' : ''}>
                         <i class="fas fa-circle mr-1 text-red-400"></i>Re-record</button>
                 </div>
             </div>`;
@@ -610,7 +610,9 @@
         }
 
         // Arms the main-process Alt+X capture: the user hovers the target spot in
-        // any window and presses Alt+X; the cursor position lands in the step.
+        // any window and presses Alt+X; the cursor position lands in the step. The
+        // press is detected while that other window still has focus, so there's no
+        // need to come back to Main first.
         async function armMacroPointCapture(id, index) {
             if (!window.electronAPI?.macrosCaptureArm) return;
             if (macrosCaptureTarget) {
@@ -620,25 +622,21 @@
             }
             macrosCaptureTarget = { id, index };
             await renderMacrosPanel();
-            showToast('Hover the target spot and press Alt + X');
-            const p = await window.electronAPI.macrosCaptureArm();
+            // The 'press Alt + X now' toast waits for the capture-armed status
+            // event: arming may have to cold-start the macro engine first, and a
+            // press before that is ready would land nowhere.
+            const p = await window.electronAPI.macrosCaptureArm(id, index);
             macrosCaptureTarget = null;
             if (p && p.error) {
                 showToast('Alt + X is unavailable right now', true);
                 await renderMacrosPanel();
                 return;
             }
-            if (!p || !Number.isFinite(p.x)) {
-                await renderMacrosPanel();
-                return;
-            }
-            const m = getMacro(id);
-            const s = m && m.steps && m.steps[index];
-            if (!m || !s || (s.t !== 'click' && s.t !== 'move')) return;
-            s.x = p.x;
-            s.y = p.y;
-            showToast(`Position set (${p.x}, ${p.y})`);
-            await saveMacro(m);
+            // Main already wrote the point into the step and saved it -- this
+            // reply can arrive long after, once the window is on screen again.
+            if (p && p.applied) showToast(`Position set (${p.x}, ${p.y})`);
+            await refreshMacrosData();
+            await renderMacrosPanel();
         }
 
         async function clearMacroClickPos(id, index) {
@@ -830,6 +828,15 @@
                 macrosData.state = status.state;
                 macrosData.activeMacroId = status.activeMacroId;
                 if (status.toggleHotkey) macrosData.toggleHotkey = status.toggleHotkey;
+                if (status?.event === 'capture-armed' && macrosCaptureTarget) {
+                    showToast('Hover the spot in any app and press Alt + X');
+                }
+                if (status?.event === 'capture-done') {
+                    // The step is already saved in main — pull the new value in
+                    // rather than re-saving a stale local copy over it.
+                    macrosCaptureTarget = null;
+                    refreshMacrosData().then(() => renderMacrosPanel());
+                }
                 if (status?.event === 'record-done') {
                     showToast(status.savedSteps ? 'Recording saved' : 'Recording was empty — nothing saved', !status.savedSteps);
                 }

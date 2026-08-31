@@ -175,7 +175,7 @@
             const enabledCount = MINI_WIDGETS.filter(w => prefs[w.id]).length;
             const chips = shown.length ? shown.map(w => `
                 <button type="button" class="mini-widget-chip no-drag${prefs[w.id] ? '' : ' chip-disabled'}"
-                    onclick="openWidgetLibrary('${w.id}')" title="${esc(w.description)}">
+                    onclick="openWidgetLibrary(${jsAttr(w.id)})" title="${esc(w.description)}">
                     <i class="${w.iconStyle || 'fas'} ${w.icon} text-[10px]"></i>
                     <span>${esc(w.label)}</span>
                     ${favs.includes(w.id) ? '<i class="fas fa-star text-[8px] mini-widget-chip-star"></i>' : ''}
@@ -209,6 +209,10 @@
             if (window.electronAPI?.controllerMacrosSetEnabled) {
                 await window.electronAPI.controllerMacrosSetEnabled(!!prefs.controllerMacros);
                 if (typeof renderControllerMacrosPanel === 'function') renderControllerMacrosPanel();
+            }
+            if (window.electronAPI?.autoClickerSetEnabled) {
+                await window.electronAPI.autoClickerSetEnabled(!!prefs.autoClicker);
+                if (typeof renderAutoClickerPanel === 'function') renderAutoClickerPanel();
             }
             if (window.electronAPI?.clipboardSetEnabled) {
                 await window.electronAPI.clipboardSetEnabled(!!prefs.clipboard);
@@ -288,6 +292,14 @@
             if (typeof applyDiscordRpcEnabled === 'function') {
                 await applyDiscordRpcEnabled(!!prefs.discordRpc);
             }
+            // Voice Assistant: start/stop the speech host + hotkey in the main
+            // process, then hand it the current vocabulary (pinned apps, enabled
+            // widgets, macros) so the recogniser's grammar knows the user's own
+            // names, and refresh its panel.
+            if (typeof applyVoiceAssistantEnabled === 'function') {
+                await applyVoiceAssistantEnabled(!!prefs.voiceAssistant);
+            }
+            if (typeof renderVoiceAssistantPanel === 'function') renderVoiceAssistantPanel();
             // ValClips Quality is renderer-only (its engine lives in the main
             // process but toggles nothing there) — just refresh its panel so
             // enabling it immediately paints the engine status + drop zone.

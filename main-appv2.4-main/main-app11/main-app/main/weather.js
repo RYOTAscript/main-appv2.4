@@ -1,6 +1,15 @@
 const { ipcMain } = require('electron');
 const { safeFetch } = require('./httpClient');
 
+// Every provider used here asks callers to identify themselves — the OSM
+// Nominatim usage policy requires it outright, and wttr.in and BigDataCloud both
+// ask for it so they can reach an operator rather than silently blocking an
+// unknown client. One string, used on every outbound request in this file, with
+// a contact address that actually works.
+function userAgent(APP_VERSION) {
+  return `main-launcher/${APP_VERSION} (+https://main-website-eosin-beta.vercel.app; mainappsupport@gmail.com)`;
+}
+
 async function resolveCityFromCoordinates(lat, lon, fallback, APP_VERSION) {
   const GEO_TIMEOUT_MS = 4000;
 
@@ -10,7 +19,7 @@ async function resolveCityFromCoordinates(lat, lon, fallback, APP_VERSION) {
     const timeoutId = setTimeout(() => controller.abort(), GEO_TIMEOUT_MS);
     const bdcResponse = await safeFetch(
       `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`,
-      { signal: controller.signal }
+      { headers: { 'User-Agent': userAgent(APP_VERSION) }, signal: controller.signal }
     );
     clearTimeout(timeoutId);
     if (bdcResponse.ok) {
@@ -31,7 +40,7 @@ async function resolveCityFromCoordinates(lat, lon, fallback, APP_VERSION) {
     const geoResponse = await safeFetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1&zoom=10`,
       {
-        headers: { 'User-Agent': `main-launcher/${APP_VERSION}` },
+        headers: { 'User-Agent': userAgent(APP_VERSION) },
         signal: controller.signal
       }
     );
@@ -125,7 +134,10 @@ function init(ctx) {
         : 'https://wttr.in?format=j1';
       let response;
       try {
-        response = await safeFetch(url, { signal: controller.signal });
+        response = await safeFetch(url, {
+          headers: { 'User-Agent': userAgent(APP_VERSION) },
+          signal: controller.signal
+        });
       } finally {
         clearTimeout(timeoutId);
       }

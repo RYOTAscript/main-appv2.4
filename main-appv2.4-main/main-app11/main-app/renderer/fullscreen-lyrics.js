@@ -630,7 +630,7 @@
 
             const seg = (group, current, options) => options.map(o =>
                 `<button type="button" class="fsl-seg-btn${current === o.value ? ' is-on' : ''} no-drag"` +
-                ` onclick="setFslPref('${group}','${o.value}')">` +
+                ` onclick="setFslPref(${jsAttr(group)},${jsAttr(o.value)})">` +
                 `<i class="fas ${o.icon}"></i><span>${o.label}</span></button>`
             ).join('');
 

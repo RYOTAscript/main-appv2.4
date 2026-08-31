@@ -147,7 +147,7 @@
                     }
                     return `<label class="dbl-app ${checked ? 'dbl-app-on' : ''} ${dblRunning ? 'dbl-app-locked' : ''}" title="${esc(app.name)}">
                             <input type="checkbox" class="dbl-check no-drag" ${checked ? 'checked' : ''} ${dblRunning ? 'disabled' : ''}
-                                onchange="dblToggle('${esc(app.name)}', this.checked)">
+                                onchange="dblToggle(${jsAttr(app.name)}, this.checked)">
                             <span class="dbl-app-name">${esc(app.label)}</span>
                             ${badge}
                         </label>`;
@@ -158,7 +158,7 @@
                         <div class="dbl-col-head">
                             <span class="dbl-col-title">${esc(group.category)}</span>
                             <button type="button" class="dbl-col-all no-drag" ${dblRunning ? 'disabled' : ''}
-                                onclick="dblToggleCategory('${esc(group.category)}')" title="${allOn ? 'Unselect all' : 'Select all'}">
+                                onclick="dblToggleCategory(${jsAttr(group.category)})" title="${allOn ? 'Unselect all' : 'Select all'}">
                                 ${allOn ? 'None' : 'All'}
                             </button>
                         </div>
@@ -254,7 +254,7 @@
                             </div>
                             <button type="button" class="dbl-switch no-drag ${on ? 'dbl-switch-on' : ''} ${busy ? 'dbl-switch-busy' : ''}"
                                 ${busy ? 'disabled' : ''} role="switch" aria-checked="${on}"
-                                onclick="dblToggleTweak('${esc(tw.id)}')" title="${on ? 'On — click to undo' : 'Off — click to apply'}">
+                                onclick="dblToggleTweak(${jsAttr(tw.id)})" title="${on ? 'On — click to undo' : 'Off — click to apply'}">
                                 <span class="dbl-switch-knob">${busy ? '<span class="load-ring"></span>' : ''}</span>
                             </button>
                         </div>`;

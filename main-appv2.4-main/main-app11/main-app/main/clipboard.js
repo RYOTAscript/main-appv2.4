@@ -1,4 +1,4 @@
-const { ipcMain, clipboard, nativeImage } = require('electron');
+const { app, ipcMain, clipboard, nativeImage, safeStorage } = require('electron');
 const { execFile } = require('child_process');
 const { fileURLToPath } = require('url');
 const crypto = require('crypto');
@@ -47,10 +47,47 @@ function init(ctx) {
 
   cleanupOrphanImages();
 
+  // ── Encrypted at rest ──
+  // Clipboard history is the single most sensitive thing this app persists: the
+  // SENSITIVE_CLIPBOARD_FORMAT check above keeps password-manager copies out of
+  // it, but anything copied from a plain web login form, a config file or a
+  // terminal still lands here. So it goes through Electron's safeStorage (DPAPI
+  // on Windows, Keychain on macOS), exactly like the Spotify tokens — the file
+  // is then only decryptable by this app on this machine.
+  //
+  // The read tries plaintext JSON first, so an existing history file from before
+  // this change loads normally and is re-written encrypted on the next save. No
+  // separate migration step, and no history lost.
+  function writeConfigFile(obj) {
+    const json = JSON.stringify(obj, null, 2);
+    if (app.isReady() && safeStorage.isEncryptionAvailable()) {
+      fs.writeFileSync(CONFIG_PATH, safeStorage.encryptString(json), { mode: 0o600 });
+    } else {
+      // OS encryption isn't ready yet, or this machine has no keychain. Keep the
+      // feature working rather than silently dropping the save.
+      logger.warn('safeStorage unavailable, writing clipboard history as plaintext', { path: CONFIG_PATH });
+      fs.writeFileSync(CONFIG_PATH, json, { encoding: 'utf8', mode: 0o600 });
+    }
+  }
+
+  function readConfigFile() {
+    const raw = fs.readFileSync(CONFIG_PATH);
+    try {
+      // Pre-encryption files, and the plaintext fallback above, are UTF-8 JSON.
+      return { data: JSON.parse(raw.toString('utf8')), plaintext: true };
+    } catch (e) {
+      // Not valid JSON text, so it must be a safeStorage-encrypted buffer.
+    }
+    if (!app.isReady() || !safeStorage.isEncryptionAvailable()) {
+      throw new Error('Clipboard history is encrypted but OS encryption is not ready yet');
+    }
+    return { data: JSON.parse(safeStorage.decryptString(raw)), plaintext: false };
+  }
+
   function loadConfig() {
     try {
       if (fs.existsSync(CONFIG_PATH)) {
-        const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        const { data: raw, plaintext } = readConfigFile();
         const validEntry = (e) => {
           if (!e || typeof e !== 'object' || typeof e.id !== 'string') return false;
           const type = e.type || 'text';
@@ -59,12 +96,20 @@ function init(ctx) {
           if (type === 'files') return Array.isArray(e.files) && e.files.length > 0 && e.files.every((p) => typeof p === 'string');
           return false;
         };
-        return {
+        const loaded = {
           enabled: raw.enabled === true,
           history: Array.isArray(raw.history)
             ? raw.history.filter(validEntry).map((e) => (e.type ? e : { ...e, type: 'text' }))
             : []
         };
+        // Upgrade an old plaintext file in place. Waiting for the next copy
+        // would leave the secrets already on disk readable indefinitely for
+        // anyone who stops using the widget.
+        if (plaintext && app.isReady() && safeStorage.isEncryptionAvailable()) {
+          logger.log('Migrating clipboard history to encrypted storage', 'INFO');
+          try { writeConfigFile(loaded); } catch (e) { logger.warn('Clipboard history migration failed', e); }
+        }
+        return loaded;
       }
     } catch (e) {
       logger.error('Failed to read clipboard history config', e);
@@ -86,7 +131,7 @@ function init(ctx) {
 
   function saveConfig() {
     try {
-      fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
+      writeConfigFile(config);
     } catch (e) {
       logger.error('Failed to save clipboard history config', e);
     }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { captureOrder } from "@/lib/paypal";
+import { captureOrder, getOrderOwner } from "@/lib/paypal";
 import { provisionLicense } from "@/lib/provision";
 
 export const runtime = "nodejs";
@@ -26,6 +26,19 @@ export async function GET(req: Request) {
   }
 
   try {
+    // The order id is a query parameter, so the session presenting it isn't
+    // necessarily the session that started the checkout. createOrder stamps the
+    // buyer's user id into custom_id; require it to match before we capture, or
+    // an approved order id could be redeemed by a different signed-in account.
+    const owner = await getOrderOwner(token);
+    if (!owner || owner !== session.user.id) {
+      console.warn("[paypal/return] order owner mismatch", {
+        order: token,
+        session: session.user.id,
+      });
+      return NextResponse.redirect(`${origin}/account?paypal=mismatch`);
+    }
+
     const capture = await captureOrder(token);
     if (capture.status !== "COMPLETED") {
       return NextResponse.redirect(`${origin}/#pricing?paypal=incomplete`);

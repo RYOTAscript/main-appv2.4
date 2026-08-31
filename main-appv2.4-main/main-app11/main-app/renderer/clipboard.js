@@ -30,7 +30,7 @@
         function clipboardEntryBody(e) {
             const type = e.type || 'text';
             if (type === 'image') {
-                return `<div class="flex-1 min-w-0 cursor-pointer" title="Click to copy image" onclick="clipboardCopyEntry('${e.id}')">
+                return `<div class="flex-1 min-w-0 cursor-pointer" title="Click to copy image" onclick="clipboardCopyEntry(${jsAttr(e.id)})">
                     <img src="${e.thumb}" alt="Copied image" class="rounded-lg border border-white/10 max-h-24 max-w-full">
                     <p class="text-neutral-500 mt-1"><i class="fas fa-image mr-1.5"></i>Image · ${e.width}×${e.height}</p>
                 </div>`;
@@ -42,9 +42,9 @@
                 const more = e.files.length > CLIPBOARD_MAX_FILE_NAMES
                     ? `<p class="text-neutral-500 mt-0.5">+${e.files.length - CLIPBOARD_MAX_FILE_NAMES} more</p>`
                     : '';
-                return `<div class="flex-1 min-w-0 cursor-pointer" title="${esc(e.files.join('\n'))}&#10;Click to copy" onclick="clipboardCopyEntry('${e.id}')">${names}${more}</div>`;
+                return `<div class="flex-1 min-w-0 cursor-pointer" title="${esc(e.files.join('\n'))}&#10;Click to copy" onclick="clipboardCopyEntry(${jsAttr(e.id)})">${names}${more}</div>`;
             }
-            return `<p class="text-neutral-300 flex-1 break-words cursor-pointer" title="Click to copy" onclick="clipboardCopyEntry('${e.id}')">${esc(clipboardPreview(e.text))}</p>`;
+            return `<p class="text-neutral-300 flex-1 break-words cursor-pointer" title="Click to copy" onclick="clipboardCopyEntry(${jsAttr(e.id)})">${esc(clipboardPreview(e.text))}</p>`;
         }
 
         function clipboardEntryMeta(e) {
@@ -84,11 +84,11 @@
                         <div class="flex items-start justify-between gap-2">
                             ${clipboardEntryBody(e)}
                             <div class="flex items-center gap-1 shrink-0">
-                                <button type="button" title="Copy" onclick="clipboardCopyEntry('${e.id}')"
+                                <button type="button" title="Copy" onclick="clipboardCopyEntry(${jsAttr(e.id)})"
                                     class="w-6 h-6 flex items-center justify-center bg-neutral-800/30 hover:bg-neutral-700/50 border border-neutral-700/50 text-neutral-400 hover:text-neutral-200 rounded-lg transition-colors no-drag"><i class="fas fa-copy"></i></button>
-                                <button type="button" title="${e.pinned ? 'Unpin' : 'Pin'}" onclick="clipboardTogglePinEntry('${e.id}')"
+                                <button type="button" title="${e.pinned ? 'Unpin' : 'Pin'}" onclick="clipboardTogglePinEntry(${jsAttr(e.id)})"
                                     class="w-6 h-6 flex items-center justify-center bg-neutral-800/30 hover:bg-neutral-700/50 border border-neutral-700/50 ${e.pinned ? 'text-amber-400' : 'text-neutral-400'} hover:text-amber-300 rounded-lg transition-colors no-drag"><i class="fas fa-thumbtack"></i></button>
-                                <button type="button" title="Delete" onclick="clipboardDeleteEntry('${e.id}')"
+                                <button type="button" title="Delete" onclick="clipboardDeleteEntry(${jsAttr(e.id)})"
                                     class="w-6 h-6 flex items-center justify-center bg-neutral-800/30 hover:bg-red-800/50 border border-neutral-700/50 hover:border-red-700/50 text-neutral-400 hover:text-red-400 rounded-lg transition-colors no-drag"><i class="fas fa-trash"></i></button>
                             </div>
                         </div>

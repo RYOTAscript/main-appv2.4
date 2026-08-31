@@ -1,5 +1,6 @@
 const { BrowserWindow, ipcMain, globalShortcut, screen } = require('electron');
 const path = require('path');
+const { lockNavigation } = require('./windowGuard');
 
 // ── Crosshair overlay mini widget ──
 // Draws a customizable crosshair dead-center on the primary display, above
@@ -53,6 +54,7 @@ function init(ctx) {
         preload: path.join(appRoot, 'crosshair-overlay-preload.js')
       }
     });
+    lockNavigation(overlayWindow, logger);
     overlayWindow.setAlwaysOnTop(true, 'screen-saver');
     overlayWindow.setIgnoreMouseEvents(true);
     overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });

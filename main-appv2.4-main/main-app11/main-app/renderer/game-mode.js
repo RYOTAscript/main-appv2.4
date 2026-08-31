@@ -186,8 +186,8 @@
                         <p class="text-[11px] text-neutral-500 truncate">${target}</p>
                     </div>
                     <div class="flex items-center gap-1.5 shrink-0">
-                        <button type="button" class="w-7 h-7 flex items-center justify-center rounded-lg border border-neutral-700/50 text-neutral-400 hover:text-white transition-colors no-drag" title="Edit" onclick="gameModeEditRule('${r.id}')"><i class="fas fa-pen text-xs"></i></button>
-                        <button type="button" class="w-7 h-7 flex items-center justify-center rounded-lg border border-neutral-700/50 text-neutral-400 hover:text-red-400 hover:border-red-700/50 transition-colors no-drag" title="Delete" onclick="gameModeDeleteRule('${r.id}')"><i class="fas fa-trash text-xs"></i></button>
+                        <button type="button" class="w-7 h-7 flex items-center justify-center rounded-lg border border-neutral-700/50 text-neutral-400 hover:text-white transition-colors no-drag" title="Edit" onclick="gameModeEditRule(${jsAttr(r.id)})"><i class="fas fa-pen text-xs"></i></button>
+                        <button type="button" class="w-7 h-7 flex items-center justify-center rounded-lg border border-neutral-700/50 text-neutral-400 hover:text-red-400 hover:border-red-700/50 transition-colors no-drag" title="Delete" onclick="gameModeDeleteRule(${jsAttr(r.id)})"><i class="fas fa-trash text-xs"></i></button>
                     </div>
                 </div>
                 <p class="text-[11px] text-neutral-400 mt-2"><i class="fas fa-bolt text-[9px] text-neutral-600 mr-1"></i>${esc(gameModeActionSummary(r))}</p>
@@ -237,7 +237,7 @@
                 .filter(w => w.id !== 'gameMode' && w.id !== 'crosshair')
                 .map(w => {
                     const on = (a.enableWidgets || []).includes(w.id);
-                    return `<button type="button" class="game-mode-widget-chip no-drag ${on ? 'on' : ''}" onclick="gameModeToggleWidget('${w.id}')">
+                    return `<button type="button" class="game-mode-widget-chip no-drag ${on ? 'on' : ''}" onclick="gameModeToggleWidget(${jsAttr(w.id)})">
                         <i class="${w.iconStyle || 'fas'} ${w.icon} text-[10px]"></i>${esc(w.label)}</button>`;
                 }).join('');
 
@@ -290,7 +290,7 @@
         function gameModeActionToggle(key, label, on) {
             return `<label class="flex items-center gap-2.5 text-sm text-neutral-300 no-drag cursor-pointer">
                 <span class="ios-toggle">
-                    <input type="checkbox" class="ios-toggle-input" ${on ? 'checked' : ''} onchange="gameModeSetAction('${key}', this.checked)">
+                    <input type="checkbox" class="ios-toggle-input" ${on ? 'checked' : ''} onchange="gameModeSetAction(${jsAttr(key)}, this.checked)">
                     <span class="ios-toggle-track"></span>
                 </span>${esc(label)}</label>`;
         }

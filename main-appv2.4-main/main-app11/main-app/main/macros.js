@@ -4,9 +4,12 @@ const fs = require('fs');
 const path = require('path');
 const { ensureVersionedScript } = require('./scriptCache');
 
-const MACRO_ENGINE_SCRIPT_VERSION = 4;
+const MACRO_ENGINE_SCRIPT_VERSION = 6;
 const DEFAULT_TOGGLE_HOTKEY = 'F9';
 const CAPTURE_ACCELERATOR = 'Alt+X';
+const CAPTURE_VK = 0x58;            // X
+const CAPTURE_MODS = 4;             // Alt, in the engine's mods bitmask
+const CAPTURE_TIMEOUT_MS = 60000;   // long enough to alt-tab somewhere and aim
 const TRIGGERS = ['pressed', 'hold', 'toggle', 'released'];
 
 // ── Macro engine (record + playback + key watching) ──
@@ -22,6 +25,11 @@ const TRIGGERS = ['pressed', 'hold', 'toggle', 'released'];
 //                         (mods bitmask: 1 Ctrl, 2 Shift, 4 Alt, 8 Win). Needed
 //                         for the Hold / Released trigger modes, since Electron's
 //                         globalShortcut can't see key releases.
+//   CAPTURE <vk> <mods>   arm a one-shot cursor-position capture: when <vk> goes
+//                         down with exactly <mods> held, emit "CAPTURED <x> <y>"
+//                         and disarm. The engine reads the cursor itself, at the
+//                         instant of the press, so it works while another app has
+//                         focus. "CAPTURE" with no arguments disarms.
 //   STOP                  stop the current recording or playback
 //   EXIT                  quit the engine process
 // Raw event lines are "t kind a b" (all integers): t = ms offset, kind:
@@ -57,11 +65,38 @@ public static class MacroEngine {
     static volatile bool stopFlag = false;
     static Thread worker = null;
     static object emitLock = new object();
-    static volatile int[] watchVks = new int[0];
-    static volatile bool watchRePrime = false;
+    // The watch list and "this list is new" travel together as one immutable
+    // object. A separate re-prime flag can be set in between the loop's flag
+    // check and its list read, which lets the loop run a brand-new list against
+    // stale key state -- and fire a macro for a key that was merely already held
+    // when the list was re-sent (which happens on every enable, save and import).
+    class WatchSet { public int[] vks; public WatchSet(int[] v) { vks = v; } }
+    static volatile WatchSet watchSet = new WatchSet(new int[0]);
     static Thread watchThread = null;
+    // One-shot position capture (the CAPTURE command). Polled by the same watcher
+    // thread, so the press is seen no matter which app is in the foreground.
+    static volatile int captureVk = 0;        // 0 = disarmed
+    static volatile int captureMods = -1;     // required mod bitmask, -1 = any
 
     static void Emit(string s) { lock (emitLock) { Console.Out.WriteLine(s); Console.Out.Flush(); } }
+
+    // Modifier bitmask: 1 Ctrl, 2 Shift, 4 Alt, 8 Win.
+    static int Mods() {
+        int mods = 0;
+        if ((GetAsyncKeyState(0x11) & 0x8000) != 0) mods |= 1;
+        if ((GetAsyncKeyState(0x10) & 0x8000) != 0) mods |= 2;
+        if ((GetAsyncKeyState(0x12) & 0x8000) != 0) mods |= 4;
+        if ((GetAsyncKeyState(0x5B) & 0x8000) != 0 || (GetAsyncKeyState(0x5C) & 0x8000) != 0) mods |= 8;
+        return mods;
+    }
+
+    static void EnsureWatchThread() {
+        if (watchThread == null || !watchThread.IsAlive) {
+            watchThread = new Thread(WatchLoop);
+            watchThread.IsBackground = true;
+            watchThread.Start();
+        }
+    }
 
     public static void RunHost() {
         SetProcessDPIAware();
@@ -82,14 +117,23 @@ public static class MacroEngine {
                         if (int.TryParse(part.Trim(), out v) && v > 0 && v < 256) lst.Add(v);
                     }
                 }
-                watchVks = lst.ToArray();
-                watchRePrime = true;
-                if (watchThread == null || !watchThread.IsAlive) {
-                    watchThread = new Thread(WatchLoop);
-                    watchThread.IsBackground = true;
-                    watchThread.Start();
-                }
+                watchSet = new WatchSet(lst.ToArray());
+                EnsureWatchThread();
                 Emit("WATCH-OK " + lst.Count);
+                continue;
+            }
+            if (line.StartsWith("CAPTURE")) {
+                string crest = line.Length > 7 ? line.Substring(7).Trim() : "";
+                int cvk = 0, cmods = -1;
+                if (crest.Length > 0) {
+                    string[] cp = crest.Split(' ');
+                    int.TryParse(cp[0], out cvk);
+                    if (cp.Length < 2 || !int.TryParse(cp[1], out cmods)) cmods = -1;
+                }
+                captureMods = cmods;               // written before captureVk:
+                captureVk = (cvk > 0 && cvk < 256) ? cvk : 0;  // the loop gates on vk
+                if (captureVk != 0) EnsureWatchThread();
+                Emit("CAPTURE-OK " + captureVk);
                 continue;
             }
             bool busy = worker != null && worker.IsAlive;
@@ -125,13 +169,36 @@ public static class MacroEngine {
     static void WatchLoop() {
         bool[] down = new bool[256];
         bool[] primed = new bool[256];
+        bool capDown = false, capPrimed = false;
+        int lastCvk = 0;
+        WatchSet seen = null;
         while (true) {
             // On a fresh WATCH list, read current state without emitting so a key
             // that's already down (or a stale GetAsyncKeyState bit) doesn't fire a
-            // phantom event -- only real presses after this point count.
-            if (watchRePrime) { watchRePrime = false; for (int k = 0; k < 256; k++) primed[k] = false; }
-            int[] vks = watchVks;
-            if (vks.Length == 0) { Thread.Sleep(50); continue; }
+            // phantom event -- only real presses after this point count. The one
+            // volatile read is what makes that airtight: the list and its newness
+            // cannot be observed apart, so no list is ever run un-primed.
+            WatchSet ws = watchSet;
+            if (!object.ReferenceEquals(ws, seen)) { seen = ws; for (int k = 0; k < 256; k++) primed[k] = false; }
+            int cvk = captureVk;
+            if (cvk != lastCvk) { lastCvk = cvk; capPrimed = false; }  // same, for the capture key
+            if (cvk > 0) {
+                bool capIsDown = (GetAsyncKeyState(cvk) & 0x8000) != 0;
+                if (!capPrimed) { capDown = capIsDown; capPrimed = true; }
+                else if (capIsDown != capDown) {
+                    capDown = capIsDown;
+                    // The cursor is read here, in the engine, at the moment of the
+                    // press -- reading it back in the host would give whatever the
+                    // cursor was doing by the time the host got around to looking.
+                    if (capIsDown && (captureMods < 0 || captureMods == Mods())) {
+                        POINT cpos; GetCursorPos(out cpos);
+                        captureVk = 0; capPrimed = false;
+                        Emit("CAPTURED " + cpos.X + " " + cpos.Y);
+                    }
+                }
+            }
+            int[] vks = ws.vks;
+            if (vks.Length == 0) { Thread.Sleep(cvk > 0 ? 10 : 50); continue; }
             for (int i = 0; i < vks.Length; i++) {
                 int vk = vks[i];
                 if (vk < 1 || vk > 255) continue;
@@ -140,12 +207,7 @@ public static class MacroEngine {
                 if (isDown == down[vk]) continue;
                 down[vk] = isDown;
                 if (isDown) {
-                    int mods = 0;
-                    if ((GetAsyncKeyState(0x11) & 0x8000) != 0) mods |= 1;
-                    if ((GetAsyncKeyState(0x10) & 0x8000) != 0) mods |= 2;
-                    if ((GetAsyncKeyState(0x12) & 0x8000) != 0) mods |= 4;
-                    if ((GetAsyncKeyState(0x5B) & 0x8000) != 0 || (GetAsyncKeyState(0x5C) & 0x8000) != 0) mods |= 8;
-                    Emit("KEY-DOWN " + vk + " " + mods);
+                    Emit("KEY-DOWN " + vk + " " + Mods());
                 } else {
                     Emit("KEY-UP " + vk);
                 }
@@ -626,8 +688,13 @@ function init(ctx) {
   // WATCH list sent to the engine is the union of both, and watched events are
   // dispatched to the external callback as well as to this module's own map.
   let externalWatch = { vks: new Set(), cb: null };
+  // Set while the renderer is capturing raw keys (a hotkey bind, a "press a
+  // key" step). Triggers are engine-watched, so globalShortcut.unregisterAll()
+  // -- what disable-all-hotkeys used to be -- doesn't touch them: without this,
+  // binding a key that a macro owns fires that macro while you're binding it.
+  let triggersSuspended = false;
   // Alt+X position capture
-  let capturePending = null;     // { resolve, timeout }
+  let capturePending = null;     // { resolve, timeout, viaShortcut, targetId, stepIndex }
 
   function loadConfig() {
     try {
@@ -729,6 +796,7 @@ function init(ctx) {
         engineBuffer = '';
         clearTimeout(startTimeout);
         flushReadyWaiters(new Error('Macro engine exited'));
+        settleCapture({ cancelled: true }); // a capture armed in the engine died with it
         if (wasActive) {
           logger.error('Macro engine exited unexpectedly', null, { code, state });
           finishActivity();
@@ -751,6 +819,7 @@ function init(ctx) {
 
   function killEngine() {
     if (!engineProc) return;
+    settleCapture({ cancelled: true });
     try {
       engineSend('EXIT');
       const proc = engineProc;
@@ -768,6 +837,13 @@ function init(ctx) {
   }
 
   function handleEngineLine(line) {
+    if (line.startsWith('CAPTURED ')) {
+      const parts = line.split(' ');
+      const x = Number(parts[1]);
+      const y = Number(parts[2]);
+      if (Number.isFinite(x) && Number.isFinite(y)) settleCapture({ x, y });
+      return;
+    }
     if (line.startsWith('KEY-DOWN ') || line.startsWith('KEY-UP ')) {
       const parts = line.split(' ');
       onWatchedKey(Number(parts[1]), Number(parts[2]) || 0, line.startsWith('KEY-DOWN '));
@@ -803,7 +879,8 @@ function init(ctx) {
       logger.error('Macro engine error', new Error(line));
       finishActivity();
     }
-    // REC-STARTED / PLAY-STARTED / WATCH-OK / PONG are acks — state was already set.
+    // REC-STARTED / PLAY-STARTED / WATCH-OK / CAPTURE-OK / PONG are acks — state
+    // was already set.
   }
 
   // ── Hotkeys & triggers ──
@@ -830,15 +907,16 @@ function init(ctx) {
     // enable/disable toggle hotkey, registered whenever the widget is enabled —
     // even while disarmed — so it can always flip macros back on.
     syncWatch();
-    if (config.enabled) registerToggleHotkey();
+    if (config.enabled && !triggersSuspended) registerToggleHotkey();
   }
 
   function syncWatch() {
     watchMap = new Map();
     releasedArmed.clear();
     // Watcher fires only when the widget is enabled (Settings master switch) AND
-    // armed (the user's enable/disable toggle).
-    if (config.enabled && config.armed) {
+    // armed (the user's enable/disable toggle), and never while the renderer is
+    // capturing keys.
+    if (config.enabled && config.armed && !triggersSuspended) {
       for (const m of config.macros) {
         if (!m.hotkey || m.on === false) continue;
         const parsed = parseAccelerator(m.hotkey);
@@ -1035,16 +1113,55 @@ function init(ctx) {
   }
 
   // ── Alt+X position capture ──
-  // Arms a temporary Alt+X global shortcut; resolves with the cursor position
-  // when pressed (or {cancelled} on cancel/timeout). Lets the user point at a
-  // spot in any window when giving a click/move step a fixed position.
+  // Lets the user point at a spot in any window and press Alt+X to give a
+  // click/move step a fixed position; resolves with that position (or
+  // {cancelled} on cancel/timeout).
+  //
+  // The press is seen by the engine's GetAsyncKeyState watcher, not by
+  // globalShortcut, and the engine reads the cursor itself at the instant of the
+  // press. That is the whole point of the feature: the user is aiming at
+  // something in ANOTHER app, so a key that only lands once our window is back in
+  // the foreground would store where the cursor was when they tabbed back, not
+  // where they aimed. It also leaves Alt+X alone for the app underneath instead
+  // of swallowing it -- same reasoning as the macro triggers above.
+  // globalShortcut stays as a fallback for when the engine can't run at all.
+  //
+  // Coordinates are physical pixels -- what GetCursorPos, playback's SendInput
+  // and a recording all speak -- not DIPs.
+  //
+  // The captured point is written into the step here rather than handed back for
+  // the renderer to save: aiming at another app means our own window is in the
+  // background, and a backgrounded renderer can sit on the reply until it's shown
+  // again. Main is never throttled, so the step is set the moment the key lands.
+  function applyCapturedPoint(targetId, stepIndex, x, y) {
+    const m = config.macros.find((mm) => mm.id === targetId);
+    const s = m && Array.isArray(m.steps) ? m.steps[stepIndex] : null;
+    if (!s || (s.t !== 'click' && s.t !== 'move')) return false;
+    s.x = Math.round(x);
+    s.y = Math.round(y);
+    // Only the step's position changed, so no registerAllHotkeys() -- re-sending
+    // the watch list for this would be pure churn.
+    saveConfig();
+    logger.success('Macro step position captured', { macro: m.name, step: stepIndex, x: s.x, y: s.y });
+    return true;
+  }
+
   function settleCapture(result) {
     if (!capturePending) return;
-    const { resolve, timeout } = capturePending;
+    const { resolve, timeout, viaShortcut, targetId, stepIndex } = capturePending;
     capturePending = null;
     clearTimeout(timeout);
-    try { globalShortcut.unregister(CAPTURE_ACCELERATOR); } catch (e) { /* ignore */ }
-    resolve(result);
+    if (viaShortcut) {
+      try { globalShortcut.unregister(CAPTURE_ACCELERATOR); } catch (e) { /* ignore */ }
+    } else if (engineProc && engineReady) {
+      engineSend('CAPTURE'); // disarm
+    }
+    let applied = false;
+    if (result && Number.isFinite(result.x) && Number.isFinite(result.y) && targetId) {
+      applied = applyCapturedPoint(targetId, stepIndex, result.x, result.y);
+      if (applied) pushStatus({ event: 'capture-done', id: targetId, index: stepIndex, x: Math.round(result.x), y: Math.round(result.y) });
+    }
+    resolve(applied ? { ...result, applied: true } : result);
   }
 
   // ── IPC ──
@@ -1149,24 +1266,50 @@ function init(ctx) {
     return macrosForRenderer();
   });
 
-  ipcMain.handle('macros-capture-arm', () => {
+  ipcMain.handle('macros-capture-arm', async (_event, targetId, stepIndex) => {
     settleCapture({ cancelled: true }); // only one capture at a time
+    const pending = {
+      resolve: null,
+      timeout: setTimeout(() => settleCapture({ cancelled: true }), CAPTURE_TIMEOUT_MS),
+      viaShortcut: false,
+      targetId: typeof targetId === 'string' && targetId ? targetId : null,
+      stepIndex: Number.isInteger(stepIndex) ? stepIndex : -1
+    };
+    const result = new Promise((resolve) => { pending.resolve = resolve; });
+    capturePending = pending;
+    // Starting the engine can mean a cold PowerShell + C# compile, so the
+    // renderer only tells the user to press Alt+X once 'capture-armed' lands.
+    try {
+      await ensureEngine();
+      if (capturePending !== pending) return result; // cancelled while starting
+      engineSend(`CAPTURE ${CAPTURE_VK} ${CAPTURE_MODS}`);
+      pushStatus({ event: 'capture-armed' });
+      return result;
+    } catch (e) {
+      logger.warn('Macro engine unavailable for Alt+X capture -- falling back to globalShortcut');
+    }
+    if (capturePending !== pending) return result;
+    // Fallback only: registered here rather than always, so the two paths never
+    // fight over the key. This one can't see the press while another app has
+    // focus in every situation -- that's the limitation the engine path fixes.
+    pending.viaShortcut = true;
     let ok = false;
     try {
       ok = globalShortcut.register(CAPTURE_ACCELERATOR, () => {
         const p = screen.getCursorScreenPoint();
-        settleCapture({ x: p.x, y: p.y });
+        let phys = p;
+        try { phys = screen.dipToScreenPoint(p); } catch (err) { /* no scaling info */ }
+        settleCapture({ x: phys.x, y: phys.y });
       });
     } catch (e) {
       logger.error('Failed to arm Alt+X position capture', e);
     }
-    if (!ok) return { error: 'unavailable' };
-    return new Promise((resolve) => {
-      capturePending = {
-        resolve,
-        timeout: setTimeout(() => settleCapture({ cancelled: true }), 30000)
-      };
-    });
+    if (!ok) {
+      settleCapture({ error: 'unavailable' });
+      return result;
+    }
+    pushStatus({ event: 'capture-armed' });
+    return result;
   });
 
   ipcMain.handle('macros-capture-cancel', () => {
@@ -1236,7 +1379,10 @@ function init(ctx) {
   }
 
   return {
-    reapplyHotkeys: () => registerAllHotkeys(),
+    reapplyHotkeys: () => { triggersSuspended = false; registerAllHotkeys(); },
+    // Pair with reapplyHotkeys: drops the engine watch list (and the toggle
+    // hotkey) so nothing fires while the renderer owns the keyboard.
+    suspendTriggers: () => { triggersSuspended = true; registerAllHotkeys(); },
     setExternalWatch,
     // Hotkeys this widget currently owns, so other widgets (Controller Macros)
     // can refuse bindings that would fire a keyboard macro at the same time.
@@ -1244,4 +1390,15 @@ function init(ctx) {
   };
 }
 
-module.exports = { init, parseAccelerator, isMouseHotkey };
+module.exports = {
+  init,
+  parseAccelerator,
+  isMouseHotkey,
+  // Exported for test/macros.test.js — the engine script and the constants the
+  // host speaks to it with have to stay in step.
+  MACRO_ENGINE_SCRIPT_CONTENT,
+  MACRO_ENGINE_SCRIPT_VERSION,
+  CAPTURE_ACCELERATOR,
+  CAPTURE_VK,
+  CAPTURE_MODS
+};

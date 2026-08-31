@@ -170,7 +170,7 @@
                     <p class="text-[11px] text-neutral-300 mb-1.5">Tint colour</p>
                     <div class="flex items-center gap-1.5">
                         ${TASKBAR_COLOR_PRESETS.map((col) => `
-                        <button type="button" onclick="tbSetColorDiscrete('${col}')" title="${col}"
+                        <button type="button" onclick="tbSetColorDiscrete(${jsAttr(col)})" title="${col}"
                             class="w-7 h-7 rounded-lg border transition-transform no-drag hover:scale-110 ${cfg.color.toLowerCase() === col ? 'border-white' : 'border-white/15'}"
                             style="background:${col}"></button>`).join('')}
                         <input type="color" value="${esc(cfg.color)}" title="Custom colour"
@@ -209,7 +209,7 @@
                 <div>
                     <p class="text-[11px] text-neutral-300 mb-1.5">Appearance</p>
                     <div class="grid grid-cols-5 gap-1.5">${TASKBAR_MODES.map((m) => `
-                        <button type="button" onclick="tbSetMode('${m.v}')"
+                        <button type="button" onclick="tbSetMode(${jsAttr(m.v)})"
                             class="px-1.5 py-1.5 rounded-lg text-[11px] border transition-colors no-drag ${cfg.mode === m.v
                                 ? 'bg-white/15 border-white/25 text-white'
                                 : 'bg-neutral-800/30 border-neutral-700/50 text-neutral-400 hover:text-neutral-200'}">${m.l}</button>`).join('')}

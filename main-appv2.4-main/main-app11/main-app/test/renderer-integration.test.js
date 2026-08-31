@@ -46,7 +46,7 @@ function bootRenderer(platform) {
 
 const WIN_ONLY = [
   'controllerMacros', 'taskbar', 'appInstaller', 'debloat', 'revoUninstaller',
-  'macros', 'fpsOptimizer',
+  'macros', 'fpsOptimizer', 'autoClicker',
 ];
 
 test('widget-platform.js attaches WidgetPlatform to window in a browser-like context', () => {

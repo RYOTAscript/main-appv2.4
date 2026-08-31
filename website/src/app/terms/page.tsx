@@ -12,8 +12,18 @@ export default function TermsPage() {
       <p>
         When you purchase <strong>main</strong>, you receive a{" "}
         <strong>one-time, lifetime license</strong> to install and use the app
-        on your own Windows PCs. The license is granted to a single user — you —
-        and includes free updates across the v3.x line.
+        on your own personal computers, on <strong>Windows and macOS</strong>.
+        One license covers both platforms. The license is granted to a single
+        user — you — and includes free updates across the v4.x line.
+      </p>
+      <p>
+        <strong>Devices.</strong> You can have main activated on up to{" "}
+        <strong>2 computers</strong> at a time. This isn&apos;t a cap on how
+        often you can reinstall — if you get a new machine or hit the limit, you
+        can free a slot yourself at any time from the{" "}
+        <a href="/account">Account page</a> (&ldquo;Reset devices&rdquo;), and an
+        activation that hasn&apos;t been seen in a long while is retired
+        automatically to make room.
       </p>
 
       <h2>2. Single user, no reselling</h2>
@@ -53,7 +63,7 @@ export default function TermsPage() {
 
       <h2>5. Acceptable use</h2>
       <p>
-        main automates parts of your own Windows system (media keys, FPS tweaks,
+        main automates parts of your own computer (media keys, FPS tweaks,
         macros, controller input, and more). You&apos;re responsible for how you
         use it — including complying with the terms of any games or services you
         run alongside it. Some anti-cheat systems may dislike overlays or virtual

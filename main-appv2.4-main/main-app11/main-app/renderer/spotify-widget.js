@@ -766,16 +766,19 @@
                 let spotifyNeedsSync = type.startsWith('spotify');
                 let micMuteNeedsSync = type === 'micMute';
                 let crosshairNeedsSync = type === 'crosshair';
+                let voiceNeedsSync = type === 'voiceAssistant';
                 let focusNeedsRelease = false;
                 for (const key of clearedKeys) {
                     if (key.startsWith('spotify')) spotifyNeedsSync = true;
                     else if (key === 'micMute') micMuteNeedsSync = true;
                     else if (key === 'crosshair') crosshairNeedsSync = true;
+                    else if (key === 'voiceAssistant') voiceNeedsSync = true;
                     else if (key === 'focus') focusNeedsRelease = true;
                 }
                 if (spotifyNeedsSync) await sendSpotifyHotkeysToMain();
                 if (micMuteNeedsSync) await sendMicMuteHotkeyToMain();
                 if (crosshairNeedsSync) await sendCrosshairHotkeyToMain();
+                if (voiceNeedsSync) await sendVoiceAssistantHotkeyToMain();
                 if (focusNeedsRelease) await releaseFocusHotkeyFromMain();
                 showToast('Hotkey updated');
                 return;

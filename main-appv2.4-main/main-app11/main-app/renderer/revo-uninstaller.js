@@ -107,7 +107,7 @@
                 const on = p.id === ruSelectedId;
                 const meta = [p.version, p.publisher].filter(Boolean).join(' · ');
                 const size = ruFmtSize(p.sizeKb);
-                return `<button type="button" class="ru-prog ${on ? 'ru-prog-on' : ''} no-drag" data-id="${esc(p.id)}" onclick="ruSelect('${esc(p.id)}')" title="${esc(p.name)}">
+                return `<button type="button" class="ru-prog ${on ? 'ru-prog-on' : ''} no-drag" data-id="${esc(p.id)}" onclick="ruSelect(${jsAttr(p.id)})" title="${esc(p.name)}">
                         <span class="ru-prog-main">
                             <span class="ru-prog-name">${esc(p.name)}</span>
                             ${meta ? `<span class="ru-prog-meta">${esc(meta)}</span>` : ''}
@@ -200,7 +200,7 @@
             const lowBadge = it.confidence !== 'high'
                 ? `<span class="ru-lo-low" title="Broader match (e.g. named after the publisher) — off by default">?</span>` : '';
             return `<label class="ru-lo ${on ? 'ru-lo-on' : ''} ${it.confidence !== 'high' ? 'ru-lo-normal' : ''}" title="${esc(it.path)}">
-                    <input type="checkbox" class="ru-check no-drag" ${on ? 'checked' : ''} onchange="ruToggleLeftover('${esc(it.id)}', this.checked)">
+                    <input type="checkbox" class="ru-check no-drag" ${on ? 'checked' : ''} onchange="ruToggleLeftover(${jsAttr(it.id)}, this.checked)">
                     <i class="fas ${icon} ru-lo-icon"></i>
                     <span class="ru-lo-text">
                         <span class="ru-lo-label">${esc(it.label)}${lowBadge}</span>

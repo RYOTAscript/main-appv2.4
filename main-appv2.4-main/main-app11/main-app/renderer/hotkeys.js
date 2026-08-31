@@ -101,7 +101,7 @@
         }
 
         function updateHotkeyDisplays() {
-            const ids = ['focus', 'close', 'spotifyPlay', 'spotifyPause', 'spotifyNext', 'spotifyPrevious', 'spotifyVolumeUp', 'spotifyVolumeDown', 'micMute', 'crosshair'];
+            const ids = ['focus', 'close', 'spotifyPlay', 'spotifyPause', 'spotifyNext', 'spotifyPrevious', 'spotifyVolumeUp', 'spotifyVolumeDown', 'micMute', 'crosshair', 'voiceAssistant'];
             for (const type of ids) {
                 const btn = document.getElementById(getHotkeyButtonId(type));
                 if (btn) btn.textContent = formatHotkeyDisplay(hotkeys[type] || DEFAULT_HOTKEYS[type]);
@@ -245,6 +245,17 @@
             await window.electronAPI.registerMicMuteHotkey(toElectronAccelerator(hotkeys.micMute || DEFAULT_HOTKEYS.micMute));
         }
 
+        // The voice assistant stores its hotkey with the rest of its settings (it
+        // needs the raw "Control+..." form to watch the key for hold-to-talk, not
+        // just to register an accelerator), so it syncs through its settings API
+        // rather than a dedicated register-hotkey channel.
+        async function sendVoiceAssistantHotkeyToMain() {
+            if (!window.electronAPI?.voiceSettingsSet) return;
+            await window.electronAPI.voiceSettingsSet({
+                hotkey: hotkeys.voiceAssistant || DEFAULT_HOTKEYS.voiceAssistant
+            });
+        }
+
         async function sendCrosshairHotkeyToMain() {
             if (!window.electronAPI?.registerCrosshairHotkey) return;
             await window.electronAPI.registerCrosshairHotkey(toElectronAccelerator(hotkeys.crosshair || DEFAULT_HOTKEYS.crosshair));
@@ -264,4 +275,5 @@
             await sendSpotifyHotkeysToMain();
             await sendMicMuteHotkeyToMain();
             await sendCrosshairHotkeyToMain();
+            await sendVoiceAssistantHotkeyToMain();
         }

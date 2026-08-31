@@ -364,7 +364,7 @@
                 <div class="vq-kv-grid vq-kv-grid-4">${statHtml}</div>
                 <div class="vq-cmd-row">
                     <code class="vq-cmd" title="${esc(r.ffmpegCommand)}">${esc(r.ffmpegCommand)}</code>
-                    <button type="button" class="hotkey-bind no-drag" onclick="vcCopyCmd('${job.id}')">Copy</button>
+                    <button type="button" class="hotkey-bind no-drag" onclick="vcCopyCmd(${jsAttr(job.id)})">Copy</button>
                 </div>
             </div>`;
         }
@@ -389,7 +389,7 @@
             const open = vcq.checklist.has(job.id);
             const items = VC_CHECKLIST.map(([t, d], i) => `<li class="vq-cl-item"><span class="vq-cl-num">${i + 1}.</span><span><span class="vq-cl-title">${esc(t)}</span><br><span class="vq-cl-detail">${esc(d)}</span></span></li>`).join('');
             return `<div class="vq-checklist">
-                <button type="button" class="vq-checklist-toggle no-drag" onclick="vcToggleChecklist('${job.id}')">📋 Upload checklist — don't lose quality at the last step ${open ? '▲' : '▼'}</button>
+                <button type="button" class="vq-checklist-toggle no-drag" onclick="vcToggleChecklist(${jsAttr(job.id)})">📋 Upload checklist — don't lose quality at the last step ${open ? '▲' : '▼'}</button>
                 ${open ? `<ol class="vq-cl-list">${items}</ol>` : ''}
             </div>`;
         }
@@ -404,7 +404,7 @@
                     <div class="flex items-center gap-2 flex-wrap">
                         <span class="vq-job-name" title="${esc(job.inputPath)}">${esc(job.fileName)}</span>
                         <span class="vq-badge ${meta.cls}">${esc(meta.label)}</span>
-                        ${job.analysis ? `<button type="button" class="vq-link no-drag" onclick="vcToggleExpand('${job.id}')">${expanded ? '▲ hide' : '▼ details'}</button>` : ''}
+                        ${job.analysis ? `<button type="button" class="vq-link no-drag" onclick="vcToggleExpand(${jsAttr(job.id)})">${expanded ? '▲ hide' : '▼ details'}</button>` : ''}
                     </div>
                     <div class="vq-job-note"><span class="truncate">${esc(job.note || '')}</span>${job.analysis ? ` · ${vcFmtDuration(job.analysis.probe.durationSec)} · ${vcFmtBytes(job.analysis.probe.sizeBytes)}` : ''}${!busy && job.elapsedMs ? ` · <span class="vq-mono" title="Total process time"><i class="fas fa-stopwatch mr-1"></i>${vcFmtElapsed(job.elapsedMs)}</span>` : ''}</div>`;
 
@@ -430,13 +430,13 @@
             if (expanded && job.analysis) inner += vcAnalysisDetail(job);
 
             inner += `</div><div class="flex shrink-0 flex-col items-end gap-1.5">`;
-            if (busy || job.status === 'queued') inner += `<button type="button" class="hotkey-bind no-drag" onclick="vcCancel('${job.id}')">Cancel</button>`;
-            if (job.analysis && !busy) inner += `<button type="button" class="hotkey-bind no-drag" title="Manual sliders + live before/after preview" onclick="vcOpenTune('${job.id}')">Tune${job.overrides ? ' •' : ''}</button>`;
+            if (busy || job.status === 'queued') inner += `<button type="button" class="hotkey-bind no-drag" onclick="vcCancel(${jsAttr(job.id)})">Cancel</button>`;
+            if (job.analysis && !busy) inner += `<button type="button" class="hotkey-bind no-drag" title="Manual sliders + live before/after preview" onclick="vcOpenTune(${jsAttr(job.id)})">Tune${job.overrides ? ' •' : ''}</button>`;
             if (job.status === 'done' && job.result) {
-                inner += `<button type="button" class="hotkey-bind no-drag" title="Wipe / side-by-side at the highest-motion moments" onclick="vcOpenCompare('${job.id}')">Compare</button>`;
-                inner += `<button type="button" class="hotkey-bind no-drag" onclick="vcShowFile('${job.id}')">Show file</button>`;
+                inner += `<button type="button" class="hotkey-bind no-drag" title="Wipe / side-by-side at the highest-motion moments" onclick="vcOpenCompare(${jsAttr(job.id)})">Compare</button>`;
+                inner += `<button type="button" class="hotkey-bind no-drag" onclick="vcShowFile(${jsAttr(job.id)})">Show file</button>`;
             }
-            if (!busy) inner += `<button type="button" class="vq-x no-drag" title="Remove from queue" onclick="vcRemove('${job.id}')">✕</button>`;
+            if (!busy) inner += `<button type="button" class="vq-x no-drag" title="Remove from queue" onclick="vcRemove(${jsAttr(job.id)})">✕</button>`;
             inner += `</div></div>`;
             return `<div class="vq-job">${inner}</div>`;
         }

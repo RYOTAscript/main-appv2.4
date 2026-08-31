@@ -13,6 +13,7 @@ try { os.setPriority(0, os.constants.priority.PRIORITY_HIGH); } catch (e) { /* n
 const autostart = require('./main/autostart');
 const { resolveTrayIcon } = require('./main/trayIcon');
 const { isWindows, isMac } = require('./main/platform');
+const { lockNavigation } = require('./main/windowGuard');
 const dockStyler = require('./main/dockStyler');
 const macTweaks = require('./main/macTweaks');
 const appUninstaller = require('./main/appUninstaller');
@@ -34,6 +35,8 @@ const weather = require('./main/weather');
 const displaySettings = require('./main/displaySettings');
 const macros = require('./main/macros');
 const controllerMacros = require('./main/controllerMacros');
+const autoClicker = require('./main/autoClicker');
+const voiceAssistant = require('./main/voiceAssistant');
 const clipboardHistory = require('./main/clipboard');
 const screenResolution = require('./main/screenResolution');
 const bluetooth = require('./main/bluetooth');
@@ -228,7 +231,11 @@ if (!gotSingleInstanceLock) {
   logger.system('Graphics mode', { graphicsMode, hint: 'change via graphics-config.json (no-accel | angle-gl | gpu)' });
   verifyCrashHandler(logger);
 
-  function verifyFeatures() {
+  // Startup sanity log only — NOT an integrity or tamper check, despite sitting
+  // right before the licence gate. It confirms the bundled icons shipped; nothing
+  // here verifies the build. Renamed from verifyFeatures() so nobody reads
+  // protection into it that was never there.
+  function checkIconsFolder() {
     const iconsFolder = path.join(__dirname, 'icons');
     if (fs.existsSync(iconsFolder)) logger.success('Icons folder found', { path: iconsFolder });
     else logger.warn('Icons folder missing', { path: iconsFolder });
@@ -245,6 +252,8 @@ if (!gotSingleInstanceLock) {
   let spotifyModule = null;
   let macrosModule = null;
   let controllerMacrosModule = null;
+  let autoClickerModule = null;
+  let voiceAssistantModule = null;
   let videoEditorModule = null;
   let valclipsModule = null;
   let crosshairModule = null;
@@ -277,7 +286,11 @@ if (!gotSingleInstanceLock) {
   // usual open-devtools / view-source key combos. DevTools would let someone
   // poke at the renderer, the IPC surface and app internals; there's no reason a
   // shipped build needs it. Dev runs (npm start) keep DevTools so we can debug.
+  //
+  // The navigation lockdown (see main/windowGuard.js) is separate and applies in
+  // dev too — it's a security boundary, not an anti-inspection measure.
   function hardenWindow(win) {
+    lockNavigation(win, logger);
     if (!app.isPackaged || !win) return;
     const wc = win.webContents;
     wc.on('devtools-opened', () => { try { wc.closeDevTools(); } catch (e) { /* ignore */ } });
@@ -548,6 +561,10 @@ if (!gotSingleInstanceLock) {
         keyWatch: macrosModule.setExternalWatch,
         getKeyboardMacroHotkeys: macrosModule.getOwnedHotkeys
       });
+      // Auto Clicker owns the on-screen region/colour picker overlay too
+      // (main/areaSelect.js), which it inits itself.
+      autoClickerModule = autoClicker.init(ctx);
+      voiceAssistantModule = voiceAssistant.init(ctx);
       screenResolution.init(ctx);
       bluetooth.init(ctx);
       taskbar.init(ctx);
@@ -587,7 +604,7 @@ if (!gotSingleInstanceLock) {
   }
 
   app.whenReady().then(async () => {
-    verifyFeatures();
+    checkIconsFolder();
 
     // Fast, network-free startup: if a cached license is present and fresh, open
     // the app IMMEDIATELY and re-verify online in the background. This avoids
@@ -723,9 +740,11 @@ if (!gotSingleInstanceLock) {
     if (videoEditorModule) videoEditorModule.teardown();
     if (valclipsModule) valclipsModule.teardown();
     if (crosshairModule) crosshairModule.teardown();
+    if (autoClickerModule) autoClickerModule.teardown();
     if (volumeMixerModule) volumeMixerModule.teardown();
     if (gameModeModule) gameModeModule.teardown();
     if (claudeLimitModule) claudeLimitModule.teardown();
+    if (voiceAssistantModule) voiceAssistantModule.teardown();
     logger.system('Application quit');
   });
 
@@ -814,6 +833,14 @@ if (!gotSingleInstanceLock) {
 
   ipcMain.handle('disable-all-hotkeys', () => {
     globalShortcut.unregisterAll();
+    // Macro, controller-macro and auto-clicker triggers are engine-watched
+    // (GetAsyncKeyState), not globalShortcut — unregistering shortcuts doesn't
+    // touch them. They have to be suspended explicitly, or binding a key that a
+    // macro owns fires that macro while the renderer is reading the keypress.
+    if (macrosModule) macrosModule.suspendTriggers();
+    if (controllerMacrosModule) controllerMacrosModule.suspendTriggers();
+    if (autoClickerModule) autoClickerModule.suspendTriggers();
+    if (voiceAssistantModule) voiceAssistantModule.suspendTriggers();
     logger.log('All hotkeys disabled');
     return { success: true };
   });
@@ -824,8 +851,10 @@ if (!gotSingleInstanceLock) {
     if (micModule) micModule.reapplyHotkey();
     if (macrosModule) macrosModule.reapplyHotkeys();
     if (controllerMacrosModule) controllerMacrosModule.reapplyHotkeys();
+    if (autoClickerModule) autoClickerModule.reapplyHotkeys();
     if (crosshairModule) crosshairModule.reapplyHotkey();
     if (volumeMixerModule) volumeMixerModule.reapplyHotkeys();
+    if (voiceAssistantModule) voiceAssistantModule.resumeTriggers();
     logger.log('All hotkeys re-enabled');
     return { success: true };
   });

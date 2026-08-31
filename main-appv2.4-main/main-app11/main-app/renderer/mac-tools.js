@@ -11,7 +11,7 @@
                 <i class="fas fa-cube text-neutral-500 mb-2"></i>
                 <p class="text-xs text-neutral-300">This uses <span class="text-white">${name}</span>, a small free tool that isn’t installed yet.</p>
                 <p class="text-[10px] text-neutral-500 mt-1">Installs via Homebrew — if you don’t have it, its official installer opens first.</p>
-                <button type="button" onclick="macToolInstall('${esc(tool)}', '${esc(refreshFn || '')}', this)"
+                <button type="button" onclick="macToolInstall(${jsAttr(tool)}, ${jsAttr(refreshFn || '')}, this)"
                     class="mt-3 px-4 py-2 bg-white text-black rounded-xl text-xs font-medium no-drag hover:bg-neutral-200 transition-colors">
                     <i class="fas fa-download mr-1.5"></i>Install ${name}
                 </button>

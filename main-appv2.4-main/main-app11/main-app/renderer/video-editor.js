@@ -667,7 +667,7 @@
                     // Disable qualities that are at/above the source resolution.
                     const disabled = o.v !== 'original' && srcH > 0 && parseInt(o.v, 10) >= srcH;
                     const active = ve.previewQuality === o.v;
-                    return `<button type="button" ${disabled ? 'disabled' : ''} onclick="veSetPreviewQuality('${o.v}')"
+                    return `<button type="button" ${disabled ? 'disabled' : ''} onclick="veSetPreviewQuality(${jsAttr(o.v)})"
                         class="px-1.5 py-1.5 rounded-lg text-[11px] border transition-colors no-drag ${active
                             ? 'bg-white/15 border-white/25 text-white'
                             : 'bg-neutral-800/30 border-neutral-700/50 text-neutral-400 hover:text-neutral-200'} ${disabled ? 'opacity-30 cursor-not-allowed' : ''}">${o.l}</button>`;

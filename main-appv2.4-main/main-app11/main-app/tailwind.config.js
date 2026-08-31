@@ -15,6 +15,7 @@ module.exports = {
         './main.html',
         './mic-mute-overlay.html',
         './crosshair-overlay.html',
+        './area-select-overlay.html',
         './preload.js',
         './renderer/**/*.js',
     ],

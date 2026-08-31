@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron');
 const path = require('path');
+const { lockNavigation } = require('./windowGuard');
 const { ensureVersionedScript } = require('./scriptCache');
 const { runCmd } = require('./shellUtils');
 const { isMac } = require('./platform');
@@ -165,6 +166,7 @@ function init(ctx) {
         preload: path.join(appRoot, 'mic-mute-overlay-preload.js')
       }
     });
+    lockNavigation(micMuteOverlayWindow, logger);
     micMuteOverlayWindow.setAlwaysOnTop(true, 'screen-saver');
     micMuteOverlayWindow.setIgnoreMouseEvents(true);
     micMuteOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });

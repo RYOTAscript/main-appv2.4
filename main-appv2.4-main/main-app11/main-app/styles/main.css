@@ -2191,10 +2191,13 @@
 
         #close-windows-startup-label {
             display: flex;
-            align-items: center;
+            /* The caption wraps to 2-3 lines at narrow window widths, so the
+               toggle hugs the first line instead of floating mid-paragraph. */
+            align-items: flex-start;
             gap: 0.75rem;
             cursor: pointer;
             font-size: 0.875rem;
+            line-height: 1.4;
             padding-left: 1.5rem;
             opacity: 0;
             max-height: 0;
@@ -2207,7 +2210,10 @@
 
         #close-windows-startup-label.visible {
             opacity: 1;
-            max-height: 24px;
+            /* Generous cap, NOT the row's real height: `overflow: hidden` is what
+               makes the slide-in work, so a tight max-height silently clips the
+               wrapped caption. Keep headroom for ~4 wrapped lines. */
+            max-height: 8rem;
             transform: translateY(0) scale(1);
             margin-bottom: 1rem;
             pointer-events: auto;
@@ -4653,3 +4659,1004 @@
         .fsl-cfg-open:disabled { opacity: 0.4; cursor: default; }
         .fsl-cfg-hint { font-size: 11px; color: #6f6f6f; line-height: 1.5; margin-top: 2px; }
         .fsl-cfg-hint b { color: #9a9a9a; font-weight: 600; }
+
+        /* ── Auto Clicker mini widget ──────────────────────────────────────
+           Panel styling for renderer/autoclicker.js. Everything is built from
+           the app's motion + accent tokens so the widget reads as part of the
+           launcher rather than a bolted-on tool: cards stagger in on render
+           (--i sets each one's delay), the mode strip runs a sliding pill, and
+           the preview canvas paints the click pattern live. */
+        .ac-root {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .ac-card {
+            position: relative;
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            border-radius: 16px;
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.022);
+            opacity: 0;
+            transform: translateY(10px);
+            animation: acCardIn var(--dur-4) var(--ease-emphasized) forwards;
+            animation-delay: calc(var(--i, 0) * 45ms);
+        }
+
+        @keyframes acCardIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Re-renders (a slider nudge, a live status tick) reuse the same markup,
+           so the entrance choreography is switched off for them — replaying it
+           on every keystroke would read as flicker, not polish. */
+        .ac-no-anim .ac-card {
+            opacity: 1;
+            transform: none;
+            animation: none;
+        }
+
+        .ac-no-anim:not(.ac-mode-changed) .ac-mode-body {
+            animation: none;
+        }
+
+        .ac-card-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .ac-card-head h4 {
+            margin: 0;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #b8b8b8;
+        }
+
+        .ac-head-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 7px;
+            display: grid;
+            place-items: center;
+            font-size: 10px;
+            color: var(--accent-solid);
+            background: rgba(var(--accent), 0.14);
+            border: 1px solid rgba(var(--accent), 0.26);
+        }
+
+        .ac-head-note {
+            margin-left: auto;
+            font-size: 11px;
+            color: #6f6f6f;
+        }
+
+        /* ── Hero / live status ── */
+        .ac-hero {
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 18px;
+            padding: 14px 16px;
+            background: linear-gradient(135deg, rgba(var(--accent), 0.09), rgba(255, 255, 255, 0.02) 55%);
+            transition: border-color var(--dur-3) var(--ease-out), box-shadow var(--dur-3) var(--ease-out);
+        }
+
+        .ac-hero::after {
+            content: '';
+            position: absolute;
+            inset: -40% -10%;
+            background: radial-gradient(60% 60% at 20% 50%, rgba(var(--accent), 0.16), transparent 70%);
+            opacity: 0;
+            transition: opacity var(--dur-4) var(--ease-out);
+            pointer-events: none;
+        }
+
+        .ac-hero[data-state="running"] {
+            border-color: rgba(var(--accent), 0.5);
+            box-shadow: 0 0 34px rgba(var(--accent), 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+
+        .ac-hero[data-state="running"]::after {
+            opacity: 1;
+            animation: acHeroSweep 3.2s ease-in-out infinite;
+        }
+
+        @keyframes acHeroSweep {
+
+            0%,
+            100% {
+                transform: translateX(-6%);
+            }
+
+            50% {
+                transform: translateX(6%);
+            }
+        }
+
+        .ac-orb {
+            position: relative;
+            width: 46px;
+            height: 46px;
+            flex-shrink: 0;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            color: #cfcfcf;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            transition: color var(--dur-3) var(--ease-out), border-color var(--dur-3) var(--ease-out), background var(--dur-3) var(--ease-out);
+        }
+
+        .ac-hero[data-state="running"] .ac-orb {
+            color: var(--accent-solid);
+            border-color: rgba(var(--accent), 0.6);
+            background: rgba(var(--accent), 0.14);
+        }
+
+        .ac-orb i.fa-arrow-pointer {
+            font-size: 16px;
+            transition: transform var(--dur-2) var(--ease-spring);
+        }
+
+        .ac-hero[data-state="running"] .ac-orb i.fa-arrow-pointer {
+            animation: acTap 0.9s var(--ease-out) infinite;
+        }
+
+        @keyframes acTap {
+
+            0%,
+            60%,
+            100% {
+                transform: translate(0, 0) scale(1);
+            }
+
+            18% {
+                transform: translate(-2px, 2px) scale(0.88);
+            }
+
+            34% {
+                transform: translate(0, 0) scale(1.05);
+            }
+        }
+
+        /* Expanding rings, only while a run is live. */
+        .ac-orb-ring {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            border: 1px solid rgba(var(--accent), 0.55);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .ac-hero[data-state="running"] .ac-orb-ring {
+            animation: acRing 1.6s var(--ease-out) infinite;
+        }
+
+        .ac-hero[data-state="running"] .ac-orb-ring.b {
+            animation-delay: 0.55s;
+        }
+
+        @keyframes acRing {
+            0% {
+                opacity: 0.7;
+                transform: scale(1);
+            }
+
+            100% {
+                opacity: 0;
+                transform: scale(1.9);
+            }
+        }
+
+        .ac-hero-text {
+            min-width: 0;
+            flex: 1 1 150px;
+        }
+
+        .ac-hero-title {
+            font-size: 15px;
+            font-weight: 650;
+            letter-spacing: -0.01em;
+            color: #fff;
+        }
+
+        .ac-hero-sub {
+            margin-top: 3px;
+            font-size: 11.5px;
+            color: #7e7e7e;
+            line-height: 1.45;
+        }
+
+        .ac-hero-sub b {
+            color: #b6b6b6;
+            font-weight: 600;
+        }
+
+        .ac-hero-stats {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .ac-stat {
+            min-width: 62px;
+            padding: 7px 10px;
+            border-radius: 12px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.28);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+        }
+
+        .ac-stat b {
+            display: block;
+            font-size: 15px;
+            font-weight: 650;
+            font-variant-numeric: tabular-nums;
+            color: #fff;
+            line-height: 1.15;
+        }
+
+        .ac-stat span {
+            display: block;
+            margin-top: 2px;
+            font-size: 9px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #6a6a6a;
+        }
+
+        .ac-stat.bump b {
+            animation: acBump var(--dur-3) var(--ease-spring);
+        }
+
+        @keyframes acBump {
+            0% {
+                transform: scale(1);
+            }
+
+            40% {
+                transform: scale(1.16);
+                color: var(--accent-solid);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        .ac-go {
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-width: 108px;
+            height: 40px;
+            padding: 0 18px;
+            border-radius: 13px;
+            font-size: 13px;
+            font-weight: 650;
+            cursor: pointer;
+            color: #08090a;
+            background: var(--accent-solid);
+            border: 1px solid rgba(var(--accent), 0.9);
+            box-shadow: 0 6px 22px rgba(var(--accent), 0.22);
+            transition: transform var(--dur-1) var(--ease-spring), box-shadow var(--dur-2) var(--ease-out),
+                background var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+        }
+
+        .ac-go:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 28px rgba(var(--accent), 0.32);
+        }
+
+        .ac-go:active:not(:disabled) {
+            transform: translateY(0) scale(0.97);
+        }
+
+        .ac-go:disabled {
+            opacity: 0.35;
+            cursor: default;
+            box-shadow: none;
+        }
+
+        .ac-go.stop {
+            color: #ffdada;
+            background: rgba(239, 68, 68, 0.18);
+            border-color: rgba(239, 68, 68, 0.55);
+            box-shadow: 0 0 24px rgba(239, 68, 68, 0.18);
+        }
+
+        .ac-go.stop:hover:not(:disabled) {
+            background: rgba(239, 68, 68, 0.28);
+            box-shadow: 0 8px 26px rgba(239, 68, 68, 0.26);
+        }
+
+        /* ── Segmented controls ── */
+        .ac-seg {
+            position: relative;
+            display: grid;
+            gap: 2px;
+            padding: 3px;
+            border-radius: 13px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+        }
+
+        .ac-seg-pill {
+            position: absolute;
+            top: 3px;
+            bottom: 3px;
+            left: 3px;
+            border-radius: 10px;
+            background: rgba(var(--accent), 0.2);
+            border: 1px solid rgba(var(--accent), 0.42);
+            box-shadow: 0 4px 16px rgba(var(--accent), 0.14);
+            transition: transform var(--dur-3) var(--ease-spring), width var(--dur-3) var(--ease-spring);
+            pointer-events: none;
+        }
+
+        /* Positioned by JS after layout; transitions are suppressed for that
+           first placement so a freshly rendered pill doesn't grow from zero. */
+        .ac-seg-pill.is-init {
+            transition: none;
+        }
+
+        .ac-seg-btn {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            height: 34px;
+            padding: 0 10px;
+            border: none;
+            background: transparent;
+            border-radius: 10px;
+            font-size: 11.5px;
+            font-weight: 550;
+            color: #8d8d8d;
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: color var(--dur-2) var(--ease-out);
+        }
+
+        .ac-seg-btn i {
+            font-size: 11px;
+            opacity: 0.85;
+        }
+
+        .ac-seg-btn:hover {
+            color: #dcdcdc;
+        }
+
+        .ac-seg-btn.on {
+            color: #fff;
+        }
+
+        /* ── Mode body (crossfades when the mode changes) ── */
+        .ac-mode-body {
+            margin-top: 12px;
+            animation: acModeIn var(--dur-3) var(--ease-emphasized);
+        }
+
+        @keyframes acModeIn {
+            from {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .ac-note {
+            font-size: 11.5px;
+            color: #7a7a7a;
+            line-height: 1.55;
+        }
+
+        .ac-note b {
+            color: #b0b0b0;
+            font-weight: 600;
+        }
+
+        .ac-warn {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-top: 10px;
+            padding: 9px 11px;
+            border-radius: 11px;
+            font-size: 11.5px;
+            line-height: 1.5;
+            color: #ffc9c9;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.32);
+        }
+
+        /* ── Target chips (area / point / colour) ── */
+        .ac-target-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .ac-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 12px;
+            border-radius: 12px;
+            font-size: 11.5px;
+            font-variant-numeric: tabular-nums;
+            color: #ddd;
+            background: rgba(255, 255, 255, 0.045);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* The skip zone reads as a keep-out, so it borrows the warning colour
+           rather than the accent every other chip uses. */
+        .ac-chip.ac-chip-danger {
+            color: #ffc9c9;
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.32);
+        }
+
+        .ac-chip.ac-chip-danger .ac-chip-k {
+            color: rgba(255, 201, 201, 0.6);
+        }
+
+        .ac-chip.empty {
+            color: #6f6f6f;
+            border-style: dashed;
+        }
+
+        .ac-chip-k {
+            font-size: 9px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #6a6a6a;
+        }
+
+        .ac-pick {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            height: 36px;
+            padding: 0 14px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            color: var(--accent-solid);
+            background: rgba(var(--accent), 0.13);
+            border: 1px solid rgba(var(--accent), 0.36);
+            transition: all var(--dur-2) var(--ease-out);
+        }
+
+        .ac-pick:hover:not(:disabled) {
+            background: rgba(var(--accent), 0.22);
+            color: #fff;
+            box-shadow: 0 0 18px rgba(var(--accent), 0.18);
+        }
+
+        .ac-pick:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
+        .ac-pick.ghost {
+            color: #cfcfcf;
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.14);
+        }
+
+        .ac-pick.ghost:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            box-shadow: none;
+        }
+
+        /* ── Live pattern preview ── */
+        .ac-map-wrap {
+            position: relative;
+            margin-top: 12px;
+            border-radius: 14px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.25));
+        }
+
+        .ac-map-wrap canvas {
+            display: block;
+            width: 100%;
+            height: 132px;
+        }
+
+        .ac-map-label {
+            position: absolute;
+            left: 10px;
+            top: 9px;
+            font-size: 9px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #6a6a6a;
+            pointer-events: none;
+        }
+
+        .ac-empty {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding: 22px 16px;
+            border-radius: 14px;
+            border: 1px dashed rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.015);
+            text-align: center;
+        }
+
+        .ac-empty > i {
+            font-size: 20px;
+            color: rgba(var(--accent), 0.7);
+            animation: acFloat 2.6s ease-in-out infinite;
+        }
+
+        @keyframes acFloat {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-4px);
+            }
+        }
+
+        .ac-empty p {
+            margin: 0;
+            font-size: 11.5px;
+            color: #7a7a7a;
+            max-width: 340px;
+            line-height: 1.55;
+        }
+
+        /* ── Mouse button picker ── */
+        .ac-mouse-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .ac-mouse {
+            width: 74px;
+            flex-shrink: 0;
+        }
+
+        .ac-mouse .zone {
+            fill: rgba(255, 255, 255, 0.055);
+            stroke: rgba(255, 255, 255, 0.12);
+            stroke-width: 1;
+            cursor: pointer;
+            transition: fill var(--dur-2) var(--ease-out), stroke var(--dur-2) var(--ease-out), filter var(--dur-2) var(--ease-out);
+        }
+
+        .ac-mouse .zone:hover {
+            fill: rgba(255, 255, 255, 0.14);
+        }
+
+        .ac-mouse .zone.on {
+            fill: rgba(var(--accent), 0.42);
+            stroke: rgba(var(--accent), 0.9);
+            filter: drop-shadow(0 0 6px rgba(var(--accent), 0.55));
+        }
+
+        .ac-mouse .shell {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.22);
+            stroke-width: 1.5;
+            pointer-events: none;
+        }
+
+        .ac-mouse .split {
+            stroke: rgba(255, 255, 255, 0.16);
+            stroke-width: 1;
+            pointer-events: none;
+        }
+
+        .ac-mouse-legend {
+            flex: 1 1 150px;
+            min-width: 0;
+        }
+
+        .ac-mouse-legend .name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .ac-mouse-legend .hint {
+            margin-top: 3px;
+            font-size: 11.5px;
+            color: #6f6f6f;
+            line-height: 1.5;
+        }
+
+        /* ── Fields ── */
+        .ac-grid {
+            display: grid;
+            gap: 10px;
+        }
+
+        .ac-field label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #6a6a6a;
+        }
+
+        .ac-input {
+            width: 100%;
+            height: 34px;
+            padding: 0 10px;
+            border-radius: 10px;
+            font-size: 12.5px;
+            font-variant-numeric: tabular-nums;
+            color: #eee;
+            background: rgba(0, 0, 0, 0.32);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: border-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+        }
+
+        .ac-input:focus {
+            outline: none;
+            border-color: rgba(var(--accent), 0.55);
+            box-shadow: 0 0 0 3px rgba(var(--accent), 0.1);
+        }
+
+        .ac-time-row {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 6px;
+        }
+
+        .ac-time-cell {
+            position: relative;
+        }
+
+        .ac-time-cell span {
+            position: absolute;
+            right: 9px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 9.5px;
+            letter-spacing: 0.08em;
+            color: #5f5f5f;
+            pointer-events: none;
+        }
+
+        .ac-time-cell .ac-input {
+            padding-right: 28px;
+        }
+
+        .ac-presets {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 9px;
+        }
+
+        .ac-preset {
+            padding: 5px 10px;
+            border-radius: 9px;
+            font-size: 10.5px;
+            font-weight: 550;
+            font-variant-numeric: tabular-nums;
+            color: #9a9a9a;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            cursor: pointer;
+            transition: all var(--dur-1) var(--ease-out);
+        }
+
+        .ac-preset:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.09);
+            transform: translateY(-1px);
+        }
+
+        .ac-preset.on {
+            color: var(--accent-solid);
+            background: rgba(var(--accent), 0.16);
+            border-color: rgba(var(--accent), 0.4);
+        }
+
+        /* Rate readout */
+        .ac-rate {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .ac-rate b {
+            font-size: 22px;
+            font-weight: 650;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.02em;
+            color: var(--accent-solid);
+        }
+
+        .ac-rate span {
+            font-size: 11px;
+            color: #6f6f6f;
+        }
+
+        .ac-rate-bar {
+            margin-top: 8px;
+            height: 4px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.07);
+            overflow: hidden;
+        }
+
+        .ac-rate-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(var(--accent), 0.45), var(--accent-solid));
+            box-shadow: 0 0 12px rgba(var(--accent), 0.5);
+            transition: width var(--dur-4) var(--ease-out);
+        }
+
+        /* ── Sliders ── */
+        .ac-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+        }
+
+        .ac-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent-solid);
+            border: 2px solid rgba(10, 10, 10, 0.9);
+            box-shadow: 0 0 10px rgba(var(--accent), 0.5);
+            transition: transform var(--dur-1) var(--ease-spring);
+        }
+
+        .ac-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.22);
+        }
+
+        .ac-slider-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 7px;
+        }
+
+        .ac-slider-head label {
+            margin: 0;
+        }
+
+        .ac-slider-head b {
+            font-size: 11.5px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            color: #d8d8d8;
+        }
+
+        /* ── Colour hunt ── */
+        .ac-color-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .ac-swatch {
+            position: relative;
+            width: 54px;
+            height: 54px;
+            border-radius: 15px;
+            flex-shrink: 0;
+            cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.35);
+            transition: transform var(--dur-2) var(--ease-spring);
+        }
+
+        .ac-swatch:hover {
+            transform: scale(1.05);
+        }
+
+        .ac-swatch i {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            font-size: 15px;
+            color: #fff;
+            opacity: 0;
+            text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
+            transition: opacity var(--dur-2) var(--ease-out);
+        }
+
+        .ac-swatch:hover i {
+            opacity: 1;
+        }
+
+        .ac-tol-band {
+            margin-top: 8px;
+            height: 22px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+        }
+
+        .ac-scan-result {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 12px;
+            border-radius: 11px;
+            font-size: 11.5px;
+            font-variant-numeric: tabular-nums;
+            animation: acCardIn var(--dur-3) var(--ease-spring) forwards;
+        }
+
+        .ac-scan-result.hit {
+            color: #bbf7d0;
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid rgba(34, 197, 94, 0.35);
+        }
+
+        .ac-scan-result.miss {
+            color: #d4d4d4;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        /* Live detection pip while Colour Hunt runs. */
+        .ac-hunt {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 11px;
+            color: #8a8a8a;
+        }
+
+        .ac-hunt i {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #6a6a6a;
+            transition: background var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+        }
+
+        .ac-hunt.found i {
+            background: #4ade80;
+            box-shadow: 0 0 10px rgba(74, 222, 128, 0.8);
+            animation: acHuntPulse 1s ease-in-out infinite;
+        }
+
+        .ac-hunt.searching i {
+            animation: acHuntPulse 1.4s ease-in-out infinite;
+        }
+
+        @keyframes acHuntPulse {
+
+            0%,
+            100% {
+                opacity: 0.4;
+                transform: scale(0.82);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        /* ── Trigger row ── */
+        .ac-trigger-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .ac-arm {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 13px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 550;
+            cursor: pointer;
+            color: #9a9a9a;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all var(--dur-2) var(--ease-out);
+        }
+
+        .ac-arm.on {
+            color: #fff;
+            background: rgba(var(--accent), 0.15);
+            border-color: rgba(var(--accent), 0.4);
+        }
+
+        .ac-arm i {
+            font-size: 11px;
+        }
+
+        .ac-arm.on i {
+            color: #4ade80;
+        }
+
+        .ac-select {
+            height: 36px;
+            padding: 0 10px;
+            border-radius: 11px;
+            font-size: 12px;
+            color: #ddd;
+            background: rgba(10, 10, 10, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            cursor: pointer;
+            transition: border-color var(--dur-2) var(--ease-out);
+        }
+
+        .ac-select:focus {
+            outline: none;
+            border-color: rgba(var(--accent), 0.5);
+        }
+
+        .ac-check {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            font-size: 12px;
+            color: #b4b4b4;
+            cursor: pointer;
+        }
+
+        .ac-check input {
+            accent-color: var(--accent-solid);
+            width: 15px;
+            height: 15px;
+            cursor: pointer;
+        }

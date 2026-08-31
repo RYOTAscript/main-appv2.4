@@ -1,5 +1,5 @@
         const APP_VERSION = 'v4.0.1';
-        const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M', crosshair: 'Control+Shift+X' };
+        const DEFAULT_HOTKEYS = { close: 'Escape', focus: 'Control+Alt+M', spotifyPlay: 'Control+Up', spotifyPause: 'Control+Down', spotifyNext: 'Control+Right', spotifyPrevious: 'Control+Left', spotifyVolumeUp: 'Control+PageUp', spotifyVolumeDown: 'Control+PageDown', micMute: 'Control+Shift+M', crosshair: 'Control+Shift+X', voiceAssistant: 'Control+Alt+V' };
 
         // Registry of "Mini Widgets" -- small, self-contained utilities. This is the
         // SINGLE SOURCE OF TRUTH: the Widget Library (browse/search/favourite), the
@@ -88,6 +88,37 @@
                 features: ['Virtual PlayStation or Xbox 360 pad games really see', 'Visual joystick pad — drag or tap 8-way directions for sticks', 'Skate Classic Flick-It template library (flips, shove-its, spins, grabs, manuals)', 'NBA 2K26 Pro Stick templates (dribble moves, turbo moves, shots & dunks)', 'Step editor: taps, holds, trigger pulls & stick moves', 'Record combos from a real controller', 'Pressed / Hold / Toggle / Released hotkey modes', 'Repeat counts & playback speed'],
                 panelId: 'controller-macros-panel',
                 panelRenderer: 'renderControllerMacrosPanel'
+            },
+            {
+                id: 'autoClicker',
+                platforms: ['win32'], // Win32 SendInput + GDI screen capture; no macOS equivalent
+                label: 'Auto Clicker',
+                icon: 'fa-arrow-pointer',
+                description: 'Click on its own — anywhere, all over an area, or wherever a colour appears.',
+                longDescription: 'A full auto clicker, plus two things ordinary ones can\'t do. Set the interval down to the millisecond (with optional randomness so it isn\'t robot-perfect), pick any mouse button, single/double/triple clicks, a start delay, and a stop condition — run forever, for a number of clicks, or for a set time. Then choose where it clicks: right where your cursor is, on one fixed point you pick with a magnified loupe, all over a region you drag out on screen (random points, a serpentine sweep that covers every part of it, or dead centre), or — the clever one — Colour Hunt: give it a region and a colour, and it watches that region and clicks whatever matches, the instant it appears. Tolerance, scan precision and a "click the first / centre / every match" choice let you tune it, and a Test scan tells you what it can see right now. One hotkey arms it, in Toggle or Hold mode, and the key still passes through to your game.',
+                category: 'Gaming',
+                keywords: ['auto clicker', 'autoclicker', 'click', 'clicker', 'spam', 'cps', 'idle', 'afk', 'farm', 'macro', 'automation', 'area', 'region', 'colour', 'color', 'pixel', 'detect', 'bot', 'mouse', 'op auto clicker', 'grind'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Millisecond intervals with optional randomness', 'Any mouse button · single / double / triple', 'Click at the cursor or a fixed point you pick', 'Area spam — random, full-coverage sweep, or centre', 'Colour Hunt — clicks a colour the moment it appears', 'Tolerance, scan precision & first / centre / every match', 'Stop after N clicks, after a time, or never', 'Toggle or Hold hotkey that still reaches your game'],
+                panelId: 'autoclicker-panel',
+                panelRenderer: 'renderAutoClickerPanel'
+            },
+            {
+                id: 'voiceAssistant',
+                platforms: ['win32'], // offline System.Speech recognizer; no macOS equivalent
+                label: 'Voice Assistant',
+                icon: 'fa-microphone-lines',
+                description: 'Talk to main — launch games, control Spotify and run widgets by voice, fully offline.',
+                longDescription: 'Press one hotkey and tell main what you want. A premium overlay slides down at the top of your screen with a live animation that reacts to your actual voice, and it does the thing — launches a game, skips a track, sets the volume, opens a widget, starts a timer, optimizes your PC. Recognition runs entirely on your own machine using the speech recognizer built into Windows: nothing is recorded, nothing is uploaded, and there is no account, API key or subscription. It knows the names of YOUR pinned apps, games, Bluetooth devices, audio apps and Spotify playlists, so "launch valorant", "connect my headphones" and "mute discord" all work because those are your things. Chain several commands in one breath ("pause the music and optimize my pc"), or record a Routine — your own named sequence, so "gaming mode" can optimise the PC, show the crosshair and mute your mic in one word. Choose press-to-toggle, hold-to-talk, or switch on the wake word and just say "hey main" — on its own, or with the command in the same breath ("hey main, next track"). Ask "what can I say" for the full list, and anything far-reaching (like closing background apps) asks you to confirm first. By default the microphone is only open while the overlay is listening; turning the wake word on keeps it open so it can hear you, and the widget says so plainly before you do.',
+                category: 'Productivity',
+                keywords: ['voice', 'assistant', 'speech', 'microphone', 'mic', 'talk', 'say', 'command', 'dictate', 'hands free', 'cortana', 'siri', 'alexa', 'offline', 'recognition', 'hotkey', 'push to talk', 'wake word', 'hey main', 'always listening', 'routine', 'macro', 'chain', 'automation', 'shortcut'],
+                version: '2.0.0',
+                author: 'ryota',
+                features: ['100% offline — uses the recognizer built into Windows', 'Nothing recorded, uploaded, or sent anywhere', 'Knows your own pinned apps and games by name', 'Live animation driven by your real voice', '90 commands across Spotify, performance, Bluetooth, audio, widgets and more', 'Chain commands: "pause the music and optimize my pc"', 'Routines — your own named multi-step commands', 'Toggle, hold-to-talk, or "hey main" wake word', 'Optional spoken replies', 'Confirms before anything far-reaching', 'Type commands instead when you have no mic'],
+                defaultHotkey: 'Control+Alt+V',
+                panelId: 'voice-assistant-panel',
+                panelRenderer: 'renderVoiceAssistantPanel'
             },
             {
                 id: 'clipboard',

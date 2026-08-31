@@ -69,7 +69,7 @@
             return `<label class="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border ${checked ? 'border-white/30 bg-white/5' : 'border-neutral-700/50 bg-neutral-800/20'} ${disabled ? 'opacity-60' : 'hover:border-neutral-600 cursor-pointer'} transition-colors no-drag" title="${esc(app.id)}">
                 <span class="flex items-center gap-2 min-w-0">
                     <input type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}
-                        onchange="aimToggle('${esc(app.id)}', this.checked)" class="h-3.5 w-3.5 accent-white no-drag flex-shrink-0">
+                        onchange="aimToggle(${jsAttr(app.id)}, this.checked)" class="h-3.5 w-3.5 accent-white no-drag flex-shrink-0">
                     <span class="text-[11px] text-neutral-200 truncate">${esc(app.name)}</span>
                 </span>
                 ${right}

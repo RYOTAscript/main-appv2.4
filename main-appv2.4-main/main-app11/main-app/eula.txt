@@ -5,17 +5,22 @@ to the Terms of Service and Privacy Policy published at the main website
 (see the Terms link on the site's footer).
 
 1. LICENSE. Purchase grants you a personal, non-transferable, lifetime license
-   to install and use main on your own Windows PCs. You may not sell, rent,
-   sublicense, share, or redistribute your license key or the installer, and you
-   may not present main or its assets as your own product. Keys that are shared
-   publicly or abused may be deactivated.
+   to install and use main on your own personal computers, on Windows and
+   macOS; one license covers both. main may be activated on up to 2 computers
+   at a time — you can free a slot yourself at any time from the Account page
+   on the website. You may not sell, rent, sublicense, share, or redistribute
+   your license key or the installer, and you may not present main or its
+   assets as your own product. Keys that are shared publicly or abused may be
+   deactivated.
 
 2. NO WARRANTY. main is provided "AS IS", without warranty of any kind. To the
    maximum extent permitted by law, the author is not liable for any indirect or
    consequential damages arising from your use of the software. main automates
-   parts of your own Windows system; you are responsible for how you use it,
+   parts of your own computer; you are responsible for how you use it,
    including compliance with the terms of any games or services you run
-   alongside it.
+   alongside it. Nothing in this EULA excludes, restricts or modifies any
+   consumer guarantee or right you have under a law that cannot legally be
+   excluded, including the Australian Consumer Law.
 
 3. THIRD-PARTY / OPEN-SOURCE SOFTWARE. main includes third-party open-source
    components, including FFmpeg (licensed under the GNU GPL v3). These components

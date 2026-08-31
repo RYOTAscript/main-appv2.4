@@ -456,6 +456,10 @@ function init(ctx, deps) {
   let toggleHotkeyRegistered = false;
   // Hold / Released trigger bookkeeping (fed by the shared key watcher)
   let watchMap = new Map();      // vk -> [{ id, mods, trigger }]
+  // Suspended while the renderer is capturing raw keys -- these triggers ride
+  // the macros engine's watcher, which globalShortcut.unregisterAll() can't
+  // reach (see suspendTriggers below).
+  let triggersSuspended = false;
   let releasedArmed = new Set();
   // Engine crash watchdog: one automatic revive, re-armed by any successful start.
   let engineRevivePending = false;
@@ -665,7 +669,7 @@ function init(ctx, deps) {
   function syncTriggers() {
     watchMap = new Map();
     releasedArmed.clear();
-    if (config.enabled && config.armed) {
+    if (config.enabled && config.armed && !triggersSuspended) {
       for (const m of config.macros) {
         if (!m.hotkey || m.on === false) continue;
         const parsed = parseAccelerator(m.hotkey);
@@ -735,7 +739,7 @@ function init(ctx, deps) {
   function registerAllHotkeys() {
     unregisterToggleHotkey();
     syncTriggers();
-    if (config.enabled) registerToggleHotkey();
+    if (config.enabled && !triggersSuspended) registerToggleHotkey();
   }
 
   function setArmed(armed) {
@@ -976,7 +980,8 @@ function init(ctx, deps) {
   }
 
   return {
-    reapplyHotkeys: () => registerAllHotkeys()
+    reapplyHotkeys: () => { triggersSuspended = false; registerAllHotkeys(); },
+    suspendTriggers: () => { triggersSuspended = true; registerAllHotkeys(); }
   };
 }
 

@@ -34,7 +34,11 @@ function parsePlainLyrics(plain) {
 function init(ctx) {
   const { logger, APP_VERSION } = ctx;
 
-  const LRCLIB_USER_AGENT = `Launcher/${APP_VERSION} (https://github.com/ryota/launcher)`;
+  // LRCLIB asks clients to identify themselves with a URL its operators can
+  // actually reach, so they can get in touch before resorting to a block. This
+  // used to point at a repository that doesn't exist — keep it a live contact.
+  const LRCLIB_USER_AGENT =
+    `main-launcher/${APP_VERSION} (+https://main-website-eosin-beta.vercel.app; mainappsupport@gmail.com)`;
   const lyricsCache = new BoundedCache(300);
 
   async function lrclibRequest(pathName, params) {

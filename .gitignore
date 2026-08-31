@@ -48,3 +48,9 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Live Google "Desktop app" OAuth credentials. Baked into the shipped binary
+# (electron-builder ships it via the main/**/* glob) but never committed:
+# a credential in a repo is far easier to harvest than one inside an installer.
+# See main/googleCredentials.example.js for the shape.
+main-appv2.4-main/main-app11/main-app/main/googleCredentials.js

@@ -1,9 +1,34 @@
+        // Escape a value for interpolation into HTML *text* or an HTML *attribute
+        // value*. Not safe for a JavaScript string inside an attribute — see
+        // jsAttr() below, and read the note there before reaching for this one.
         function esc(str) {
             return String(str)
                 .replace(/&/g, '&amp;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;')
-                .replace(/</g, '&lt;');
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        // Escape a value for interpolation into a JavaScript string inside an
+        // inline handler attribute — `onclick="fn(${jsAttr(x)})"`.
+        //
+        // WHY THIS EXISTS. esc() is the wrong tool there, and dangerously so. It
+        // turns ' into &#39;, which is correct for an attribute value, but the
+        // HTML parser decodes entities BEFORE the handler is compiled as
+        // JavaScript. So the old  onclick="fn('&lt;esc(x) here&gt;')"  shape handed the
+        // JS parser a real apostrophe again, and a value like
+        //   x = "'); doSomething(); //"
+        // broke straight out of the string literal and executed. Device names, file
+        // names, imported preset names and registry DisplayNames all reach these
+        // handlers, and not all of them are ours to trust.
+        //
+        // The fix is to let JSON.stringify produce the quoted JS literal (it
+        // handles quotes, backslashes, newlines and control characters), then
+        // HTML-escape the result so it survives the attribute intact. Note that
+        // jsAttr supplies its own quotes — write fn(${jsAttr(x)}), NOT fn('${jsAttr(x)}').
+        function jsAttr(value) {
+            return esc(JSON.stringify(value === undefined ? null : value));
         }
 
         // Custom launcher icons (chosen via the icon picker) are saved under
@@ -131,6 +156,12 @@
         }
 
         function renderApps() {
+            // The voice assistant's grammar is built from the user's pinned apps, so
+            // it has to be rebuilt whenever that list changes. renderApps() is the one
+            // funnel every pin/unpin/reorder/scan already goes through, and
+            // pushVoiceVocabulary() ignores an unchanged list, so this is cheap.
+            if (typeof pushVoiceVocabulary === 'function') pushVoiceVocabulary();
+
             const grid = document.getElementById('apps-grid');
             const reveal = !appsRevealPlayed;
             appsRevealPlayed = true;

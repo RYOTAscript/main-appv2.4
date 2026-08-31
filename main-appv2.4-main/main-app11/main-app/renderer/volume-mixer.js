@@ -90,7 +90,7 @@
             const vol = Math.max(0, Math.min(100, Math.round(volume)));
             return `<div class="vol-mix-row">
                 <button type="button" class="vol-mix-mute no-drag ${muted ? 'muted' : ''}"
-                    onclick="volMixToggleMute('${kind}', ${id}, ${!muted})" title="${muted ? 'Unmute' : 'Mute'}">
+                    onclick="volMixToggleMute(${jsAttr(kind)}, ${id}, ${!muted})" title="${muted ? 'Unmute' : 'Mute'}">
                     <i class="${iconStyle || 'fas'} ${muted ? 'fa-volume-xmark' : icon}"></i>
                 </button>
                 <div class="vol-mix-body">
@@ -99,9 +99,9 @@
                         <span class="vol-mix-pct" id="vol-mix-pct-${kind}-${id}">${vol}%</span>
                     </div>
                     <input type="range" min="0" max="100" value="${vol}" class="vol-mix-slider no-drag ${muted ? 'is-muted' : ''}"
-                        oninput="volMixOnInput('${kind}', ${id}, this.value)"
+                        oninput="volMixOnInput(${jsAttr(kind)}, ${id}, this.value)"
                         onpointerdown="volMixDragging=true" onpointerup="volMixDragging=false" onpointercancel="volMixDragging=false"
-                        onchange="volMixOnChange('${kind}', ${id}, this.value)">
+                        onchange="volMixOnChange(${jsAttr(kind)}, ${id}, this.value)">
                 </div>
             </div>`;
         }
@@ -151,7 +151,7 @@
             return `<div class="text-center">
                 <p class="text-[10px] text-neutral-500 mb-1">${esc(label)}</p>
                 <button type="button" class="hotkey-bind w-full no-drag ${binding ? 'listening' : ''}"
-                    onclick="volMixStartBind('${which}')">${esc(text)}</button>
+                    onclick="volMixStartBind(${jsAttr(which)})">${esc(text)}</button>
             </div>`;
         }
 

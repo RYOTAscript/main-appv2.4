@@ -14,7 +14,7 @@
                     <span class="text-xs text-neutral-300">${esc(t.label)}</span>
                     <span class="ios-toggle">
                         <input type="checkbox" class="ios-toggle-input" ${on ? 'checked' : ''}
-                            onchange="macTweaksSet('${esc(t.id)}', this.checked, this)">
+                            onchange="macTweaksSet(${jsAttr(t.id)}, this.checked, this)">
                         <span class="ios-toggle-track"></span>
                     </span>
                 </label>`;

@@ -10,9 +10,10 @@ import { LicenseKeyPill } from "@/components/account/LicenseKeyPill";
 
 const INCLUDED = [
   "Every core feature — Spotify, lyrics, performance, FPS optimizer & more",
-  "All 22 mini widgets in the Widget Library",
-  "Free updates for the entire v3.x line",
-  "Windows 10 & 11 · 64-bit",
+  "The full Widget Library — 27 mini widgets on Windows, 24 on macOS",
+  "Free updates for the entire v4.x line",
+  "Windows 10 & 11 · macOS 11+ · one license covers both",
+  "Use it on up to 2 of your computers — free a slot any time",
   "Your unique license key + instant download",
 ];
 

@@ -203,7 +203,7 @@
             }
             bar.innerHTML = ['All', ...present].map(c => `
                 <button type="button" class="widget-lib-chip${c === widgetLibCategory ? ' active' : ''}"
-                    onclick="setWidgetLibCategory('${esc(c)}')">${esc(c)}</button>
+                    onclick="setWidgetLibCategory(${jsAttr(c)})">${esc(c)}</button>
             `).join('');
         }
 
@@ -247,13 +247,13 @@
                 return `
                 <div class="widget-lib-card${widgetLibSelIndex === i ? ' kb-selected' : ''}" data-wid="${w.id}"
                      style="animation-delay:${Math.min(i * 0.03, 0.24)}s"
-                     onclick="openWidgetDetail('${w.id}')">
+                     onclick="openWidgetDetail(${jsAttr(w.id)})">
                     <div class="flex items-start justify-between gap-2">
                         <div class="widget-lib-card-icon"><i class="${w.iconStyle || 'fas'} ${w.icon}"></i></div>
                         <div class="flex items-center gap-1.5">
                             ${recent ? '<span class="widget-lib-recent-badge" title="Recently used"><i class="fas fa-clock-rotate-left"></i></span>' : ''}
                             <button type="button" class="widget-fav-btn${fav ? ' faved' : ''}" title="${fav ? 'Unfavourite' : 'Favourite'}"
-                                onclick="event.stopPropagation(); toggleWidgetFavourite('${w.id}')">
+                                onclick="event.stopPropagation(); toggleWidgetFavourite(${jsAttr(w.id)})">
                                 <i class="${fav ? 'fas' : 'far'} fa-star"></i>
                             </button>
                         </div>
@@ -269,7 +269,7 @@
                         </div>
                         <span class="ios-toggle" onclick="event.stopPropagation()">
                             <input type="checkbox" class="ios-toggle-input" ${enabled ? 'checked' : ''}
-                                onchange="setMiniWidgetEnabled('${w.id}', this.checked)">
+                                onchange="setMiniWidgetEnabled(${jsAttr(w.id)}, this.checked)">
                             <span class="ios-toggle-track"></span>
                         </span>
                     </div>
@@ -369,7 +369,7 @@
                         </div>
                         <button type="button" id="widget-detail-fav" class="widget-fav-btn widget-fav-btn-lg${fav ? ' faved' : ''}"
                             title="${fav ? 'Unfavourite' : 'Favourite'}"
-                            onclick="toggleWidgetFavourite('${w.id}')">
+                            onclick="toggleWidgetFavourite(${jsAttr(w.id)})">
                             <i class="${fav ? 'fas' : 'far'} fa-star"></i>
                         </button>
                     </div>
@@ -381,14 +381,14 @@
                     <div class="flex items-center gap-3 mt-6">
                         <button type="button" id="widget-detail-toggle-btn"
                             class="widget-detail-toggle${enabled ? ' on' : ''} no-drag"
-                            onclick="setMiniWidgetEnabled('${w.id}', ${enabled ? 'false' : 'true'})">
+                            onclick="setMiniWidgetEnabled(${jsAttr(w.id)}, ${enabled ? 'false' : 'true'})">
                             ${enabled ? '<i class="fas fa-power-off mr-2"></i>Disable' : '<i class="fas fa-power-off mr-2"></i>Enable'}
                         </button>
                         ${w.defaultHotkey ? `
                         <div class="flex items-center gap-2 text-xs text-neutral-500">
                             <span>Hotkey</span>
                             <button type="button" id="${getHotkeyButtonId(w.id)}" class="hotkey-bind no-drag"
-                                onclick="startHotkeyBind('${w.id}')"></button>
+                                onclick="startHotkeyBind(${jsAttr(w.id)})"></button>
                         </div>` : ''}
                     </div>
                     ${w.panelId ? `<div id="${w.panelId}" class="${enabled ? '' : 'hidden'} mt-2"></div>` : ''}
@@ -491,7 +491,7 @@
             }
             strip.innerHTML = shown.map(w => `
                 <button type="button" class="mini-widget-chip no-drag${isMiniWidgetEnabled(w.id) ? '' : ' chip-disabled'}"
-                    onclick="openWidgetLibrary('${w.id}')"
+                    onclick="openWidgetLibrary(${jsAttr(w.id)})"
                     title="${esc(w.description)}">
                     <i class="${w.iconStyle || 'fas'} ${w.icon} text-[10px]"></i>
                     <span>${esc(w.label)}</span>

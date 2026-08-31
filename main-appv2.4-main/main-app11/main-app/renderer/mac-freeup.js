@@ -33,7 +33,7 @@
             if (!panel || !isMacFreeUpEnabled()) return;
             const appRows = fuApps.length ? fuApps.map(name => `
                 <label class="flex items-center gap-2 px-3 py-1.5 no-drag cursor-pointer">
-                    <input type="checkbox" ${fuSelected.has(name) ? 'checked' : ''} onchange="fuToggle('${esc(name).replace(/'/g, "\\'")}', this.checked)" class="h-3.5 w-3.5 accent-white no-drag flex-shrink-0">
+                    <input type="checkbox" ${fuSelected.has(name) ? 'checked' : ''} onchange="fuToggle(${jsAttr(name)}, this.checked)" class="h-3.5 w-3.5 accent-white no-drag flex-shrink-0">
                     <span class="text-[11px] text-neutral-200 truncate">${esc(name)}</span>
                 </label>`).join('')
                 : `<p class="px-3 py-2 text-[11px] text-neutral-500">${esc(loadingMsg || 'No background apps to quit.')}</p>`;

@@ -1,0 +1,1606 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Content-Security-Policy: this overlay renders only its own local markup and
+     talks to the main process over IPC, so everything else is denied. script-src
+     keeps 'unsafe-inline' for this file's own inline <script> block. -->
+<meta http-equiv="Content-Security-Policy" content="
+    default-src 'none';
+    script-src 'self' 'unsafe-inline' file:;
+    style-src 'self' 'unsafe-inline' file:;
+    img-src 'self' file: data: blob:;
+    media-src 'self' file: data: blob:;
+    font-src 'self' file: data:;
+    connect-src 'none';
+    object-src 'none';
+    frame-src 'none';
+    child-src 'none';
+    worker-src 'none';
+    base-uri 'none';
+    form-action 'none';">
+<title>main — voice</title>
+<style>
+    /* ── main voice assistant overlay ───────────────────────────────────────
+       A frameless, transparent, always-on-top window pinned to the top centre
+       of the active display. Self-contained (markup + style + engine in one
+       file) exactly like the other overlays in this app — mic-mute, crosshair
+       and area-select — because an overlay window loads on its own and pulling
+       in the launcher's stylesheet would drag in the whole app's cascade.
+
+       NOTE ON GLASS: `backdrop-filter` is useless here. In a transparent
+       Electron window there is nothing behind the element *within the window*
+       to blur — the desktop is not part of the compositing tree (this is the
+       same limitation the app's live-capture background works around). So the
+       depth is built the honest way instead: a near-opaque dark fill, layered
+       internal gradients, a hairline top highlight and a real drop shadow. */
+
+    :root {
+        /* Motion scale, mirrored from styles/main.css so the overlay moves like
+           the rest of the app rather than inventing its own feel. */
+        --dur-2: 0.2s;
+        --dur-3: 0.32s;
+        --dur-4: 0.45s;
+        --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+        --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+        --ease-in: cubic-bezier(0.4, 0, 1, 1);
+        --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+        --capsule-w: 296px;
+        --capsule-r: 44px;
+    }
+
+    html, body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        overflow: hidden;
+        height: 100%;
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: default;
+        font-family: 'Inter', 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+    }
+
+    #stage {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding-top: 14px;
+        pointer-events: none;   /* only the capsule is interactive */
+    }
+
+    /* ── The capsule ──
+       A rounded square, not a pill: it has to hold a radial form with real
+       breathing room on every side, and a square reads as a deliberate object
+       rather than a notification toast. */
+    #capsule {
+        position: relative;
+        z-index: 1;
+        width: var(--capsule-w);
+        border-radius: var(--capsule-r);
+        padding: 18px 18px 16px;
+        box-sizing: border-box;
+        pointer-events: auto;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0) 44%),
+            radial-gradient(130% 90% at 50% -10%, rgba(255, 255, 255, 0.07), transparent 62%),
+            rgba(11, 11, 13, 0.88);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        box-shadow:
+            0 34px 84px -22px rgba(0, 0, 0, 0.82),
+            0 10px 28px -10px rgba(0, 0, 0, 0.66),
+            inset 0 1px 0 rgba(255, 255, 255, 0.10),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.45);
+        /* Height is content-driven (chips, the help list and the typed field all
+           grow it), so the transition is on the box, not a fixed size. */
+        transition:
+            transform var(--dur-4) var(--ease-emphasized),
+            opacity var(--dur-3) var(--ease-out),
+            filter var(--dur-3) var(--ease-out),
+            border-color var(--dur-3) var(--ease-out),
+            box-shadow var(--dur-4) var(--ease-out);
+        transform-origin: 50% 0%;
+    }
+
+    /* A single soft inner rim, drawn just inside the border. It gives the edge
+       thickness — the panel reads as a solid object with a lit top edge rather
+       than as a flat filled rectangle.
+       (An earlier repeating-gradient "grain" pass was removed: at 1px pitch it
+       banded into visible horizontal stripes across the whole capsule.) */
+    #capsule::after {
+        content: '';
+        position: absolute;
+        inset: 1px;
+        border-radius: calc(var(--capsule-r) - 1px);
+        pointer-events: none;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+    }
+
+    /* ── Size ──
+       The whole panel scales from one variable so the user can make it discreet
+       or unmissable. The scale lives on a WRAPPER, never on #capsule itself:
+       the transition keyframes below animate the capsule's own transform, and
+       the two would overwrite each other on a single element. */
+    #scaler {
+        transform: scale(var(--capsule-scale, 1));
+        transform-origin: 50% 0%;
+        pointer-events: auto;
+        position: relative;
+    }
+
+    /* ── Enter / exit ──
+       Four matched enter/exit pairs, selected by a class on #stage. Every exit
+       animation uses `both` fill and is NEVER cleared before the window is
+       actually hidden — clearing it early was what made the panel flash back to
+       full opacity for a frame on the way out. */
+    /* The capsule normally grows from its top edge (it hangs from the top of the
+       screen). The two styles that collapse INWARD must pivot on their own centre
+       instead, or the panel folds to the top while the CRT light sits at the
+       middle — the two halves of the effect visibly disagree. */
+    #stage.t-crt #capsule,
+    #stage.t-collapse #capsule { transform-origin: 50% 50%; }
+
+    /* Deliberately brisk. A voice overlay is a response, not a page
+       transition: anything over ~0.2s in reads as the app thinking rather than
+       answering. Entrances land fast with a touch of overshoot; exits get out of
+       the way faster still. */
+    #stage.entering.t-fade     #capsule { animation: fadeIn  0.19s var(--ease-out) both; }
+    #stage.leaving.t-fade      #capsule { animation: fadeOut 0.13s var(--ease-in) both; }
+    #stage.entering.t-collapse #capsule { animation: collapseIn  0.21s var(--ease-spring) both; }
+    #stage.leaving.t-collapse  #capsule { animation: collapseOut 0.15s cubic-bezier(0.55, 0, 0.9, 0.2) both; }
+    #stage.entering.t-slide    #capsule { animation: slideIn  0.20s var(--ease-out) both; }
+    #stage.leaving.t-slide     #capsule { animation: slideOut 0.14s var(--ease-in) both; }
+    /* The CRT phases run on `linear`. Its four layers have to hit the same
+       beats - squash, band, pull-in, spark - and any easing curve slides those
+       beats apart, which is what made the old version read as mush. The snap
+       lives in the keyframe spacing instead. */
+    #stage.entering.t-crt      #capsule  { animation: crtIn      0.26s linear both; }
+    #stage.leaving.t-crt       #capsule  { animation: crtOut     0.30s linear both; }
+    #stage.entering.t-crt      #crt-band { animation: crtBandIn  0.26s linear both; }
+    #stage.leaving.t-crt       #crt-band { animation: crtBandOut 0.30s linear both; }
+    #stage.entering.t-crt      #crt-dot  { animation: crtDotIn   0.26s linear both; }
+    /* The spark outlives the geometry - phosphor keeps glowing after the beam
+       has gone. That tail is the whole reason the effect reads as a CRT. */
+    #stage.leaving.t-crt       #crt-dot  { animation: crtDotOut  0.34s linear both; }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px) scale(0.96); }
+        to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes fadeOut {
+        from { opacity: 1; transform: translateY(0) scale(1); }
+        to   { opacity: 0; transform: translateY(-8px) scale(0.97); }
+    }
+
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateY(-64px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes slideOut {
+        from { opacity: 1; transform: translateY(0); }
+        to   { opacity: 0; transform: translateY(-56px); }
+    }
+
+    @keyframes collapseIn {
+        from { opacity: 0; transform: scale(0.2); }
+        60%  { opacity: 1; }
+        to   { opacity: 1; transform: scale(1); }
+    }
+    @keyframes collapseOut {
+        from { opacity: 1; transform: scale(1); }
+        to   { opacity: 0; transform: scale(0.12); }
+    }
+
+    /* ── CRT power-off ──
+       A real set dies in three stages, and the effect only convinces if all
+       three are visible: vertical deflection fails first, so the picture
+       collapses to a band while the horizontal sweep briefly over-scans wider
+       than the tube; then horizontal deflection fails and the band is dragged
+       into a point; then the phosphor spark burns out on its own.
+
+       Four layers cooperate, because no single one can do it. #capsule is the
+       geometry (a near-black panel - brightness() on it produces nothing to
+       see). #crt-band is the picture blowing out: a white core with scanlines
+       through it, and it is where "all the light rushing to the middle" comes
+       from. #crt-line is the beam. #crt-dot is the spark left behind. */
+    @keyframes crtIn {
+        0%   { opacity: 0; transform: scaleY(0.02) scaleX(0.02); border-radius: 2px; }
+        22%  { opacity: 0; transform: scaleY(0.03) scaleX(0.42); border-radius: 3px; }
+        40%  { opacity: 1; transform: scaleY(0.05) scaleX(1.05); border-radius: 4px; }
+        56%  { opacity: 1; transform: scaleY(0.30) scaleX(1.02); border-radius: 8px; }
+        78%  { opacity: 1; transform: scaleY(0.88) scaleX(1.00); }
+        /* A shade past full, then settle - the tube "finding" its picture. */
+        90%  { opacity: 1; transform: scaleY(1.03) scaleX(1); }
+        100% { opacity: 1; transform: scaleY(1) scaleX(1); }
+    }
+    @keyframes crtOut {
+        0%   { opacity: 1; transform: scaleY(1) scaleX(1); }
+        16%  { opacity: 1; transform: scaleY(0.58) scaleX(1.03); }
+        /* The panel hands over to the band as it squashes. Holding it opaque
+           any longer shows its dark body above and below the band's core, and
+           the collapse reads as a dark bar rather than as blown-out picture. */
+        24%  { opacity: 0.7; transform: scaleY(0.24) scaleX(1.05); }
+        32%  { opacity: 0.22; transform: scaleY(0.055) scaleX(1.06); border-radius: 4px; }
+        /* Gone well before the end, so the pull-in and the spark are clean. */
+        42%  { opacity: 0; transform: scaleY(0.03) scaleX(1.0); border-radius: 3px; }
+        66%  { opacity: 0; transform: scaleY(0.026) scaleX(0.55); border-radius: 2px; }
+        100% { opacity: 0; transform: scaleY(0.02) scaleX(0.02); border-radius: 2px; }
+    }
+
+    /* The picture blowing out. Sits over the panel so the collapse is lit from
+       the front; the scanline layer only resolves while the band still has
+       height, which is exactly while it still reads as a picture. */
+    #crt-band {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        opacity: 0;
+        pointer-events: none;
+        border-radius: var(--capsule-r);
+        transform-origin: 50% 50%;
+        /* White. A CRT's collapse is blown-out picture, and a blue-tinted one
+           reads as a sci-fi effect rather than a television — it also fights the
+           rule that the overlay stays white until the user picks an accent. */
+        background: linear-gradient(180deg,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.10) 12%,
+            rgba(255, 255, 255, 0.62) 30%,
+            rgba(255, 255, 255, 0.95) 44%,
+            rgba(255, 255, 255, 1) 50%,
+            rgba(255, 255, 255, 0.95) 56%,
+            rgba(255, 255, 255, 0.62) 70%,
+            rgba(255, 255, 255, 0.10) 88%,
+            rgba(255, 255, 255, 0) 100%);
+        /* Without this the squashed band is a crisp rounded rectangle — a white
+           pill, not light. Fading the ends is what makes it read as glow. */
+        -webkit-mask-image: linear-gradient(90deg,
+            transparent 0%, #000 9%, #000 91%, transparent 100%);
+        mask-image: linear-gradient(90deg,
+            transparent 0%, #000 9%, #000 91%, transparent 100%);
+    }
+
+    /* Scanlines, on their own layer so they can be taken away early. They have
+       to be gone before the squash finishes: 1px lines compressed by scaleY at
+       0.05 stack into a solid dark bar straight through the middle of the
+       band, which is the opposite of the effect. */
+    #crt-band::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        opacity: 0;
+        background: repeating-linear-gradient(180deg,
+            rgba(0, 0, 0, 0.38) 0px, rgba(0, 0, 0, 0.38) 1px,
+            rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 3px);
+    }
+    #stage.leaving.t-crt  #crt-band::before { animation: crtScanOut 0.30s linear both; }
+    #stage.entering.t-crt #crt-band::before { animation: crtScanIn  0.26s linear both; }
+
+    @keyframes crtScanOut {
+        0%   { opacity: 0.85; }
+        14%  { opacity: 0.6; }
+        22%  { opacity: 0; }
+        100% { opacity: 0; }
+    }
+    @keyframes crtScanIn {
+        0%   { opacity: 0; }
+        56%  { opacity: 0; }
+        70%  { opacity: 0.5; }
+        100% { opacity: 0; }
+    }
+    @keyframes crtBandOut {
+        0%   { opacity: 0;    transform: scaleY(1) scaleX(1); }
+        16%  { opacity: 0.6;  transform: scaleY(0.58) scaleX(1.03); }
+        32%  { opacity: 0.95; transform: scaleY(0.055) scaleX(1.06); border-radius: 4px; }
+        50%  { opacity: 0.9;  transform: scaleY(0.03) scaleX(1.0); border-radius: 3px; }
+        72%  { opacity: 0.92; transform: scaleY(0.026) scaleX(0.34); border-radius: 2px; }
+        88%  { opacity: 0.6;  transform: scaleY(0.024) scaleX(0.06); border-radius: 2px; }
+        100% { opacity: 0;    transform: scaleY(0.022) scaleX(0.02); }
+    }
+    @keyframes crtBandIn {
+        0%   { opacity: 0;   transform: scaleY(0.022) scaleX(0.02); }
+        22%  { opacity: 0.9; transform: scaleY(0.03) scaleX(0.42); }
+        40%  { opacity: 1;   transform: scaleY(0.05) scaleX(1.05); }
+        56%  { opacity: 0.7; transform: scaleY(0.30) scaleX(1.02); }
+        78%  { opacity: 0.2; transform: scaleY(0.88) scaleX(1); }
+        100% { opacity: 0;   transform: scaleY(1) scaleX(1); }
+    }
+
+    /* The beam. Thin, hot, and always the topmost thing during the pull-in -
+       drawing the collapsing (dark) panel over it turned the whole effect into
+       a dark bar with a halo instead of a bright line. */
+    #crt-line {
+        position: absolute;
+        left: 0; right: 0;
+        top: 50%;
+        height: 2px;
+        margin-top: -1px;
+        border-radius: 2px;
+        background: #fff;
+        /* Tight and white. The earlier wide blue spread washed a haze across the
+           whole panel width and was the single biggest reason the effect looked
+           artificial. */
+        box-shadow:
+            0 0 4px 0 rgba(255, 255, 255, 0.95),
+            0 0 12px 1px rgba(255, 255, 255, 0.5),
+            0 0 26px 4px rgba(236, 244, 255, 0.16);
+        opacity: 0;
+        pointer-events: none;
+        transform-origin: 50% 50%;
+        z-index: 3;
+    }
+    #stage.leaving.t-crt  #crt-line { animation: crtLineOut 0.30s linear both; }
+    #stage.entering.t-crt #crt-line { animation: crtLineIn  0.26s linear both; }
+
+    @keyframes crtLineOut {
+        0%   { opacity: 0; transform: scaleX(1) scaleY(0.5); }
+        26%  { opacity: 0; transform: scaleX(1.04) scaleY(0.7); }
+        /* The band has finished squashing - the beam is now the picture. */
+        34%  { opacity: 1; transform: scaleX(1.05) scaleY(1); }
+        52%  { opacity: 1; transform: scaleX(0.96) scaleY(1); }
+        /* Dragged inward, thickening as it goes: the same energy in less width
+           is what makes the point brighter than the line ever was. */
+        76%  { opacity: 1; transform: scaleX(0.24) scaleY(1.2); }
+        92%  { opacity: 1; transform: scaleX(0.055) scaleY(1.3); }
+        100% { opacity: 0; transform: scaleX(0.02) scaleY(1.3); }
+    }
+    @keyframes crtLineIn {
+        0%   { opacity: 0;   transform: scaleX(0.02) scaleY(1.3); }
+        10%  { opacity: 1;   transform: scaleX(0.06) scaleY(1.3); }
+        28%  { opacity: 1;   transform: scaleX(0.62) scaleY(1.3); }
+        44%  { opacity: 1;   transform: scaleX(1.05) scaleY(1); }
+        /* Out before the panel finishes opening. Held any longer it stops
+           reading as the sweep and starts reading as a stray line lying across
+           a finished panel. */
+        58%  { opacity: 0.3; transform: scaleX(1.02) scaleY(0.8); }
+        70%  { opacity: 0;   transform: scaleX(1) scaleY(0.6); }
+        100% { opacity: 0;   transform: scaleX(1) scaleY(0.5); }
+    }
+
+    /* The spark. A round phosphor bloom, deliberately warmer and wider than the
+       beam, that flares as the beam lands and then decays on its own. */
+    #crt-dot {
+        position: absolute;
+        left: 50%; top: 50%;
+        width: 42px; height: 42px;
+        margin: -21px 0 0 -21px;
+        border-radius: 50%;
+        z-index: 4;
+        opacity: 0;
+        pointer-events: none;
+        transform-origin: 50% 50%;
+        background: radial-gradient(circle,
+            rgba(255, 255, 255, 1) 0%,
+            rgba(255, 255, 255, 0.95) 14%,
+            rgba(255, 255, 255, 0.42) 28%,
+            rgba(240, 247, 255, 0.12) 48%,
+            rgba(226, 240, 255, 0) 70%);
+    }
+    @keyframes crtDotOut {
+        0%   { opacity: 0; transform: scale(0.08); }
+        /* Nothing until the beam has actually collapsed (0.30s of 0.34s). */
+        76%  { opacity: 0; transform: scale(0.12); }
+        81%  { opacity: 1; transform: scale(1.15); }
+        87%  { opacity: 1; transform: scale(0.66); }
+        /* The tail: a small, bright, shrinking point - not a fading blob. */
+        94%  { opacity: 0.55; transform: scale(0.30); }
+        100% { opacity: 0; transform: scale(0.14); }
+    }
+    @keyframes crtDotIn {
+        0%   { opacity: 1;   transform: scale(0.7); }
+        14%  { opacity: 0.8; transform: scale(0.34); }
+        34%  { opacity: 0;   transform: scale(0.16); }
+        100% { opacity: 0;   transform: scale(0.12); }
+    }
+
+    /* State reads on the container itself: a listening capsule lifts very
+       slightly and its rim brightens; an error one dims and pulls in. Subtle on
+       purpose — the animation inside is what carries the state. */
+    #stage.state-listening #capsule {
+        border-color: rgba(255, 255, 255, 0.17);
+        box-shadow:
+            0 40px 96px -22px rgba(0, 0, 0, 0.85),
+            0 12px 32px -10px rgba(0, 0, 0, 0.7),
+            0 0 46px -12px rgba(255, 255, 255, 0.12),
+            inset 0 1px 0 rgba(255, 255, 255, 0.14),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.45);
+    }
+    #stage.state-error #capsule { border-color: rgba(255, 255, 255, 0.07); }
+    #stage.state-success #capsule { border-color: rgba(255, 255, 255, 0.20); }
+
+    /* ── The visualization ── */
+    #viz-wrap {
+        position: relative;
+        width: 260px;
+        height: 194px;
+        margin: -4px auto 0;
+    }
+    #viz { display: block; width: 100%; height: 100%; }
+    #viz-wrap { transition: height var(--dur-4) var(--ease-emphasized); }
+    /* A little clearance under the shrunken form: a thrown particle can reach
+       the canvas edge, which sits directly on the label in this layout. */
+    #stage.has-help #viz-wrap { height: 92px; margin-bottom: 6px; }
+
+    /* ── Readout ── */
+    #readout {
+        margin-top: -6px;
+        text-align: center;
+        min-height: 42px;
+    }
+
+    #state-label {
+        font-size: 9.5px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.38);
+        transition: color var(--dur-3) var(--ease-out);
+        height: 12px;
+        line-height: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #stage.state-listening #state-label { color: rgba(255, 255, 255, 0.66); }
+    #stage.state-error #state-label { color: rgba(255, 255, 255, 0.5); }
+
+    #transcript {
+        margin-top: 5px;
+        font-size: 13.5px;
+        font-weight: 500;
+        line-height: 1.32;
+        color: #fff;
+        min-height: 18px;
+        /* Two lines maximum: the assistant confirms what it heard, it does not
+           print paragraphs. */
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        word-break: break-word;
+        transition: opacity var(--dur-2) var(--ease-out);
+    }
+    #transcript.provisional { color: rgba(255, 255, 255, 0.46); font-weight: 400; }
+    #transcript:empty { min-height: 0; }
+
+    /* ── Chips (confirmation + disambiguation) ── */
+    #chips {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 6px;
+        margin-top: 11px;
+    }
+    #chips:empty { display: none; }
+
+    .chip {
+        font: inherit;
+        font-size: 11.5px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.82);
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(255, 255, 255, 0.11);
+        border-radius: 999px;
+        padding: 5px 13px;
+        cursor: pointer;
+        transition: background var(--dur-2) var(--ease-out),
+                    border-color var(--dur-2) var(--ease-out),
+                    color var(--dur-2) var(--ease-out),
+                    transform var(--dur-1, 0.14s) var(--ease-out);
+    }
+    .chip:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.2); color: #fff; }
+    .chip:active { transform: scale(0.96); }
+    .chip:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.55); outline-offset: 2px; }
+    .chip.primary { background: rgba(255, 255, 255, 0.9); color: #0b0b0d; border-color: transparent; font-weight: 600; }
+    .chip.primary:hover { background: #fff; }
+
+    /* ── Typed fallback ──
+       Shown when no microphone is available, and reachable any time the capsule
+       has focus — the whole feature stays usable from the keyboard alone. */
+    #typed-row { margin-top: 11px; display: none; }
+    #typed-row.show { display: block; }
+    #typed {
+        width: 100%;
+        font: inherit;
+        font-size: 12.5px;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.055);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        padding: 8px 11px;
+        outline: none;
+        -webkit-user-select: text;
+        user-select: text;
+        cursor: text;
+        transition: border-color var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out);
+    }
+    #typed::placeholder { color: rgba(255, 255, 255, 0.3); }
+    #typed:focus { border-color: rgba(255, 255, 255, 0.34); background: rgba(255, 255, 255, 0.08); }
+
+    /* ── Help sheet ── */
+    #help {
+        display: none;
+        margin-top: 12px;
+        max-height: 216px;
+        overflow-y: auto;
+        text-align: left;
+        padding-right: 4px;
+    }
+    #help.show { display: block; }
+    #stage.has-help #help { max-height: 196px; }
+    #stage.has-help #readout { min-height: 0; }
+    #help::-webkit-scrollbar { width: 4px; }
+    #help::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 4px; }
+    .help-cat {
+        font-size: 8.5px;
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.3);
+        margin: 10px 0 4px;
+    }
+    .help-cat:first-child { margin-top: 0; }
+    .help-item {
+        font-size: 11.5px;
+        color: rgba(255, 255, 255, 0.74);
+        padding: 2.5px 0;
+        line-height: 1.3;
+    }
+    .help-item b { color: #fff; font-weight: 500; }
+
+    /* ── Hotkey hint ── */
+    #hint {
+        margin-top: 9px;
+        text-align: center;
+        font-size: 9.5px;
+        letter-spacing: 0.03em;
+        color: rgba(255, 255, 255, 0.26);
+        min-height: 12px;
+    }
+
+    /* ── Reduced motion ──
+       Honours the OS setting and the widget's own toggle. The capsule still
+       appears and the form still responds to the voice, but nothing spins,
+       nothing is thrown outward, and the entrance is a plain fade. */
+    #stage.reduced.entering #capsule,
+    #stage.reduced.leaving #capsule,
+    #stage.reduced #crt-line,
+    #stage.reduced #crt-band,
+    #stage.reduced #crt-dot { animation: none; opacity: 0; }
+    #stage.reduced.leaving #capsule { opacity: 0; }
+    #stage.reduced #capsule { transition: opacity var(--dur-3) var(--ease-out); }
+    @media (prefers-reduced-motion: reduce) {
+        #stage.entering #capsule, #stage.leaving #capsule { animation: none; }
+        #crt-line, #crt-band, #crt-dot { animation: none !important; opacity: 0 !important; }
+    }
+</style>
+</head>
+<body>
+    <div id="stage" class="state-hidden" aria-live="polite">
+        <div id="scaler">
+        <div id="crt-band"></div>
+        <div id="crt-line"></div>
+        <div id="crt-dot"></div>
+        <div id="capsule" role="dialog" aria-label="Voice assistant">
+            <div id="viz-wrap"><canvas id="viz"></canvas></div>
+            <div id="readout">
+                <div id="state-label">Ready</div>
+                <div id="transcript"></div>
+            </div>
+            <div id="chips"></div>
+            <div id="typed-row"><input id="typed" type="text" spellcheck="false" autocomplete="off"
+                placeholder="Type a command…" aria-label="Type a command"></div>
+            <div id="help"></div>
+            <div id="hint"></div>
+        </div>
+        </div>
+    </div>
+
+<script>
+'use strict';
+(function () {
+    const api = window.voiceOverlay;
+    const stage = document.getElementById('stage');
+    const capsule = document.getElementById('capsule');
+    const canvas = document.getElementById('viz');
+    const labelEl = document.getElementById('state-label');
+    const transcriptEl = document.getElementById('transcript');
+    const chipsEl = document.getElementById('chips');
+    const typedRow = document.getElementById('typed-row');
+    const typedEl = document.getElementById('typed');
+    const helpEl = document.getElementById('help');
+    const hintEl = document.getElementById('hint');
+
+    const TAU = Math.PI * 2;
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  VISUALIZATION
+    //
+    //  A radial energy form, not a waveform and not a circle. Four closed paths
+    //  whose radius is modulated by a sum of harmonics, each harmonic driven by
+    //  a different frequency band of the live microphone signal — so the shape
+    //  genuinely morphs with the voice instead of scaling with a single
+    //  loudness number. Around them: a drifting particle field that gets pushed
+    //  outward by transients, a soft core whose brightness tracks energy, and
+    //  expanding pulse rings for the speaking and success states.
+    //
+    //  Every visual quantity is a spring-smoothed parameter. States set TARGETS
+    //  only; the render loop eases the current values toward them with a
+    //  per-parameter time constant. That is what makes state changes read as
+    //  transitions rather than cuts, with no per-transition animation code.
+    // ══════════════════════════════════════════════════════════════════════
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+    let dpr = 1;
+    let cw = 0;
+    let ch = 0;
+
+    function resizeCanvas() {
+        dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+        // clientWidth/Height, NOT getBoundingClientRect(): the rect includes CSS
+        // transforms, and the exit animations scale the capsule down to a sliver
+        // (the CRT collapse reaches scaleY(0.014)). A resize observed during one
+        // read the collapsed rect and rebuilt the backing store at 78x3, so every
+        // frame afterwards drew into a 3-pixel-tall buffer and the form vanished
+        // for good. Layout size is immune to transforms.
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        // Mid-animation or not laid out yet: keep the buffer we have rather than
+        // replacing it with a degenerate one.
+        if (w < 8 || h < 8) return;
+        cw = w;
+        ch = h;
+        canvas.width = Math.round(cw * dpr);
+        canvas.height = Math.round(ch * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // Ring definitions. Different harmonic sets and counter-rotating speeds per
+    // ring are what stop the form looking like one shape with a thick outline —
+    // the layers slide against each other.
+    const RINGS = [
+        { base: 0.40, width: 1.7, alpha: 1.00, harm: [3, 5, 7], spd: [0.85, -0.62, 1.30], phase: 0.0 },
+        { base: 0.55, width: 1.30, alpha: 0.70, harm: [2, 4, 6], spd: [-0.70, 1.05, -0.90], phase: 1.1 },
+        { base: 0.70, width: 1.05, alpha: 0.44, harm: [3, 6, 9], spd: [0.58, -1.00, 0.72], phase: 2.3 },
+        { base: 0.85, width: 0.85, alpha: 0.24, harm: [2, 5, 8], spd: [-0.48, 0.80, -1.18], phase: 3.4 }
+    ];
+    const RING_STEPS = 132;
+
+    // Live parameters and their targets. `tau` is the smoothing time constant in
+    // seconds — small is snappy, large is languid.
+    const PARAMS = {
+        energy: { v: 0, t: 0, tau: 0.10 },   // drives harmonic amplitude
+        spin:   { v: 0, t: 0, tau: 0.55 },   // rotation rate
+        spread: { v: 0.74, t: 0.74, tau: 0.34 },
+        glow:   { v: 0, t: 0, tau: 0.28 },
+        chaos:  { v: 0.3, t: 0.3, tau: 0.40 },  // harmonic depth vs a true circle
+        arc:    { v: 0, t: 0, tau: 0.30 },   // 0 = closed rings, 1 = sweeping arcs
+        alpha:  { v: 0, t: 0, tau: 0.22 },
+        shear:  { v: 0, t: 0, tau: 0.16 }    // error-state horizontal compression
+    };
+
+    // Per-state targets. This table IS the visual state machine.
+    const STATE_VISUALS = {
+        hidden:     { energy: 0,    spin: 0.05, spread: 0.70, glow: 0,    chaos: 0.20, arc: 0, alpha: 0,    shear: 0 },
+        idle:       { energy: 0.13, spin: 0.10, spread: 0.78, glow: 0.34, chaos: 0.34, arc: 0, alpha: 0.85, shear: 0 },
+        listening:  { energy: 0.30, spin: 0.26, spread: 0.95, glow: 0.80, chaos: 1.00, arc: 0, alpha: 1,    shear: 0 },
+        processing: { energy: 0.46, spin: 1.45, spread: 0.84, glow: 0.62, chaos: 0.16, arc: 1, alpha: 1,    shear: 0 },
+        confirming: { energy: 0.24, spin: 0.20, spread: 0.90, glow: 0.70, chaos: 0.70, arc: 0, alpha: 1,    shear: 0 },
+        speaking:   { energy: 0.40, spin: 0.34, spread: 1.00, glow: 0.95, chaos: 0.58, arc: 0, alpha: 1,    shear: 0 },
+        success:    { energy: 0.22, spin: 0.14, spread: 1.05, glow: 1.00, chaos: 0.03, arc: 0, alpha: 1,    shear: 0 },
+        error:      { energy: 0.16, spin: 0.04, spread: 0.71, glow: 0.28, chaos: 0.10, arc: 0, alpha: 0.9,  shear: 1 }
+    };
+
+    // Four frequency bands, smoothed. Voice energy lives roughly 100 Hz–4 kHz,
+    // so the bins are weighted toward that rather than spread evenly.
+    const bands = [0, 0, 0, 0];
+    let level = 0;          // 0..1 overall, from RMS
+    let levelSmooth = 0;
+    let transient = 0;      // short-lived spike used to kick the particles
+
+    const particles = [];
+    const PARTICLE_COUNT = 46;
+    function seedParticles() {
+        particles.length = 0;
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            particles.push({
+                ang: Math.random() * TAU,
+                rad: 0.45 + Math.random() * 0.55,
+                base: 0.45 + Math.random() * 0.55,
+                vr: 0,
+                va: (Math.random() * 2 - 1) * 0.35,
+                size: 0.5 + Math.random() * 1.15,
+                twinkle: Math.random() * TAU
+            });
+        }
+    }
+    seedParticles();
+
+    const pulses = [];      // expanding rings: speaking rhythm + the success beat
+    let pulseClock = 0;
+
+    let reduced = false;
+    let rafId = null;
+    let lastFrame = 0;
+    let clock = 0;
+    let visualState = 'hidden';
+
+    function setVisualState(next) {
+        if (!STATE_VISUALS[next]) return;
+        visualState = next;
+        const target = STATE_VISUALS[next];
+        for (const key of Object.keys(PARAMS)) {
+            if (target[key] !== undefined) PARAMS[key].t = target[key];
+        }
+        if (next === 'success') {
+            // One clean beat outward — the whole confirmation, no text needed.
+            pulses.push({ r: 0.30, alpha: 0.95, speed: 1.5, width: 2.0 });
+        }
+        if (next === 'error') {
+            for (const p of particles) { p.vr -= 0.35 + Math.random() * 0.3; }
+        }
+        if (next === 'listening') {
+            for (const p of particles) { p.vr += (Math.random() * 0.25); }
+        }
+    }
+
+    // Exponential approach — frame-rate independent, unlike a fixed lerp factor.
+    function approach(param, dt) {
+        const k = 1 - Math.exp(-dt / Math.max(0.0001, param.tau));
+        param.v += (param.t - param.v) * k;
+    }
+
+    function drawRing(ring, R, cx, cy, p) {
+        // Two independent shape sources, which is what stops the form collapsing
+        // into concentric circles when nobody is speaking:
+        //
+        //   FLOW  — always present. Slow counter-rotating lobes give every ring a
+        //           living, liquid outline even in silence. Scaled by `chaos`, so
+        //           the success state (chaos ~0) can still snap to a true circle
+        //           as its confirmation gesture.
+        //   VOICE — the four frequency bands, layered on top. This is the part
+        //           that makes the shape genuinely track the voice rather than
+        //           just scale with loudness.
+        const flowAmp = 0.055 + p.chaos * 0.075;
+        const voiceAmp = p.chaos * (0.04 + p.energy * 0.46);
+        const sweep = p.arc > 0.001 ? (TAU - (TAU - 1.15) * p.arc) : TAU;
+        const start = p.arc > 0.001 ? clock * (1.4 + ring.base * 2.2) * p.spin : 0;
+        const steps = Math.max(24, Math.round(RING_STEPS * (sweep / TAU)));
+
+        ctx.beginPath();
+        for (let i = 0; i <= steps; i++) {
+            const th = start + (i / steps) * sweep;
+            let voice = 0;
+            for (let h = 0; h < ring.harm.length; h++) {
+                voice += bands[h] * Math.sin(ring.harm[h] * th + ring.spd[h] * clock * (0.6 + p.spin) + ring.phase);
+            }
+            const flow =
+                0.62 * Math.sin(ring.harm[0] * th + clock * 0.43 + ring.phase) +
+                0.38 * Math.sin(ring.harm[1] * th - clock * 0.29 + ring.phase * 1.7) +
+                0.22 * Math.sin(clock * 0.85 + ring.phase);
+            const rr = R * ring.base * p.spread * (1 + flowAmp * flow + voiceAmp * voice);
+            // `shear` squeezes the form horizontally for the error state — it
+            // reads as the shape flinching rather than as a colour change.
+            const x = cx + Math.cos(th) * rr * (1 - 0.22 * p.shear);
+            const y = cy + Math.sin(th) * rr * (1 + 0.05 * p.shear);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        if (p.arc <= 0.001) ctx.closePath();
+
+        const a = ring.alpha * p.alpha;
+        // Two passes make the glow: a wide soft halo, then a crisp core stroke.
+        // Cheaper and cleaner than shadowBlur, which would cost a full-canvas
+        // blur every frame per ring.
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(' + accent + ',' + (a * 0.085 * (0.4 + p.glow)).toFixed(4) + ')';
+        ctx.lineWidth = ring.width * 4.0;
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(' + accent + ',' + (a * (0.34 + p.glow * 0.66)).toFixed(4) + ')';
+        ctx.lineWidth = ring.width;
+        ctx.stroke();
+    }
+
+    // ── Bars ──
+    // A radial equaliser: spokes around the centre, each driven by its own slice
+    // of the spectrum and mirrored across the vertical axis so the form stays
+    // symmetrical the way a voice feels symmetrical.
+    const BAR_COUNT = 44;
+    function drawBars(R, cx, cy, p) {
+        const inner = R * 0.30 * p.spread;
+        const reach = R * 0.62 * p.spread;
+        const half = BAR_COUNT / 2;
+        ctx.lineCap = 'round';
+        for (let i = 0; i < BAR_COUNT; i++) {
+            // Mirror: bar i and its opposite share a band, so the shape is even.
+            const mirrored = i < half ? i : BAR_COUNT - 1 - i;
+            const t = mirrored / half;
+            // Weight the low bands wider — that is where speech energy lives.
+            const band = bands[Math.min(3, Math.floor(t * 4))];
+            const wobble = 0.5 + 0.5 * Math.sin(clock * (1.6 + t * 2.2) + i * 0.7);
+            const amount = Math.min(1, (band * 0.85 + p.energy * 0.5) * (0.45 + wobble * 0.55));
+            // A generous resting length: at 0.12 the form nearly vanished in a quiet
+            // room, which read as broken rather than calm.
+            const len = reach * (0.30 + amount * 0.70);
+            const th = (i / BAR_COUNT) * TAU + clock * 0.25 * p.spin;
+            const x0 = cx + Math.cos(th) * inner * (1 - 0.22 * p.shear);
+            const y0 = cy + Math.sin(th) * inner;
+            const x1 = cx + Math.cos(th) * (inner + len) * (1 - 0.22 * p.shear);
+            const y1 = cy + Math.sin(th) * (inner + len);
+            const a = p.alpha * (0.20 + p.glow * 0.62) * (0.35 + amount * 0.65);
+            ctx.strokeStyle = 'rgba(' + accent + ',' + a.toFixed(4) + ')';
+            ctx.lineWidth = 2.1;
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x1, y1);
+            ctx.stroke();
+        }
+        // A hairline ring ties the spokes together into one object.
+        ctx.beginPath();
+        ctx.arc(cx, cy, inner, 0, TAU);
+        ctx.strokeStyle = 'rgba(' + accent + ',' + (p.alpha * (0.10 + p.glow * 0.22)).toFixed(4) + ')';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
+
+    // ── Pulse ──
+    // The quiet one: a single breathing ring and a steady procession of rings
+    // travelling outward. Nothing spins, nothing scatters.
+    function drawPulse(R, cx, cy, p) {
+        const base = R * 0.34 * p.spread * (1 + p.energy * 0.35);
+        ctx.lineCap = 'round';
+        for (let k = 0; k < 3; k++) {
+            // Three rings at even phase offsets, each fading as it travels out.
+            const phase = ((clock * 0.42) + k / 3) % 1;
+            const rr = base + (R * 0.62 * p.spread - base) * phase;
+            const fade = (1 - phase) * (1 - phase);
+            const a = p.alpha * (0.10 + p.glow * 0.55) * fade;
+            if (a <= 0.004) continue;
+            ctx.beginPath();
+            ctx.arc(cx, cy, Math.max(1, rr) * (1 - 0.18 * p.shear), 0, TAU);
+            ctx.strokeStyle = 'rgba(' + accent + ',' + a.toFixed(4) + ')';
+            ctx.lineWidth = 1.6 * (0.4 + fade);
+            ctx.stroke();
+        }
+        // The breathing core ring, which is what actually tracks the voice.
+        const live = base * (1 + p.energy * 0.22 + 0.02 * Math.sin(clock * 1.4));
+        ctx.beginPath();
+        ctx.arc(cx, cy, Math.max(1, live) * (1 - 0.18 * p.shear), 0, TAU);
+        ctx.strokeStyle = 'rgba(' + accent + ',' + (p.alpha * (0.34 + p.glow * 0.6)).toFixed(4) + ')';
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+    }
+
+    // ── Palette ──
+    // Ribbons and Prism are multi-coloured by nature, so painting them in a
+    // single accent would flatten the whole point of them. Instead the accent
+    // sets the FAMILY: its hue becomes the centre of a small spread, so a blue
+    // theme gives blues through teal and violet rather than one flat blue.
+    //
+    // An accent with no real hue (white, the default, or any grey) paints them
+    // FLAT in that accent instead: on the Monochrome background the whole form
+    // is white, matching every other style. The blades keep their shape because
+    // they are separate lens forms drawn additively — where they cross, the
+    // white blooms brighter, which is the entire read of the style.
+    function rgbToHsl(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const l = (max + min) / 2;
+        if (max === min) return { h: 0, s: 0, l: l };
+        const d = max - min;
+        const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        let h;
+        if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+        else if (max === g) h = ((b - r) / d + 2) / 6;
+        else h = ((r - g) / d + 4) / 6;
+        return { h: h, s: s, l: l };
+    }
+
+    function hueToRgbChannel(p, q, t) {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+    }
+
+    function hslToRgbStr(h, sat, l) {
+        if (sat === 0) {
+            const v = Math.round(l * 255);
+            return v + ',' + v + ',' + v;
+        }
+        const q = l < 0.5 ? l * (1 + sat) : l + sat - l * sat;
+        const p = 2 * l - q;
+        const r = Math.round(hueToRgbChannel(p, q, h + 1 / 3) * 255);
+        const g = Math.round(hueToRgbChannel(p, q, h) * 255);
+        const b = Math.round(hueToRgbChannel(p, q, h - 1 / 3) * 255);
+        return r + ',' + g + ',' + b;
+    }
+
+    // Recomputed only when the accent actually changes — this runs per frame.
+    let paletteCache = null;
+    let paletteAccent = null;
+
+    function themedPalette(defaults) {
+        if (paletteAccent === accent && paletteCache) return paletteCache;
+        const parts = accent.split(',').map(Number);
+        const hsl = rgbToHsl(parts[0] || 0, parts[1] || 0, parts[2] || 0);
+        // Below this there is no hue worth spreading, so the bands take the
+        // accent itself. They cannot all be the SAME white, though: Prism's
+        // lobes are soft additive blobs that fuse into one featureless disc
+        // when they match exactly. So the hue spread becomes a TONE spread —
+        // an irregular ramp, so neighbouring bands never share a value — and
+        // the form still reads. Lightness is floored so a dark custom grey
+        // still comes out as light rather than as a smudge.
+        if (hsl.s < 0.12) {
+            const base = Math.max(0.72, hsl.l);
+            const ramp = [1, 0.70, 0.88, 0.58, 0.80];
+            paletteCache = defaults.map(function (_, i) {
+                return hslToRgbStr(0, 0, base * ramp[i % ramp.length]);
+            });
+        } else {
+            const spread = [-0.11, -0.055, 0, 0.055, 0.11];
+            const sat = Math.min(1, Math.max(0.55, hsl.s));
+            paletteCache = defaults.map((_, i) => {
+                const off = spread[i % spread.length];
+                const light = 0.56 + (i % 2 ? 0.07 : -0.05);
+                return hslToRgbStr(((hsl.h + off) % 1 + 1) % 1, sat, light);
+            });
+        }
+        paletteAccent = accent;
+        return paletteCache;
+    }
+
+    // ── Ribbons ──
+    // Long lens-shaped blades of light that cross near the centre, the way the
+    // bands inside a voice orb do: each is pointed at both ends, fattest in the
+    // middle, and drawn additively so where two overlap the colour blooms toward
+    // white. The crossing point is the brightest thing on screen.
+    //
+    // Only the blades are drawn — deliberately no solid sphere behind them. The
+    // panel is already a dark object; filling a disc inside it would read as a
+    // sticker rather than as light.
+    //
+    // Ribbons and Prism spread colour around the accent's hue; with an
+    // achromatic accent they go flat white like every other style.
+    const BLADES = [
+        { hue: '255,45,140', band: 0, angle: 0.00, spin: 0.16, len: 0.98, wide: 0.40, bow: 0.24 },
+        { hue: '175,82,222', band: 1, angle: 1.15, spin: -0.13, len: 0.90, wide: 0.36, bow: -0.28 },
+        { hue: '0,132,255',  band: 2, angle: 2.05, spin: 0.11, len: 0.96, wide: 0.38, bow: 0.18 },
+        { hue: '40,220,200', band: 3, angle: 3.05, spin: -0.18, len: 0.86, wide: 0.34, bow: -0.22 },
+        { hue: '120,90,255', band: 1, angle: 4.20, spin: 0.09, len: 0.80, wide: 0.30, bow: 0.30 }
+    ];
+
+    // One blade: a closed lens built from two quadratic curves between its tips,
+    // bowed slightly so it curves like a ribbon caught in motion.
+    function bladePath(cx, cy, th, half, width, bow) {
+        const dx = Math.cos(th), dy = Math.sin(th);
+        const nx = -dy, ny = dx;                     // unit normal
+        const ax = cx - dx * half, ay = cy - dy * half;   // tip A
+        const bx = cx + dx * half, by = cy + dy * half;   // tip B
+        // Control points sit off to each side at the midpoint, offset along the
+        // blade by `bow` so the two edges are not mirror images — that asymmetry
+        // is what stops it looking like a plain ellipse.
+        const mx = cx + dx * half * bow, my = cy + dy * half * bow;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.quadraticCurveTo(mx + nx * width, my + ny * width, bx, by);
+        ctx.quadraticCurveTo(mx - nx * width * 0.82, my - ny * width * 0.82, ax, ay);
+        ctx.closePath();
+    }
+
+    const BLADE_HUES = BLADES.map((b) => b.hue);
+
+    function drawRibbons(R, cx, cy, p) {
+        const hues = themedPalette(BLADE_HUES);
+        for (let bi = 0; bi < BLADES.length; bi++) {
+            const b = BLADES[bi];
+            const hue = hues[bi];
+            const energy = Math.min(1, bands[b.band] * 0.95 + p.energy * 0.5);
+            const th = b.angle + clock * b.spin * (0.6 + p.spin * 1.2);
+            const half = R * b.len * p.spread * (0.72 + energy * 0.42);
+            const width = R * b.wide * p.spread * (0.5 + energy * 0.7);
+            const a = p.alpha * (0.80 + p.glow * 0.75) * (0.55 + energy * 0.45);
+            if (a <= 0.005 || half < 1) continue;
+
+            // Bright along the middle, vanishing at both tips.
+            const g = ctx.createLinearGradient(
+                cx - Math.cos(th) * half, cy - Math.sin(th) * half,
+                cx + Math.cos(th) * half, cy + Math.sin(th) * half);
+            g.addColorStop(0, 'rgba(' + hue + ',0)');
+            g.addColorStop(0.30, 'rgba(' + hue + ',' + (a * 0.70).toFixed(4) + ')');
+            g.addColorStop(0.50, 'rgba(' + hue + ',' + a.toFixed(4) + ')');
+            g.addColorStop(0.70, 'rgba(' + hue + ',' + (a * 0.70).toFixed(4) + ')');
+            g.addColorStop(1, 'rgba(' + hue + ',0)');
+
+            // Softness by layering, NOT ctx.filter. A canvas blur combined with
+            // 'lighter' compositing dropped the entire draw on some frames — the
+            // intermittent blank orb — so this builds the same glow the way the
+            // rings do: a few passes, widening and fading outward.
+            ctx.fillStyle = g;
+            for (let pass = 0; pass < 3; pass++) {
+                const spread = 1 + pass * 0.26;          // each pass a little fatter
+                ctx.globalAlpha = pass === 0 ? 1 : (0.34 / pass);
+                bladePath(cx, cy, th, half * (1 + pass * 0.05), width * spread, b.bow);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // The crossing point. Every blade passes through the middle, so additive
+        // blending already piles light up here — this just finishes it off into a
+        // clean white star rather than a muddy overlap.
+        const hot = Math.max(1, R * 0.30 * p.spread * (0.6 + p.energy * 0.5));
+        const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, hot);
+        const ca = p.alpha * (0.45 + p.glow * 0.65);
+        core.addColorStop(0, 'rgba(255,255,255,' + ca.toFixed(4) + ')');
+        core.addColorStop(0.35, 'rgba(255,255,255,' + (ca * 0.42).toFixed(4) + ')');
+        core.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.arc(cx, cy, hot, 0, TAU);
+        ctx.fill();
+    }
+
+    // ── Prism ──
+    // Coloured lobes orbiting a common centre, drawn additively so their
+    // overlaps bloom into new hues, clipped to a circle so the whole reads as
+    // one soft object. Each lobe follows its own frequency band, so the colour
+    // mix genuinely shifts with the voice rather than merely brightening.
+    const PRISM_LOBES = [
+        { hue: '255,45,85',   band: 0, orbit: 0.26, speed: 0.55, phase: 0.0,  size: 0.74 },
+        { hue: '88,86,214',   band: 1, orbit: 0.30, speed: -0.42, phase: 1.6, size: 0.70 },
+        { hue: '0,122,255',   band: 2, orbit: 0.24, speed: 0.68, phase: 3.1,  size: 0.78 },
+        { hue: '90,200,250',  band: 3, orbit: 0.28, speed: -0.60, phase: 4.4, size: 0.64 },
+        { hue: '255,149,0',   band: 1, orbit: 0.19, speed: 0.36, phase: 5.6,  size: 0.54 }
+    ];
+
+    const PRISM_HUES = PRISM_LOBES.map((l) => l.hue);
+
+    function drawPrism(R, cx, cy, p) {
+        const bound = R * 0.92 * p.spread;
+        ctx.save();
+        // One circular mask keeps the lobes reading as a single orb.
+        ctx.beginPath();
+        ctx.arc(cx, cy, bound, 0, TAU);
+        ctx.clip();
+
+        const hues = themedPalette(PRISM_HUES);
+        for (let li = 0; li < PRISM_LOBES.length; li++) {
+            const lobe = PRISM_LOBES[li];
+            const hue = hues[li];
+            const energy = Math.min(1, bands[lobe.band] * 0.9 + p.energy * 0.45);
+            const wobble = 0.5 + 0.5 * Math.sin(clock * lobe.speed * 1.7 + lobe.phase);
+            const dist = R * lobe.orbit * p.spread * (0.55 + wobble * 0.45 + energy * 0.22);
+            const th = clock * lobe.speed * (0.5 + p.spin * 0.8) + lobe.phase;
+            const lx = cx + Math.cos(th) * dist * (1 - 0.22 * p.shear);
+            const ly = cy + Math.sin(th) * dist;
+            const rad = Math.max(2, R * lobe.size * p.spread * (0.6 + energy * 0.5));
+
+            const a = p.alpha * (0.66 + p.glow * 0.52) * (0.66 + energy * 0.34);
+            const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, rad);
+            g.addColorStop(0, 'rgba(' + hue + ',' + a.toFixed(4) + ')');
+            g.addColorStop(0.42, 'rgba(' + hue + ',' + (a * 0.55).toFixed(4) + ')');
+            g.addColorStop(1, 'rgba(' + hue + ',0)');
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(lx, ly, rad, 0, TAU);
+            ctx.fill();
+        }
+
+        // A white centre keeps it feeling lit from within rather than muddy.
+        const coreR = Math.max(1, R * 0.20 * p.spread * (1 + p.energy * 0.3));
+        const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR);
+        const ca = p.alpha * (0.18 + p.glow * 0.40);
+        core.addColorStop(0, 'rgba(' + accent + ',' + ca.toFixed(4) + ')');
+        core.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.arc(cx, cy, coreR, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+        // Deliberately no outline: an earlier rim sat outside the colour and read
+        // as a stray circle floating around the orb rather than its edge.
+    }
+
+    function render(now) {
+        rafId = requestAnimationFrame(render);
+        if (!lastFrame) lastFrame = now;
+        // Clamp dt so a background tab or a stalled frame can't teleport the
+        // animation forward on the next tick.
+        const dt = Math.min(0.05, (now - lastFrame) / 1000);
+        lastFrame = now;
+        clock += dt;
+
+        // Sample the microphone first: it retargets energy/glow for this frame,
+        // and the spring pass below is what actually moves toward those targets.
+        sampleAudio(dt);
+        for (const key of Object.keys(PARAMS)) approach(PARAMS[key], dt);
+        const p = {
+            energy: PARAMS.energy.v, spin: PARAMS.spin.v, spread: PARAMS.spread.v,
+            glow: PARAMS.glow.v, chaos: PARAMS.chaos.v, arc: PARAMS.arc.v,
+            alpha: PARAMS.alpha.v, shear: PARAMS.shear.v
+        };
+
+        transient = Math.max(0, transient - dt * 3.5);
+
+        ctx.clearRect(0, 0, cw, ch);
+        if (p.alpha < 0.003) {
+            // Fully faded out: stop the loop entirely rather than burning frames
+            // on an invisible canvas.
+            if (visualState === 'hidden') stopLoop();
+            return;
+        }
+
+        const cx = cw / 2;
+        const cy = ch / 2;
+        // 0.5 would let the outer ring and its glow pass touch the capsule rim.
+        // 0.44 leaves the form visibly inset, which is what makes it read as an
+        // object sitting in the panel rather than straining against it.
+        const R = Math.min(cw, ch) * 0.44;
+
+        ctx.globalCompositeOperation = 'lighter';
+
+        // ── Core ──
+        // The prism orb supplies its own light from its coloured lobes; the white
+        // nucleus would wash them out into a grey blur.
+        const wantCore = vizStyle !== 'prism' && vizStyle !== 'ribbons';
+        // Built as an actual light source, in two passes. A single mid-alpha
+        // gradient (the first attempt) read as a murky grey sphere against the
+        // near-black panel — the eye needs a genuinely hot centre and a wide,
+        // very faint atmosphere around it to accept something as emitting light.
+        const haloR = Math.max(1, R * (0.50 + p.energy * 0.34) * p.spread);
+        const haloA = p.alpha * (0.04 + p.glow * 0.15);
+        const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
+        halo.addColorStop(0, 'rgba(' + accent + ',' + haloA.toFixed(4) + ')');
+        halo.addColorStop(0.55, 'rgba(' + accent + ',' + (haloA * 0.42).toFixed(4) + ')');
+        halo.addColorStop(1, 'rgba(255,255,255,0)');
+        if (wantCore) {
+            ctx.fillStyle = halo;
+            ctx.beginPath();
+            ctx.arc(cx, cy, haloR, 0, TAU);
+            ctx.fill();
+        }
+
+        const nucR = Math.max(1, R * (0.36 + p.energy * 0.13) * p.spread);
+        const nucA = p.alpha * Math.min(1, 0.22 + p.glow * 0.82);
+        const nucleus = ctx.createRadialGradient(cx, cy, 0, cx, cy, nucR);
+        nucleus.addColorStop(0, 'rgba(' + accent + ',' + nucA.toFixed(4) + ')');
+        nucleus.addColorStop(0.18, 'rgba(' + accent + ',' + (nucA * 0.72).toFixed(4) + ')');
+        nucleus.addColorStop(0.52, 'rgba(' + accent + ',' + (nucA * 0.26).toFixed(4) + ')');
+        nucleus.addColorStop(1, 'rgba(255,255,255,0)');
+        if (wantCore) {
+            ctx.fillStyle = nucleus;
+            ctx.beginPath();
+            ctx.arc(cx, cy, nucR, 0, TAU);
+            ctx.fill();
+        }
+
+        // ── Pulses ──
+        for (let i = pulses.length - 1; i >= 0; i--) {
+            const pu = pulses[i];
+            pu.r += dt * pu.speed;
+            pu.alpha -= dt * pu.speed * 0.92;
+            if (pu.alpha <= 0 || pu.r > 1.5) { pulses.splice(i, 1); continue; }
+            ctx.beginPath();
+            ctx.arc(cx, cy, R * pu.r * p.spread, 0, TAU);
+            ctx.strokeStyle = 'rgba(' + accent + ',' + (pu.alpha * p.alpha * 0.5).toFixed(4) + ')';
+            ctx.lineWidth = pu.width;
+            ctx.stroke();
+        }
+        // While speaking, emit a steady outward beat — the visual equivalent of
+        // a voice, and clearly distinct from the inward-facing listening state.
+        if (visualState === 'speaking' && !reduced) {
+            pulseClock += dt;
+            if (pulseClock > 0.42) {
+                pulseClock = 0;
+                pulses.push({ r: 0.26, alpha: 0.55, speed: 1.05, width: 1.3 });
+            }
+        } else {
+            pulseClock = 0;
+        }
+
+        // ── Centrepiece ──
+        // Three genuinely different forms over the same driving parameters, so a
+        // style change is a look change and not a different feature.
+        if (vizStyle === 'bars') drawBars(R, cx, cy, p);
+        else if (vizStyle === 'pulse') drawPulse(R, cx, cy, p);
+        else if (vizStyle === 'prism') drawPrism(R, cx, cy, p);
+        else if (vizStyle === 'ribbons') drawRibbons(R, cx, cy, p);
+        else for (const ring of RINGS) drawRing(ring, R, cx, cy, p);
+
+        // ── Particles ──
+        // Aurora only: they are that form's atmosphere, and they would clutter
+        // the deliberately spare pulse and bar styles.
+        if (!reduced && vizStyle === 'aurora') {
+            for (const pt of particles) {
+                pt.ang += pt.va * dt * (0.25 + p.spin * 1.4);
+                pt.vr += (pt.base - pt.rad) * dt * 3.2;      // spring back to orbit
+                pt.vr += transient * (0.5 + Math.random() * 0.9) * dt * 9;
+                pt.vr *= Math.pow(0.06, dt);                  // damping
+                pt.rad += pt.vr * dt;
+                if (pt.rad < 0.12) { pt.rad = 0.12; pt.vr = Math.abs(pt.vr) * 0.4; }
+                // Hard ceiling: a strong transient could otherwise throw a mote clear
+                // of the canvas and onto the readout underneath it.
+                if (pt.rad > 1.06) { pt.rad = 1.06; pt.vr = -Math.abs(pt.vr) * 0.35; }
+                pt.twinkle += dt * 2.2;
+
+                const rr = R * pt.rad * p.spread * (1 + p.energy * 0.30);
+                const x = cx + Math.cos(pt.ang) * rr * (1 - 0.22 * p.shear);
+                const y = cy + Math.sin(pt.ang) * rr;
+                const fade = Math.max(0, 1 - Math.abs(pt.rad - pt.base) * 0.9);
+                const a = p.alpha * (0.14 + p.glow * 0.42) * fade * (0.55 + 0.45 * Math.sin(pt.twinkle));
+                if (a <= 0.004) continue;
+                ctx.fillStyle = 'rgba(' + accent + ',' + a.toFixed(4) + ')';
+                ctx.beginPath();
+                ctx.arc(x, y, pt.size, 0, TAU);
+                ctx.fill();
+            }
+        }
+
+        ctx.globalCompositeOperation = 'source-over';
+    }
+
+    function startLoop() {
+        if (rafId !== null) return;
+        lastFrame = 0;
+        rafId = requestAnimationFrame(render);
+    }
+    function stopLoop() {
+        if (rafId === null) return;
+        cancelAnimationFrame(rafId);
+        rafId = null;
+        ctx.clearRect(0, 0, cw, ch);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  MICROPHONE (for the visualisation only)
+    //
+    //  Recognition happens in the main process's speech host; this stream exists
+    //  purely so the form reacts to the real voice at 60fps rather than to the
+    //  host's ~7 Hz level events. Verified on this machine that a second
+    //  concurrent capture of the same device succeeds, so the two never contend.
+    //
+    //  It is opened when listening starts and closed the moment listening ends —
+    //  see releaseMic(). Nothing keeps it alive across states.
+    // ══════════════════════════════════════════════════════════════════════
+    let audio = { stream: null, context: null, analyser: null, freq: null, time: null, starting: false };
+    let micUnsupported = false;   // latched after a hard failure: never re-ask
+    let hostLevel = 0;            // fallback level from the recognizer host
+
+    async function acquireMic() {
+        if (audio.analyser || audio.starting || micUnsupported) return !!audio.analyser;
+        audio.starting = true;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true }
+            });
+            const AC = window.AudioContext || window.webkitAudioContext;
+            const context = new AC();
+            const analyser = context.createAnalyser();
+            analyser.fftSize = 1024;
+            analyser.smoothingTimeConstant = 0.62;
+            context.createMediaStreamSource(stream).connect(analyser);
+            audio.stream = stream;
+            audio.context = context;
+            audio.analyser = analyser;
+            audio.freq = new Uint8Array(analyser.frequencyBinCount);
+            audio.time = new Uint8Array(analyser.fftSize);
+            audio.starting = false;
+            if (api) api.micState('ok', '');
+            return true;
+        } catch (e) {
+            audio.starting = false;
+            // A denied or missing microphone is permanent for this session —
+            // latch it so the overlay never re-prompts on every activation.
+            micUnsupported = true;
+            const kind = (e && e.name === 'NotAllowedError') ? 'denied'
+                : (e && e.name === 'NotFoundError') ? 'missing' : 'error';
+            if (api) api.micState(kind, (e && e.message) ? String(e.message).slice(0, 160) : '');
+            return false;
+        }
+    }
+
+    function releaseMic() {
+        if (audio.stream) {
+            try { audio.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* already gone */ }
+        }
+        if (audio.context) {
+            try { audio.context.close(); } catch (e) { /* already closed */ }
+        }
+        audio = { stream: null, context: null, analyser: null, freq: null, time: null, starting: false };
+        for (let i = 0; i < bands.length; i++) bands[i] = 0;
+        level = 0;
+        levelSmooth = 0;
+    }
+
+    // Averages a bin range, normalised 0..1.
+    function bandAverage(data, from, to) {
+        let sum = 0;
+        const a = Math.max(0, from);
+        const b = Math.min(data.length, to);
+        if (b <= a) return 0;
+        for (let i = a; i < b; i++) sum += data[i];
+        return (sum / (b - a)) / 255;
+    }
+
+    function sampleAudio(dt) {
+        const listening = visualState === 'listening' || visualState === 'confirming';
+        if (!listening) return;
+
+        if (audio.analyser) {
+            audio.analyser.getByteFrequencyData(audio.freq);
+            audio.analyser.getByteTimeDomainData(audio.time);
+            let sum = 0;
+            for (let i = 0; i < audio.time.length; i++) {
+                const v = (audio.time[i] - 128) / 128;
+                sum += v * v;
+            }
+            const rms = Math.sqrt(sum / audio.time.length);
+            // Speech RMS sits low; lift it into a usable range without letting a
+            // loud room peg the form permanently.
+            level = Math.min(1, rms * 5.2);
+            const raw = [
+                bandAverage(audio.freq, 2, 9),
+                bandAverage(audio.freq, 9, 26),
+                bandAverage(audio.freq, 26, 70),
+                bandAverage(audio.freq, 70, 170)
+            ];
+            for (let i = 0; i < 4; i++) {
+                const boosted = Math.min(1, raw[i] * 1.5);
+                bands[i] += (boosted - bands[i]) * Math.min(1, dt * 14);
+            }
+        } else {
+            // Fallback: the recognizer host's own level meter. Coarser, but it
+            // keeps the form honest when the overlay has no microphone of its own.
+            level = Math.min(1, hostLevel / 70);
+            for (let i = 0; i < 4; i++) {
+                const target = level * (i === 0 ? 1 : 0.75 - i * 0.12);
+                bands[i] += (target - bands[i]) * Math.min(1, dt * 8);
+            }
+        }
+
+        const prev = levelSmooth;
+        levelSmooth += (level - levelSmooth) * Math.min(1, dt * 12);
+        if (levelSmooth - prev > 0.045) transient = Math.min(1, transient + (levelSmooth - prev) * 5);
+
+        // Live voice drives the energy target directly; the state table's value
+        // becomes the floor the form rests at between words.
+        const floor = STATE_VISUALS[visualState].energy;
+        PARAMS.energy.t = Math.max(floor, Math.min(1, levelSmooth * 1.35));
+        PARAMS.glow.t = Math.max(STATE_VISUALS[visualState].glow, 0.55 + levelSmooth * 0.45);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  UI STATE
+    // ══════════════════════════════════════════════════════════════════════
+    const STATE_LABELS = {
+        hidden: '', idle: 'Ready', listening: 'Listening', processing: 'Working',
+        confirming: 'Confirm', speaking: 'Speaking', success: 'Done', error: 'Sorry'
+    };
+
+    let current = { state: 'hidden' };
+    let leaveTimer = null;
+    // Kept in step with main/voiceCommands.js — the settings there are validated
+    // against the same lists.
+    const TRANSITIONS = ['fade', 'crt', 'collapse', 'slide'];
+    const VIZ_STYLES = ['aurora', 'bars', 'pulse', 'ribbons', 'prism'];
+    let vizStyle = 'aurora';
+    // The form is white unless the launcher has an accent theme set, in which
+    // case it adopts it — the overlay should look like the rest of the app, not
+    // like a separate product. Supplied as "r,g,b" by main from the renderer.
+    let accent = '255,255,255';
+
+    function setChips(items) {
+        chipsEl.innerHTML = '';
+        if (!items || !items.length) return;
+        for (const item of items) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'chip' + (item.primary ? ' primary' : '');
+            btn.textContent = item.label;
+            btn.addEventListener('click', () => {
+                if (!api) return;
+                if (item.kind === 'confirm') api.confirm(item.value);
+                else if (item.kind === 'choose') api.choose(item.value);
+                else if (item.kind === 'cancel') api.cancel();
+                else if (item.kind === 'listen') api.listen();
+            });
+            chipsEl.appendChild(btn);
+        }
+    }
+
+    function renderHelp(groups) {
+        if (!groups || !groups.length) { helpEl.classList.remove('show'); helpEl.innerHTML = ''; return; }
+        let html = '';
+        for (const g of groups) {
+            html += '<div class="help-cat">' + escapeHtml(g.category) + '</div>';
+            for (const item of g.items) {
+                html += '<div class="help-item"><b>&ldquo;' + escapeHtml(item.example) + '&rdquo;</b></div>';
+            }
+        }
+        helpEl.innerHTML = html;
+        helpEl.classList.add('show');
+    }
+
+    function escapeHtml(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function applyState(payload) {
+        if (!payload || typeof payload !== 'object') return;
+        current = payload;
+        const state = STATE_VISUALS[payload.state] ? payload.state : 'idle';
+        const wasHidden = stage.classList.contains('state-hidden');
+
+        reduced = !!payload.reducedMotion ||
+            window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        stage.classList.toggle('reduced', reduced);
+
+        // Panel size, straight from the user's setting.
+        if (payload.scale) {
+            document.documentElement.style.setProperty('--capsule-scale', String(payload.scale));
+        }
+        // Transition style: one t-* class drives every enter/exit keyframe pair.
+        const transition = TRANSITIONS.includes(payload.transition) ? payload.transition : 'fade';
+        for (const t of TRANSITIONS) stage.classList.toggle('t-' + t, t === transition);
+        // Visualisation style.
+        vizStyle = VIZ_STYLES.includes(payload.vizStyle) ? payload.vizStyle : 'aurora';
+        // Accent, validated: it is used to build colour strings, so only three
+        // plain numbers are ever accepted.
+        if (typeof payload.accent === 'string' && /^\d{1,3},\d{1,3},\d{1,3}$/.test(payload.accent)) {
+            accent = payload.accent;
+        }
+
+        // Swap the state-* class.
+        stage.className = stage.className.replace(/\bstate-\S+/g, '').trim();
+        stage.classList.add('state-' + state);
+        stage.classList.remove('leaving');
+
+        if (state === 'hidden') {
+            if (!wasHidden) {
+                // Only ever ADD `leaving`. Clearing it on a timer used to drop the
+                // exit animation's `both` fill while the window was still on
+                // screen, so the panel snapped back to full opacity for a frame —
+                // the flicker. It is now cleared on the next entrance instead,
+                // after the window has already been hidden.
+                stage.classList.add('leaving');
+                clearTimeout(leaveTimer);
+            }
+            setVisualState('hidden');
+            releaseMic();
+            typedEl.blur();
+            return;
+        }
+
+        if (wasHidden) {
+            stage.classList.add('entering');
+            clearTimeout(leaveTimer);
+            leaveTimer = setTimeout(() => stage.classList.remove('entering'), 260);
+            startLoop();
+        }
+        startLoop();
+        setVisualState(state);
+
+        // The microphone follows the state exactly — opened for listening and
+        // confirming, released for everything else.
+        if (state === 'listening' || state === 'confirming') {
+            acquireMic();
+        } else {
+            releaseMic();
+        }
+
+        // ── Text ──
+        labelEl.textContent = payload.label || STATE_LABELS[state] || '';
+        const provisional = state === 'listening' && !!payload.hypothesis && !payload.transcript;
+        const text = payload.message || payload.transcript || payload.hypothesis || '';
+        transcriptEl.textContent = payload.showTranscript === false && provisional ? '' : text;
+        transcriptEl.classList.toggle('provisional', provisional);
+
+        // ── Chips ──
+        const chips = [];
+        if (payload.confirmPrompt) {
+            chips.push({ label: 'Yes', kind: 'confirm', value: 'yes', primary: true });
+            chips.push({ label: 'No', kind: 'confirm', value: 'no' });
+        }
+        if (Array.isArray(payload.options) && payload.options.length) {
+            for (const opt of payload.options.slice(0, 3)) {
+                chips.push({ label: opt.title, kind: 'choose', value: opt.commandId });
+            }
+        }
+        if (state === 'error' && payload.retry !== false) {
+            chips.push({ label: 'Try again', kind: 'listen', primary: true });
+        }
+        setChips(chips);
+
+        // ── Help sheet ──
+        const hasHelp = Array.isArray(payload.help) && payload.help.length > 0;
+        stage.classList.toggle('has-help', hasHelp);
+        renderHelp(payload.help);
+
+        // ── Typed fallback ──
+        const needTyped = !!payload.needsTyped || payload.micAvailable === false;
+        typedRow.classList.toggle('show', needTyped);
+        if (needTyped && state === 'listening') {
+            typedEl.value = '';
+            setTimeout(() => { try { typedEl.focus(); } catch (e) { /* not focusable yet */ } }, 60);
+        }
+
+        hintEl.textContent = payload.hint || '';
+
+        // Main waits for this before showing the window. Without it the window
+        // becomes visible a frame before the new state is rendered, briefly
+        // showing whatever was on screen last time — the other half of the
+        // flicker. Two frames, so layout and the first canvas pass are both done.
+        if (api) {
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                try { api.painted(); } catch (e) { /* window closing */ }
+            }));
+        }
+    }
+
+    // ── Input ────────────────────────────────────────────────────────────
+    typedEl.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+            const value = typedEl.value.trim();
+            if (value && api) { api.submitText(value); typedEl.value = ''; }
+        } else if (e.key === 'Escape') {
+            if (api) api.cancel();
+        }
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { if (api) api.cancel(); return; }
+        // Any printable key with the capsule focused starts a typed command —
+        // the assistant stays fully usable without a microphone.
+        if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey && document.activeElement !== typedEl) {
+            typedRow.classList.add('show');
+            typedEl.value = e.key;
+            typedEl.focus();
+            e.preventDefault();
+        }
+    });
+
+    // Click the form to listen again (configurable).
+    canvas.addEventListener('click', () => {
+        if (!api || current.clickActivate === false) return;
+        if (current.state === 'success' || current.state === 'error' || current.state === 'idle') api.listen();
+        else if (current.state === 'listening') api.cancel();
+    });
+    canvas.style.cursor = 'pointer';
+
+    // Click-through management: the window ignores the mouse so it never blocks
+    // a game, and only accepts it while the pointer is actually over the capsule.
+    let hovering = false;
+    document.addEventListener('mousemove', (e) => {
+        const r = capsule.getBoundingClientRect();
+        const over = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+        if (over !== hovering) {
+            hovering = over;
+            if (api) api.setHover(over);
+        }
+    });
+
+    window.addEventListener('resize', resizeCanvas);
+    if (window.ResizeObserver) {
+        new ResizeObserver(() => resizeCanvas()).observe(canvas);
+    }
+    window.addEventListener('beforeunload', () => { releaseMic(); stopLoop(); });
+
+    // ── Boot ─────────────────────────────────────────────────────────────
+    resizeCanvas();
+    if (api) {
+        api.onState(applyState);
+        api.onLevel((v) => { hostLevel = Number(v) || 0; });
+        api.ready();
+    }
+})();
+</script>
+</body>
+</html>

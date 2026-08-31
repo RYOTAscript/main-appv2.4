@@ -320,19 +320,19 @@
                     `<option value="${value}" ${m.trigger === value ? 'selected' : ''}>${label}</option>`).join('');
                 html += `<div class="border border-white/10 rounded-xl p-3 mb-2 ${m.on ? '' : 'opacity-60'}">
                     <div class="flex items-center gap-2">
-                        <input type="checkbox" ${m.on ? 'checked' : ''} onchange="setCmMacroOn('${m.id}', this.checked)"
+                        <input type="checkbox" ${m.on ? 'checked' : ''} onchange="setCmMacroOn(${jsAttr(m.id)}, this.checked)"
                             class="accent-white shrink-0" title="Enable this macro">
-                        <input type="text" value="${esc(m.name)}" onchange="renameCmMacro('${m.id}', this.value)"
+                        <input type="text" value="${esc(m.name)}" onchange="renameCmMacro(${jsAttr(m.id)}, this.value)"
                             class="flex-1 min-w-0 bg-transparent border border-transparent hover:border-neutral-700 focus:border-neutral-500 rounded-lg px-2 py-1 text-sm focus:outline-none">
                         <button type="button" id="cm-hotkey-btn-${m.id}" class="hotkey-bind no-drag" title="Trigger — click then press a key or mouse button, Esc while binding to clear"
-                            onclick="startCmHotkeyBind('macro', '${m.id}')">${esc(formatMacroHotkey(m.hotkey))}</button>
+                            onclick="startCmHotkeyBind('macro', ${jsAttr(m.id)})">${esc(formatMacroHotkey(m.hotkey))}</button>
                         <select class="bg-neutral-900 border border-neutral-700 rounded-lg px-1.5 py-1 text-xs focus:outline-none focus:border-neutral-500 shrink-0"
-                            title="${esc(MACRO_TRIGGER_HINTS[m.trigger] || '')}" onchange="setCmMacroTrigger('${m.id}', this.value)">${triggerOptions}</select>
+                            title="${esc(MACRO_TRIGGER_HINTS[m.trigger] || '')}" onchange="setCmMacroTrigger(${jsAttr(m.id)}, this.value)">${triggerOptions}</select>
                         ${isPlaying
                             ? `<button type="button" class="hotkey-bind no-drag" title="Stop" onclick="stopControllerMacros()"><i class="fas fa-stop"></i></button>`
-                            : `<button type="button" class="hotkey-bind no-drag" title="Play" onclick="playControllerMacro('${m.id}')" ${busy ? 'disabled' : ''}><i class="fas fa-play"></i></button>`}
-                        <button type="button" class="hotkey-bind no-drag" title="Edit steps" onclick="toggleCmEditor('${m.id}')"><i class="fas fa-pen"></i></button>
-                        <button type="button" class="hotkey-bind no-drag" title="Delete" onclick="deleteCmMacro('${m.id}')"><i class="fas fa-trash"></i></button>
+                            : `<button type="button" class="hotkey-bind no-drag" title="Play" onclick="playControllerMacro(${jsAttr(m.id)})" ${busy ? 'disabled' : ''}><i class="fas fa-play"></i></button>`}
+                        <button type="button" class="hotkey-bind no-drag" title="Edit steps" onclick="toggleCmEditor(${jsAttr(m.id)})"><i class="fas fa-pen"></i></button>
+                        <button type="button" class="hotkey-bind no-drag" title="Delete" onclick="deleteCmMacro(${jsAttr(m.id)})"><i class="fas fa-trash"></i></button>
                     </div>
                     ${expanded ? renderCmEditor(m, busy) : ''}
                 </div>`;
@@ -359,21 +359,21 @@
             const numCls = 'bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-0.5 text-xs focus:outline-none focus:border-neutral-500 text-center';
             if (s.t === 'delay') {
                 return `Wait <input type="number" min="0" max="600000" value="${Number(s.ms) || 0}"
-                    onchange="setCmDelay('${m.id}', ${i}, this.value)" class="w-20 ${numCls}"> ms`;
+                    onchange="setCmDelay(${jsAttr(m.id)}, ${i}, this.value)" class="w-20 ${numCls}"> ms`;
             }
             if (s.t === 'tap') return `Tap ${cmBtnLabel(s.b, true)}`;
             if (s.t === 'bd') return `Hold ${cmBtnLabel(s.b, true)}`;
             if (s.t === 'bu') return `Release ${cmBtnLabel(s.b, true)}`;
             if (s.t === 'trig') {
                 return `Pull ${cmBtnLabel(s.s, true)} to <input type="number" min="0" max="100" value="${Number(s.v) || 0}"
-                    onchange="setCmTrigValue('${m.id}', ${i}, this.value)" class="w-14 ${numCls}">% <span class="text-neutral-600">(0% releases)</span>`;
+                    onchange="setCmTrigValue(${jsAttr(m.id)}, ${i}, this.value)" class="w-14 ${numCls}">% <span class="text-neutral-600">(0% releases)</span>`;
             }
             if (s.t === 'stick') {
                 const name = s.s === 'l' ? 'left stick' : 'right stick';
                 return `Move ${name} to x <input type="number" min="-100" max="100" value="${Number(s.x) || 0}"
-                        id="cm-stick-x-${m.id}-${i}" onchange="setCmStickValue('${m.id}', ${i}, 'x', this.value)" class="w-14 ${numCls}">%
+                        id="cm-stick-x-${m.id}-${i}" onchange="setCmStickValue(${jsAttr(m.id)}, ${i}, 'x', this.value)" class="w-14 ${numCls}">%
                     y <input type="number" min="-100" max="100" value="${Number(s.y) || 0}"
-                        id="cm-stick-y-${m.id}-${i}" onchange="setCmStickValue('${m.id}', ${i}, 'y', this.value)" class="w-14 ${numCls}">%
+                        id="cm-stick-y-${m.id}-${i}" onchange="setCmStickValue(${jsAttr(m.id)}, ${i}, 'y', this.value)" class="w-14 ${numCls}">%
                     <span class="text-neutral-600">(0 / 0 recentres)</span>`;
             }
             return '?';
@@ -384,15 +384,15 @@
             (m.steps || []).forEach((s, i) => {
                 const stickOpen = s.t === 'stick' && cmStickEditFor && cmStickEditFor.id === m.id && cmStickEditFor.index === i;
                 const stickBtn = s.t === 'stick'
-                    ? `<button type="button" class="hotkey-bind no-drag ${stickOpen ? 'listening' : ''}" title="Pick a direction visually" onclick="toggleCmStickPad('${m.id}', ${i})"><i class="fas fa-bullseye"></i></button>`
+                    ? `<button type="button" class="hotkey-bind no-drag ${stickOpen ? 'listening' : ''}" title="Pick a direction visually" onclick="toggleCmStickPad(${jsAttr(m.id)}, ${i})"><i class="fas fa-bullseye"></i></button>`
                     : '';
                 rows += `<div class="flex items-center gap-2 text-xs text-neutral-400 py-1 border-b border-white/5">
                     <span class="flex-1 min-w-0 truncate flex items-center gap-1.5">${cmStepBody(m, s, i)}</span>
                     ${stickBtn}
-                    <button type="button" class="hotkey-bind no-drag" title="Move up" onclick="moveCmStep('${m.id}', ${i}, -1)" ${i === 0 ? 'disabled' : ''}><i class="fas fa-chevron-up"></i></button>
-                    <button type="button" class="hotkey-bind no-drag" title="Move down" onclick="moveCmStep('${m.id}', ${i}, 1)" ${i === (m.steps || []).length - 1 ? 'disabled' : ''}><i class="fas fa-chevron-down"></i></button>
-                    <button type="button" class="hotkey-bind no-drag" title="Duplicate this step" onclick="duplicateCmStep('${m.id}', ${i})"><i class="fas fa-copy"></i></button>
-                    <button type="button" class="hotkey-bind no-drag" title="Remove" onclick="removeCmStep('${m.id}', ${i})"><i class="fas fa-xmark"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Move up" onclick="moveCmStep(${jsAttr(m.id)}, ${i}, -1)" ${i === 0 ? 'disabled' : ''}><i class="fas fa-chevron-up"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Move down" onclick="moveCmStep(${jsAttr(m.id)}, ${i}, 1)" ${i === (m.steps || []).length - 1 ? 'disabled' : ''}><i class="fas fa-chevron-down"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Duplicate this step" onclick="duplicateCmStep(${jsAttr(m.id)}, ${i})"><i class="fas fa-copy"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Remove" onclick="removeCmStep(${jsAttr(m.id)}, ${i})"><i class="fas fa-xmark"></i></button>
                 </div>`;
                 if (stickOpen) rows += renderCmStickPad(m, i, s);
             });
@@ -403,11 +403,11 @@
                 ? `<span class="text-xs text-neutral-600"><i class="fas fa-hand mr-1"></i>Loops for as long as the key is held</span>`
                 : `<span class="text-xs text-neutral-400">Repeat</span>
                     <input type="number" min="1" max="9999" value="${forever ? '' : (m.repeat || 1)}" ${forever ? 'disabled' : ''}
-                        onchange="setCmRepeat('${m.id}', this.value)"
+                        onchange="setCmRepeat(${jsAttr(m.id)}, this.value)"
                         class="w-16 bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-0.5 text-xs focus:outline-none focus:border-neutral-500 text-center disabled:opacity-40">
                     <span class="text-xs text-neutral-400">time(s)</span>
                     <label class="flex items-center gap-1.5 cursor-pointer text-xs text-neutral-400">
-                        <input type="checkbox" ${forever ? 'checked' : ''} onchange="setCmRepeatForever('${m.id}', this.checked)" class="accent-white">
+                        <input type="checkbox" ${forever ? 'checked' : ''} onchange="setCmRepeatForever(${jsAttr(m.id)}, this.checked)" class="accent-white">
                         until stopped
                     </label>`;
             const speedOptions = MACRO_SPEEDS.map((v) =>
@@ -436,12 +436,12 @@
                         <option value="stick-r">Move right stick</option>
                         <option value="delay">Delay</option>
                     </select>
-                    <button type="button" class="hotkey-bind no-drag" onclick="addCmStep('${m.id}')">Add step</button>
-                    <button type="button" class="hotkey-bind no-drag" title="Play these steps once on the virtual pad" onclick="testCmMacro('${m.id}')" ${busy ? 'disabled' : ''}><i class="fas fa-flask mr-1"></i>Test</button>
+                    <button type="button" class="hotkey-bind no-drag" onclick="addCmStep(${jsAttr(m.id)})">Add step</button>
+                    <button type="button" class="hotkey-bind no-drag" title="Play these steps once on the virtual pad" onclick="testCmMacro(${jsAttr(m.id)})" ${busy ? 'disabled' : ''}><i class="fas fa-flask mr-1"></i>Test</button>
                     <button type="button" class="hotkey-bind no-drag" title="${padHere ? 'Record from your controller (replaces these steps)' : 'Connect a controller to record'}"
-                        onclick="startCmPadRecording('${m.id}')" ${busy || !padHere ? 'disabled' : ''}>
+                        onclick="startCmPadRecording(${jsAttr(m.id)})" ${busy || !padHere ? 'disabled' : ''}>
                         <i class="fas fa-circle mr-1 text-red-400"></i>Record</button>
-                    <button type="button" class="hotkey-bind no-drag" title="Clear all steps" onclick="clearCmSteps('${m.id}')" ${(m.steps || []).length ? '' : 'disabled'}><i class="fas fa-eraser"></i></button>
+                    <button type="button" class="hotkey-bind no-drag" title="Clear all steps" onclick="clearCmSteps(${jsAttr(m.id)})" ${(m.steps || []).length ? '' : 'disabled'}><i class="fas fa-eraser"></i></button>
                 </div>${picker}`;
             }
 
@@ -450,7 +450,7 @@
                     ${playbackRow}
                     <span class="flex-1"></span>
                     <span class="text-xs text-neutral-400">Speed</span>
-                    <select onchange="setCmSpeed('${m.id}', this.value)"
+                    <select onchange="setCmSpeed(${jsAttr(m.id)}, this.value)"
                         class="bg-neutral-900 border border-neutral-700 rounded-lg px-1.5 py-0.5 text-xs focus:outline-none focus:border-neutral-500">${speedOptions}</select>
                 </div>
                 <p class="text-xs text-neutral-600 mb-2">${esc(MACRO_TRIGGER_HINTS[m.trigger] || '')}${dur > 0 ? ` · ~${(dur / 1000).toFixed(1)}s per run` : ''}</p>
@@ -464,7 +464,7 @@
             const verb = cmPickerFor.type === 'tap' ? 'tap' : (cmPickerFor.type === 'bd' ? 'hold' : 'release');
             const buttons = CM_BUTTONS.map(([id, ps, xb]) =>
                 `<button type="button" class="hotkey-bind no-drag" title="${esc(xb ? `Xbox: ${xb}` : ps)}"
-                    onclick="pickCmButton('${m.id}', '${id}')">${esc(ps)}</button>`).join('');
+                    onclick="pickCmButton(${jsAttr(m.id)}, ${jsAttr(id)})">${esc(ps)}</button>`).join('');
             return `<div class="border border-white/10 rounded-xl p-2 mt-2">
                 <div class="flex items-center justify-between mb-1.5">
                     <span class="text-xs text-neutral-400">Which button should the step ${verb}?</span>
@@ -486,7 +486,7 @@
             const knobTop = 50 - y / 2;    // +Y up, screen Y down
             const presets = CM_STICK_PRESETS.map((p) =>
                 `<button type="button" class="cm-stick-preset no-drag" title="${p.label}"
-                    onclick="cmStickPreset('${m.id}', ${i}, ${p.x}, ${p.y})">${p.icon}</button>`).join('');
+                    onclick="cmStickPreset(${jsAttr(m.id)}, ${i}, ${p.x}, ${p.y})">${p.icon}</button>`).join('');
             return `<div class="cm-stick-editor" data-cm-stick="${m.id}|${i}">
                 <div class="cm-stick-pad no-drag" data-cm-stick-pad>
                     <div class="cm-stick-cross-h"></div>
@@ -666,7 +666,7 @@
             const active = cmTemplateGame && byGame.has(cmTemplateGame) ? cmTemplateGame : gameOrder[0];
             const tabs = gameOrder.map((g) =>
                 `<button type="button" class="hotkey-bind no-drag ${g === active ? 'bg-white/10 text-white' : ''}"
-                    onclick="setCmTemplateGame('${g}')">${esc(g)}</button>`).join('');
+                    onclick="setCmTemplateGame(${jsAttr(g)})">${esc(g)}</button>`).join('');
 
             // Within the active game, bucket by category header.
             const catOrder = [];
@@ -679,7 +679,7 @@
             const sections = catOrder.map((c) => {
                 const btns = byCat.get(c).map((t) =>
                     `<button type="button" class="hotkey-bind no-drag" style="flex:1 1 46%;min-width:0;text-align:left;"
-                        onclick="addCmTemplate('${t.id}')">${esc(t.name)}</button>`).join('');
+                        onclick="addCmTemplate(${jsAttr(t.id)})">${esc(t.name)}</button>`).join('');
                 return `<div class="mb-2">
                     <p class="text-[10px] uppercase tracking-wide text-neutral-500 mb-1">${esc(c)}</p>
                     <div class="flex gap-1.5 flex-wrap">${btns}</div>

@@ -126,11 +126,11 @@
                 const count = Array.isArray(aiPresets[name]) ? aiPresets[name].length : 0;
                 return `<span class="ai-preset-chip ${aiRunning ? 'ai-preset-locked' : ''}">
                         <button type="button" class="ai-preset-load no-drag" ${aiRunning ? 'disabled' : ''}
-                            onclick="aiLoadPreset('${esc(name)}')" title="Load ${esc(name)} (${count} app${count === 1 ? '' : 's'})">
+                            onclick="aiLoadPreset(${jsAttr(name)})" title="Load ${esc(name)} (${count} app${count === 1 ? '' : 's'})">
                             <i class="fas fa-folder mr-1.5"></i>${esc(name)}<span class="ai-preset-count">${count}</span>
                         </button>
                         <button type="button" class="ai-preset-x no-drag" ${aiRunning ? 'disabled' : ''}
-                            onclick="aiDeletePreset('${esc(name)}')" title="Delete preset"><i class="fas fa-xmark"></i></button>
+                            onclick="aiDeletePreset(${jsAttr(name)})" title="Delete preset"><i class="fas fa-xmark"></i></button>
                     </span>`;
             }).join('');
 
@@ -174,7 +174,7 @@
                     }
                     return `<label class="ai-app ${checked ? 'ai-app-on' : ''} ${aiRunning ? 'ai-app-locked' : ''}" title="${esc(app.id)}">
                             <input type="checkbox" class="ai-check no-drag" ${checked ? 'checked' : ''} ${aiRunning ? 'disabled' : ''}
-                                onchange="aiToggle('${esc(app.id)}', this.checked)">
+                                onchange="aiToggle(${jsAttr(app.id)}, this.checked)">
                             <span class="ai-app-name">${esc(app.name)}</span>
                             ${badge}
                         </label>`;
@@ -185,7 +185,7 @@
                         <div class="ai-col-head">
                             <span class="ai-col-title">${esc(group.category)}</span>
                             <button type="button" class="ai-col-all no-drag" ${aiRunning ? 'disabled' : ''}
-                                onclick="aiToggleCategory('${esc(group.category)}')" title="${allOn ? 'Unselect all' : 'Select all'}">
+                                onclick="aiToggleCategory(${jsAttr(group.category)})" title="${allOn ? 'Unselect all' : 'Select all'}">
                                 ${allOn ? 'None' : 'All'}
                             </button>
                         </div>

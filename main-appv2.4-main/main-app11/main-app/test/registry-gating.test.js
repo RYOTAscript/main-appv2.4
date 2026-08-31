@@ -15,7 +15,10 @@ const coreSrc = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'core.js'
 // The widgets that rely on Windows-only tech and must be hidden on macOS.
 const WIN_ONLY = [
   'controllerMacros', 'taskbar', 'appInstaller', 'debloat', 'revoUninstaller',
-  'macros', 'fpsOptimizer',
+  'macros', 'fpsOptimizer', 'autoClicker',
+  // Offline speech recognition via System.Speech; macOS has no equivalent
+  // command recogniser reachable from osascript.
+  'voiceAssistant',
 ];
 
 function loadRegistry() {

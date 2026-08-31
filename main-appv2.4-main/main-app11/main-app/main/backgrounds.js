@@ -2,6 +2,7 @@ const { ipcMain, dialog, screen, desktopCapturer } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
+const { isWindows } = require('./platform');
 
 // Custom backgrounds live in %APPDATA%/main-launcher/backgrounds — same
 // pattern as custom launcher icons (main/appLauncher.js): copied into
@@ -116,6 +117,7 @@ function init(ctx) {
     return {
       wallpaper: await getWallpaperPath(),
       display: display.bounds,
+      displayId: String(display.id),
       window: { x: bounds.x, y: bounds.y }
     };
   });
@@ -134,9 +136,21 @@ function init(ctx) {
   //      window rather than the window itself. Side effect while active:
   //      the app won't appear in screenshots or screen recordings.
   let liveCaptureOn = false;
-  ipcMain.handle('background-live-capture', async (_event, enabled) => {
+  // Monotonic request number from the renderer. Enable and disable are fired
+  // from independent async paths there (visibility flips, settings changes,
+  // display changes), so without ordering a STALE disable can land after a
+  // newer enable. That lifts WDA_EXCLUDEFROMCAPTURE while the stream is still
+  // running — the window captures itself, and the backdrop turns into a
+  // recursive mirror tunnel until the next toggle. Never go backwards.
+  let liveCaptureSeq = 0;
+  ipcMain.handle('background-live-capture', async (_event, enabled, seq) => {
     const win = getMainWindow();
     if (!win || win.isDestroyed()) return null;
+    const n = Number(seq);
+    if (Number.isFinite(n)) {
+      if (n < liveCaptureSeq) return { stale: true };
+      liveCaptureSeq = n;
+    }
     try {
       if (!enabled) {
         if (liveCaptureOn) {
@@ -159,7 +173,12 @@ function init(ctx) {
         liveCaptureOn = true;
         logger.log('Live background capture started', 'INFO');
       }
-      return { sourceId: source.id, display: display.bounds, window: { x: bounds.x, y: bounds.y } };
+      return {
+        sourceId: source.id,
+        display: display.bounds,
+        displayId: String(display.id),
+        window: { x: bounds.x, y: bounds.y }
+      };
     } catch (e) {
       logger.warn('Live background capture failed — renderer will use wallpaper frost', { error: e.message });
       if (liveCaptureOn) {
@@ -229,14 +248,74 @@ function init(ctx) {
     }
   });
 
-  // Keep the renderer's wallpaper/live-capture alignment live while the
-  // window is dragged.
+  // ── Keeping the backdrop glued to the desktop while the window moves ──
+  // The Transparent preset's backdrop (live capture / wallpaper frost) is a
+  // screen-sized layer positioned from the window's screen coordinates, so it
+  // has to follow every step of a drag. But Windows fires 'move' at mouse
+  // report rate — 125+ events a second on a gaming mouse — and each one makes
+  // the renderer re-place that layer *underneath a blur filter*. Forwarding
+  // them raw saturates the renderer: the frosted backdrop stutters, trails
+  // behind the card, and the drag itself goes choppy.
+  //
+  // So coalesce to at most one message per compositor frame (leading edge +
+  // trailing flush), plus — on Windows — one guaranteed send on 'moved': the
+  // window must never come to rest on a position the renderer never heard
+  // about, or the backdrop stays offset by however far the last hop went.
+  const MOVE_THROTTLE_MS = 16;   // ≈60 Hz
+  let moveLastSent = 0;
+  let moveTrailingTimer = null;
+
+  function sendWindowMoved() {
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) return;
+    moveLastSent = Date.now();
+    const b = win.getBounds();
+    const display = screen.getDisplayMatching(b) || screen.getPrimaryDisplay();
+    // The display id rides along: dragging onto another monitor invalidates
+    // the backdrop's whole screen alignment (different bounds, and for the
+    // live capture a different source screen), and the renderer has no way to
+    // notice that on its own.
+    win.webContents.send('window-moved', { x: b.x, y: b.y, displayId: String(display.id) });
+  }
+
+  function onWindowMove() {
+    if (moveTrailingTimer) return;                     // a flush is already queued
+    const wait = MOVE_THROTTLE_MS - (Date.now() - moveLastSent);
+    if (wait <= 0) {
+      sendWindowMoved();
+      return;
+    }
+    moveTrailingTimer = setTimeout(() => {
+      moveTrailingTimer = null;
+      sendWindowMoved();
+    }, wait);
+  }
+
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.on('move', () => {
-      if (mainWindow.isDestroyed()) return;
-      const b = mainWindow.getBounds();
-      mainWindow.webContents.send('window-moved', { x: b.x, y: b.y });
+    // Belt-and-braces against the mirror tunnel: whenever the window comes back
+    // to the foreground while the live backdrop is running, re-assert the
+    // capture exclusion. Setting it again when it is already set is a no-op, so
+    // this costs nothing and closes any window in which the app could end up
+    // capturing itself.
+    for (const event of ['show', 'focus', 'restore']) {
+      mainWindow.on(event, () => {
+        if (!liveCaptureOn || mainWindow.isDestroyed()) return;
+        try { mainWindow.setContentProtection(true); } catch (e) { /* window closing */ }
+      });
+    }
+
+    mainWindow.on('move', onWindowMove);
+    // Windows fires 'moved' once when the drag finishes — the position the
+    // window actually settled on, however many the throttle dropped on the way
+    // there (and even if the modal drag loop starved the trailing timer). On
+    // macOS 'moved' is just an alias of 'move', so wiring it there would send
+    // the whole unthrottled flood straight back; the trailing flush covers the
+    // final position on that side.
+    if (isWindows) mainWindow.on('moved', sendWindowMoved);
+    mainWindow.on('closed', () => {
+      if (moveTrailingTimer) clearTimeout(moveTrailingTimer);
+      moveTrailingTimer = null;
     });
   }
 

@@ -24,7 +24,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   backgroundList: () => ipcRenderer.invoke('background-list'),
   backgroundDelete: (fileName) => ipcRenderer.invoke('background-delete', fileName),
   backgroundDesktopInfo: () => ipcRenderer.invoke('background-desktop-info'),
-  backgroundLiveCapture: (enabled) => ipcRenderer.invoke('background-live-capture', enabled),
+  // `seq` is a monotonic request number from the renderer. Enable and disable
+  // are fired from independent async paths, and a stale disable landing after a
+  // newer enable would lift the capture exclusion while the stream is still
+  // running — the window then captures itself (recursive mirror tunnel).
+  backgroundLiveCapture: (enabled, seq) => ipcRenderer.invoke('background-live-capture', enabled, seq),
   backgroundSampleBehind: () => ipcRenderer.invoke('background-sample-behind'),
   onWindowMoved: (callback) => ipcRenderer.on('window-moved', (_event, pos) => callback(pos)),
   onDisplayChanged: (callback) => ipcRenderer.on('display-changed', () => callback()),
@@ -127,11 +131,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   macrosStop: () => ipcRenderer.invoke('macros-stop'),
   macrosSetToggleHotkey: (accelerator) => ipcRenderer.invoke('macros-set-toggle-hotkey', accelerator),
   macrosSetArmed: (armed) => ipcRenderer.invoke('macros-set-armed', armed),
-  macrosCaptureArm: () => ipcRenderer.invoke('macros-capture-arm'),
+  macrosCaptureArm: (targetId, stepIndex) => ipcRenderer.invoke('macros-capture-arm', targetId, stepIndex),
   macrosCaptureCancel: () => ipcRenderer.invoke('macros-capture-cancel'),
   macrosExport: () => ipcRenderer.invoke('macros-export'),
   macrosImport: () => ipcRenderer.invoke('macros-import'),
   onMacrosStatus: (callback) => ipcRenderer.on('macros-status', (_event, data) => callback(data)),
+
+  // Mini Widgets: Auto Clicker
+  autoClickerGet: () => ipcRenderer.invoke('autoclicker-get'),
+  autoClickerSetEnabled: (enabled) => ipcRenderer.invoke('autoclicker-set-enabled', enabled),
+  autoClickerUpdate: (patch) => ipcRenderer.invoke('autoclicker-update', patch),
+  autoClickerStart: () => ipcRenderer.invoke('autoclicker-start'),
+  autoClickerStop: () => ipcRenderer.invoke('autoclicker-stop'),
+  autoClickerSetArmed: (armed) => ipcRenderer.invoke('autoclicker-set-armed', armed),
+  autoClickerSetHotkey: (accelerator, trigger) => ipcRenderer.invoke('autoclicker-set-hotkey', accelerator, trigger),
+  autoClickerSetTrigger: (trigger) => ipcRenderer.invoke('autoclicker-set-trigger', trigger),
+  autoClickerSetBinding: (binding) => ipcRenderer.invoke('autoclicker-set-binding', binding),
+  autoClickerPick: (kind, accent) => ipcRenderer.invoke('autoclicker-pick', kind, accent),
+  autoClickerTestScan: () => ipcRenderer.invoke('autoclicker-test-scan'),
+  onAutoClickerStatus: (callback) => ipcRenderer.on('autoclicker-status', (_event, data) => callback(data)),
 
   // Mini Widgets: Controller Macros
   controllerMacrosGet: () => ipcRenderer.invoke('controller-macros-get'),
@@ -324,6 +342,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
   debloatRestartExplorer: () => ipcRenderer.invoke('debloat:restart-explorer'),
   debloatRestorePoint: () => ipcRenderer.invoke('debloat:restore-point'),
   onDebloatProgress: (callback) => ipcRenderer.on('debloat:progress', (_event, data) => callback(data)),
+
+  // Mini Widgets: Voice Assistant (Windows — offline System.Speech recognizer)
+  // The overlay window has its own narrow bridge (voice-overlay-preload.js);
+  // these are the MAIN window's calls: the config panel, and the executor that
+  // actually performs a recognised command using the rest of this same API.
+  voiceGetState: () => ipcRenderer.invoke('voice:get-state'),
+  voiceSetEnabled: (enabled) => ipcRenderer.invoke('voice:set-enabled', enabled),
+  voiceSettingsGet: () => ipcRenderer.invoke('voice:settings-get'),
+  voiceSettingsSet: (patch) => ipcRenderer.invoke('voice:settings-set', patch),
+  voiceSetVocabulary: (vocab) => ipcRenderer.invoke('voice:set-vocabulary', vocab),
+  voiceActivate: () => ipcRenderer.invoke('voice:activate'),
+  voiceCancel: () => ipcRenderer.invoke('voice:cancel'),
+  voiceSubmitText: (text) => ipcRenderer.invoke('voice:submit-text', text),
+  // Resolves words to a command WITHOUT running it. Routine steps and the
+  // panel's step validator both use it, so a routine can only ever contain
+  // commands the spoken matcher would also accept.
+  voiceMatchText: (text) => ipcRenderer.invoke('voice:match', text),
+  // Brings the launcher to the front for commands that show UI.
+  voiceFocusLauncher: () => ipcRenderer.invoke('voice:focus-launcher'),
+  // The executor's reply. Carries the requestId it was given, so a late answer
+  // can never be mistaken for the current command's.
+  voiceExecuteResult: (payload) => ipcRenderer.invoke('voice:execute-result', payload),
+  onVoiceExecute: (callback) => {
+    const listener = (_e, payload) => { try { callback(payload); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('voice:execute', listener);
+    return () => ipcRenderer.removeListener('voice:execute', listener);
+  },
+  onVoiceState: (callback) => {
+    const listener = (_e, payload) => { try { callback(payload); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('voice:state', listener);
+    return () => ipcRenderer.removeListener('voice:state', listener);
+  },
 
   // ── macOS-only mini widgets ──
   // Shared: detect / 1-click-install the free Homebrew CLIs some mac widgets use

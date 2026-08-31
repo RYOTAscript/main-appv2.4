@@ -32,17 +32,54 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execSync } = require('child_process');
-const { shell } = require('electron');
+const { app, shell, safeStorage } = require('electron');
 
 // ── Config ──────────────────────────────────────────────────────────────────
-// The deployed website is the licensing authority. Override with MAIN_SITE_URL
-// (e.g. set MAIN_SITE_URL=http://localhost:3000 while developing locally).
-const SITE_URL = (process.env.MAIN_SITE_URL || 'https://main-website-eosin-beta.vercel.app').replace(/\/$/, '');
-// From your Google "Desktop app" OAuth client (see website docs/DESKTOP_APP_AUTH.md).
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_DESKTOP_CLIENT_ID || '';
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_DESKTOP_CLIENT_SECRET || '';
+// The deployed website is the licensing authority. In a dev run (`npm start`)
+// MAIN_SITE_URL repoints it — e.g. http://localhost:3000; see the dev-only
+// override block below for why a packaged build ignores it.
+
+// ── Google "Desktop app" OAuth credentials ───────────────────────────────────
+// PASTE YOUR CREDENTIALS HERE to enable in-app Google sign-in. They come from
+// the Google Cloud console → Credentials → OAuth client ID → "Desktop app"
+// (see website docs/DESKTOP_APP_AUTH.md).
+//
+// Yes, these are baked into a shipped binary, and that is correct: Google
+// documents that an installed app cannot keep a client secret, which is exactly
+// why this flow uses PKCE + a validated `state` and why the secret is not a
+// security boundary here. Leaving them blank does NOT make the app safer — it
+// only disables Google sign-in, which pushes every user onto the pasteable
+// license key, the most shareable credential we issue.
+//
+// While these are blank the gate hides the Google button (see getState's
+// googleAvailable) and key-paste stays the only route in.
+// The real values live in main/googleCredentials.js, which is gitignored: a
+// credential sitting in a repository is far easier to harvest at scale than one
+// inside a shipped installer, and GitHub's push protection rejects it outright.
+// A clone without that file gets blanks, which hides the Google button and
+// leaves key-paste as the only route in — see googleCredentials.example.js.
+const googleCreds = (() => {
+  try { return require('./googleCredentials'); } catch (e) { return {}; }
+})();
+const GOOGLE_DESKTOP_CLIENT_ID = googleCreds.GOOGLE_DESKTOP_CLIENT_ID || '';
+const GOOGLE_DESKTOP_CLIENT_SECRET = googleCreds.GOOGLE_DESKTOP_CLIENT_SECRET || '';
+
+// ── Dev-only overrides ───────────────────────────────────────────────────────
+// These repoint the licensing authority, so they're honoured ONLY in an
+// unpackaged dev run. In a shipped build an environment variable must never be
+// able to nominate a different verify server: a fake authority still can't forge
+// a signature, but it hands half the attack to anyone who patches the baked-in
+// public key, for no benefit to a real user.
+const IS_DEV = (() => {
+  try { return !app.isPackaged; } catch (e) { return false; }
+})();
+const devEnv = (name) => (IS_DEV ? process.env[name] || '' : '');
+
+const SITE_URL = (devEnv('MAIN_SITE_URL') || 'https://main-website-eosin-beta.vercel.app').replace(/\/$/, '');
+const GOOGLE_CLIENT_ID = GOOGLE_DESKTOP_CLIENT_ID || devEnv('GOOGLE_DESKTOP_CLIENT_ID');
+const GOOGLE_CLIENT_SECRET = GOOGLE_DESKTOP_CLIENT_SECRET || devEnv('GOOGLE_DESKTOP_CLIENT_SECRET');
 // Optional shared secret if the website's verify endpoint is locked down.
-const VERIFY_SECRET = process.env.LICENSE_VERIFY_SECRET || '';
+const VERIFY_SECRET = devEnv('LICENSE_VERIFY_SECRET');
 
 // Ed25519 PUBLIC key that verifies license tokens. Its private half lives only
 // on the website (LICENSE_SIGNING_PRIVATE_KEY). A public key can only VERIFY,
@@ -120,6 +157,10 @@ let storePath = null;
 // The compute/hash logic lives in ./machineId (electron-free + unit-tested); the
 // Windows result is byte-identical to before so existing users aren't logged out.
 const { computeMachineId } = require('./machineId');
+const {
+  effectiveMaxSeen: pickMaxSeen, isRollback, nextWatermark,
+} = require('./licenseWatermark');
+const { RETURN_PAGE } = require('./licenseReturnPage');
 let _machineId = null;
 function machineId() {
   if (!_machineId) _machineId = computeMachineId();
@@ -165,18 +206,75 @@ function tokenUnlock(stored) {
   // that's the "set the system clock back to dodge expiry" trick. On a detected
   // rollback we fail closed here, which forces an online re-verify (fresh token).
   if (typeof p.iat === 'number' && now < p.iat - ROLLBACK_SKEW_MS) return null;
-  if (typeof stored.maxSeen === 'number' && now < stored.maxSeen - ROLLBACK_SKEW_MS) return null;
+  // Rollback watermark. Reading it through effectiveMaxSeen() matters: the old
+  // check was `typeof stored.maxSeen === 'number' && ...`, which meant deleting
+  // that one field from license.json made the guard skip ITSELF, and a wound-back
+  // clock then replayed a 3-day token forever. Now a record that should carry a
+  // watermark and doesn't is treated as tampered, not as permission to skip.
+  if (isRollback(effectiveMaxSeen(stored), now, ROLLBACK_SKEW_MS)) return null;
   if (typeof p.exp !== 'number' || now >= p.exp) return null;
   return p;
 }
 
-// Persist the newest wall-clock time we've legitimately observed, so a later
-// backward jump is detectable (see tokenUnlock's rollback guard).
+// ── Rollback watermark ────────────────────────────────────────────────────────
+// The newest wall-clock time we've legitimately observed. license.json is
+// plaintext and user-owned, so the watermark is MIRRORED to a second file that
+// goes through safeStorage (OS-encrypted): a user can delete that file but can't
+// hand-edit it down to a smaller number, and we take whichever copy is newer.
+//
+// `wm: 1` on the record marks "the mirror has been established". Its absence is
+// the one-run grace for a record written by a build that predates this mirror —
+// without it, upgrading users would be logged straight out. Once set, a missing
+// mirror means someone removed it.
+function watermarkPath() {
+  return storePath ? storePath.replace(/license\.json$/, 'license-wm') : null;
+}
+
+function readWatermark() {
+  try {
+    const p = watermarkPath();
+    if (!p || !fs.existsSync(p)) return null;
+    const raw = fs.readFileSync(p);
+    // Encrypted normally; plaintext only where the OS offers no key store.
+    let text;
+    if (app.isReady() && safeStorage.isEncryptionAvailable()) {
+      try { text = safeStorage.decryptString(raw); } catch (e) { text = raw.toString('utf8'); }
+    } else {
+      text = raw.toString('utf8');
+    }
+    const v = JSON.parse(text);
+    return typeof v?.maxSeen === 'number' ? v.maxSeen : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeWatermark(ms) {
+  try {
+    const p = watermarkPath();
+    if (!p) return;
+    const json = JSON.stringify({ maxSeen: ms });
+    const usable = app.isReady() && safeStorage.isEncryptionAvailable();
+    fs.writeFileSync(p, usable ? safeStorage.encryptString(json) : json, { mode: 0o600 });
+  } catch (e) {
+    /* non-fatal — the in-record copy still applies */
+  }
+}
+
+/** The watermark to enforce, reading both copies. See ./licenseWatermark.js. */
+function effectiveMaxSeen(stored) {
+  return pickMaxSeen(stored, readWatermark());
+}
+
+// Advance both copies to now. Called on each successful launch.
 function noteSeen(stored) {
   try {
     const now = Date.now();
-    if (stored && (!stored.maxSeen || now > stored.maxSeen)) {
-      stored.maxSeen = now;
+    const next = nextWatermark(effectiveMaxSeen(stored), now);
+    writeWatermark(next);
+    if (stored && (stored.maxSeen !== next || !stored.wm)) {
+      stored.maxSeen = next;
+      stored.wm = 1; // mirror established — its absence is tampering from here on
       writeStore(stored);
     }
   } catch (e) {
@@ -209,6 +307,14 @@ function clearStore() {
     if (fs.existsSync(storePath)) fs.unlinkSync(storePath);
   } catch (e) {
     logger?.warn?.('Failed to clear license store', e);
+  }
+  // Drop the watermark mirror too — a genuine sign-out/revoke must not leave a
+  // stale marker that makes the next legitimate unlock look like tampering.
+  try {
+    const p = watermarkPath();
+    if (p && fs.existsSync(p)) fs.unlinkSync(p);
+  } catch (e) {
+    /* non-fatal */
   }
 }
 
@@ -270,7 +376,9 @@ async function mintAndStore(key, extra = {}) {
     machineId: machineId(),
     lastVerified: Date.now(),
     maxSeen: Date.now(),
+    wm: 1,
   };
+  writeWatermark(rec.maxSeen);
   writeStore(rec);
   return { valid: true, license: rec };
 }
@@ -319,17 +427,61 @@ function signInWithGoogle() {
     const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
     const state = b64url(crypto.randomBytes(16));
     let settled = false;
-    const done = (v) => { if (!settled) { settled = true; try { server.close(); } catch {} resolve(v); } };
+    // What the browser tab is told. The tab is answered the instant Google
+    // redirects to it — long before the token exchange, the site call and the
+    // activation have run — so instead of the old page that always claimed
+    // success, it gets a "finishing" state and polls /status for the real
+    // outcome. A failure now ends up on screen where the user is looking,
+    // rather than only in the app behind the browser window.
+    let outcome = { state: 'working', stage: 'auth' };
+    // Advances as the handshake progresses: auth → license → device. The
+    // return page renders it as a live trace, so a failure names its stage
+    // on screen instead of only in the log.
+    const setStage = (stage) => { if (!settled) outcome = { state: 'working', stage }; };
+    const done = (v) => {
+      if (settled) return;
+      settled = true;
+      const stage = outcome.stage || 'auth';
+      outcome = v.ok
+        ? {
+            state: 'ok',
+            stage,
+            title: v.purchased ? 'You’re all set' : 'Signed in',
+            detail: v.purchased
+              ? 'main is unlocked on this computer. You can close this tab.'
+              : 'Signed in, but this account has no license yet. Head back to main to buy one.',
+          }
+        : { state: 'error', stage, title: 'Sign-in didn’t finish', detail: v.error };
+      resolve(v);
+      // Leave the loopback server up briefly so the tab can pick up that final
+      // state, then tear it down.
+      const t = setTimeout(() => {
+        try { server.closeAllConnections?.(); } catch (e) { /* older Node */ }
+        try { server.close(); } catch (e) { /* already closing */ }
+      }, 4000);
+      if (t.unref) t.unref();
+    };
 
     const server = http.createServer(async (req, res) => {
       try {
         const url = new URL(req.url, 'http://127.0.0.1');
+
+        // Poll target for the page served below.
+        if (url.pathname === '/status') {
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+          });
+          res.end(JSON.stringify(outcome));
+          return;
+        }
+
         if (!url.searchParams.get('code') && !url.searchParams.get('error')) {
           res.writeHead(204).end();
           return;
         }
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<!doctype html><meta charset="utf-8"><body style="background:#080808;color:#fff;font-family:sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>You can close this tab and return to main.</p></body>');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(RETURN_PAGE);
 
         if (url.searchParams.get('error')) throw new Error(url.searchParams.get('error'));
         if (url.searchParams.get('state') !== state) throw new Error('State mismatch');
@@ -350,16 +502,58 @@ function signInWithGoogle() {
           signal: AbortSignal.timeout(NET_TIMEOUT_MS),
         });
         const tokens = await tokenRes.json();
-        if (!tokens.id_token) throw new Error(tokens.error_description || 'No id_token from Google');
+        if (!tokens.id_token) {
+          // Google rejected the code exchange. `error` is the machine-readable
+          // half and is what actually identifies the misconfiguration —
+          // redirect_uri_mismatch here almost always means the OAuth client was
+          // created as a "Web application" instead of a "Desktop app", since only
+          // the desktop type accepts a loopback redirect on a random port.
+          logger?.error?.('Google token exchange rejected', null, {
+            status: tokenRes.status,
+            error: tokens.error || null,
+            description: tokens.error_description || null,
+          });
+          if (tokens.error === 'redirect_uri_mismatch') {
+            throw new Error(
+              'Google rejected the sign-in redirect. The OAuth client must be of type "Desktop app".',
+            );
+          }
+          if (tokens.error === 'invalid_client') {
+            throw new Error('Google rejected this app’s credentials. Check the client ID and secret.');
+          }
+          throw new Error(tokens.error_description || tokens.error || 'No id_token from Google');
+        }
 
+        setStage('license');
         const siteRes = await fetch(`${SITE_URL}/api/app/session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ idToken: tokens.id_token }),
           signal: AbortSignal.timeout(NET_TIMEOUT_MS),
         });
-        const data = await siteRes.json();
-        if (!siteRes.ok || !data.authenticated) throw new Error(data.error || 'Sign-in failed');
+        const data = await siteRes.json().catch(() => ({}));
+        if (!siteRes.ok || !data.authenticated) {
+          logger?.error?.('Licensing server rejected the Google sign-in', null, {
+            siteUrl: SITE_URL,
+            status: siteRes.status,
+            error: data.error || null,
+          });
+          if (siteRes.status === 503) {
+            throw new Error('The licensing server isn’t set up for app sign-in yet.');
+          }
+          if (siteRes.status === 401) {
+            // The id_token is real and freshly signed by Google, so a 401 here is
+            // an audience mismatch: the server's GOOGLE_DESKTOP_CLIENT_ID doesn't
+            // match the client ID this build signs in with.
+            logger?.warn?.(
+              'Google token was valid but the site refused it — the server\'s GOOGLE_DESKTOP_CLIENT_ID ' +
+              'must equal this build\'s client ID',
+              { clientId: GOOGLE_CLIENT_ID },
+            );
+            throw new Error('The licensing server didn’t accept this Google account. Try again shortly.');
+          }
+          throw new Error(data.error || 'Sign-in failed');
+        }
 
         if (data.purchased && data.license) {
           const licenseKey = String(data.license.key || '').trim().toUpperCase();
@@ -369,6 +563,7 @@ function signInWithGoogle() {
           // Prove the entitlement the same way as key-paste: mint & verify a
           // machine-bound signed token. Google sign-in identifies the user; the
           // token is what actually unlocks the app.
+          setStage('device');
           const minted = await mintAndStore(licenseKey, {
             provider: 'google',
             email: data.email,
@@ -390,8 +585,11 @@ function signInWithGoogle() {
           done({ ok: true, purchased: false, email: data.email });
         }
       } catch (e) {
-        logger?.warn?.('Google sign-in failed', e);
-        done({ ok: false, error: 'Google sign-in failed. Please try again.' });
+        // Log the reason, not just the fact. The old bare warning meant every
+        // distinct failure — bad client type, audience mismatch, network, a
+        // declined consent screen — looked identical in the log.
+        logger?.error?.('Google sign-in failed', e, { siteUrl: SITE_URL });
+        done({ ok: false, error: e?.message || 'Google sign-in failed. Please try again.' });
       }
     });
 

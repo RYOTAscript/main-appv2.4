@@ -148,10 +148,39 @@ export type PayPalCapture = {
 };
 
 /** Capture an approved order. Returns the normalized capture result. */
+/**
+ * Read an order without capturing it, so the caller can check who it belongs to.
+ *
+ * The order id arrives on the `return_url` as a query parameter, which means the
+ * browser handing it to us is not necessarily the browser that started the
+ * checkout. `custom_id` carries the buyer's user id (set in createOrder), so the
+ * return route compares it against the session before it captures anything —
+ * otherwise an approved order id pasted into a second signed-in account would
+ * mint that account the license the first one paid for.
+ *
+ * Returns null when PayPal doesn't recognise the id.
+ */
+export async function getOrderOwner(orderId: string): Promise<string | null> {
+  const token = await getAccessToken();
+  const res = await fetch(
+    `${BASE}/v2/checkout/orders/${encodeURIComponent(orderId)}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    },
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  const unit = data?.purchase_units?.[0];
+  return (unit?.custom_id as string | undefined) ?? null;
+}
+
 export async function captureOrder(orderId: string): Promise<PayPalCapture> {
   const token = await getAccessToken();
   const res = await fetch(
-    `${BASE}/v2/checkout/orders/${orderId}/capture`,
+    // Encoded: orderId comes off a query string, and an unescaped value could
+    // otherwise walk to a different PayPal API path.
+    `${BASE}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`,
     {
       method: "POST",
       headers: {

@@ -58,9 +58,31 @@ export function rateLimit(
   return { ok: true, remaining: limit - existing.count, retryAfterSec: 0 };
 }
 
-/** Best-effort client IP from common proxy headers (Vercel sets these). */
+/**
+ * Best-effort client IP for rate-limit keying.
+ *
+ * Order matters here, and the obvious reading of X-Forwarded-For is the wrong
+ * one. A client can send its own XFF header and the proxy *appends* to it rather
+ * than replacing it, so the FIRST entry is attacker-controlled — keying on it
+ * lets anyone reset their own bucket by rotating a header. The LAST entry is the
+ * hop our proxy actually saw, which is the one worth trusting.
+ *
+ * So: prefer the headers only the platform can set, and fall back to the last
+ * XFF hop rather than the first.
+ */
 export function clientIp(req: Request): string {
+  // Set by Vercel's edge from the real connection; a client-supplied copy is
+  // overwritten, not appended to.
+  const vercel = req.headers.get("x-vercel-forwarded-for")?.trim();
+  if (vercel) return vercel.split(",").pop()!.trim();
+
+  const real = req.headers.get("x-real-ip")?.trim();
+  if (real) return real;
+
   const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0]!.trim();
-  return req.headers.get("x-real-ip")?.trim() || "unknown";
+  if (xff) {
+    const hops = xff.split(",").map((h) => h.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1]!;
+  }
+  return "unknown";
 }

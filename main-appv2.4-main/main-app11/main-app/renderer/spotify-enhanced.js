@@ -353,7 +353,7 @@
                 : '';
 
             const tabBar = `<div class="flex items-center gap-1.5 mt-3 mb-3">
-                ${tabs.map(t => `<button type="button" onclick="switchSpotifyEnhancedTab('${t.id}')"
+                ${tabs.map(t => `<button type="button" onclick="switchSpotifyEnhancedTab(${jsAttr(t.id)})"
                     class="flex-1 px-2 py-1.5 rounded-lg text-[11px] border transition-colors no-drag ${spotifyEnhancedTab === t.id ? 'bg-white/10 border-white/20 text-white' : 'bg-neutral-800/30 border-neutral-700/50 text-neutral-400 hover:text-neutral-200'}">
                     <i class="fas ${t.icon} mr-1"></i>${t.label}</button>`).join('')}
                 <button type="button" onclick="renderSpotifyEnhancedPanel()" title="Refresh"
@@ -444,8 +444,8 @@
                 const thumb = p.image
                     ? `<img src="${esc(p.image)}" class="w-9 h-9 rounded-md object-cover shrink-0" onerror="this.style.display='none'">`
                     : `<div class="w-9 h-9 rounded-md bg-neutral-800 flex items-center justify-center shrink-0"><i class="fas fa-music text-[10px] text-neutral-600"></i></div>`;
-                return `<div class="flex items-center gap-2 border border-white/10 rounded-xl p-2 cursor-pointer hover:bg-white/5 transition-colors no-drag" onclick="spotifyEnhancedPlayContext('${esc(p.uri)}')" title="Play playlist">
-                    <button type="button" onclick="event.stopPropagation(); spotifyToggleFavPlaylist('${esc(p.id)}')" title="${on ? 'Unfavourite' : 'Favourite'}"
+                return `<div class="flex items-center gap-2 border border-white/10 rounded-xl p-2 cursor-pointer hover:bg-white/5 transition-colors no-drag" onclick="spotifyEnhancedPlayContext(${jsAttr(p.uri)})" title="Play playlist">
+                    <button type="button" onclick="event.stopPropagation(); spotifyToggleFavPlaylist(${jsAttr(p.id)})" title="${on ? 'Unfavourite' : 'Favourite'}"
                         class="w-6 h-6 flex items-center justify-center shrink-0 ${on ? 'text-amber-400' : 'text-neutral-500'} hover:text-amber-300 transition-colors"><i class="${on ? 'fas' : 'far'} fa-star text-xs"></i></button>
                     ${thumb}
                     <div class="min-w-0 flex-1"><p class="text-xs text-neutral-200 truncate">${esc(p.name)}</p><p class="text-[10px] text-neutral-500 truncate">${esc(p.owner || '')}</p></div>
@@ -553,7 +553,7 @@
             const s = ewStateHtml(res); if (s) { content.innerHTML = s; return; }
             if (!res.items.length) { content.innerHTML = `<p class="spotify-ew-empty">Nothing yet.</p>`; return; }
             content.innerHTML = res.items.map((t) =>
-                `<div class="spotify-ew-row clickable" onclick="spotifyEnhancedPlayUri('${esc(t.uri)}')" title="${esc(t.name)}">${ewThumb(t)}<span class="spotify-ew-name">${esc(t.name)}</span></div>`
+                `<div class="spotify-ew-row clickable" onclick="spotifyEnhancedPlayUri(${jsAttr(t.uri)})" title="${esc(t.name)}">${ewThumb(t)}<span class="spotify-ew-name">${esc(t.name)}</span></div>`
             ).join('');
         }
 
@@ -569,8 +569,8 @@
             let html = `<div class="spotify-ew-sub"><span class="spotify-ew-caption">${sorted.length}</span><button type="button" class="spotify-ew-sort" onclick="spotifyToggleSortMode()" title="Toggle sort">${mode === 'alpha' ? 'A–Z' : 'Recent'} ⇄</button></div>`;
             html += sorted.map((p) => {
                 const on = favs.has(p.id);
-                return `<div class="spotify-ew-row clickable" onclick="spotifyEnhancedPlayContext('${esc(p.uri)}')" title="${esc(p.name)}">
-                    <button type="button" class="spotify-ew-star ${on ? 'on' : ''}" onclick="event.stopPropagation(); spotifyToggleFavPlaylist('${esc(p.id)}')"><i class="${on ? 'fas' : 'far'} fa-star"></i></button>
+                return `<div class="spotify-ew-row clickable" onclick="spotifyEnhancedPlayContext(${jsAttr(p.uri)})" title="${esc(p.name)}">
+                    <button type="button" class="spotify-ew-star ${on ? 'on' : ''}" onclick="event.stopPropagation(); spotifyToggleFavPlaylist(${jsAttr(p.id)})"><i class="${on ? 'fas' : 'far'} fa-star"></i></button>
                     ${ewThumb(p)}
                     <span class="spotify-ew-name">${esc(p.name)}</span>
                 </div>`;

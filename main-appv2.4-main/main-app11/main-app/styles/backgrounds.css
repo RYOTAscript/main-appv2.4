@@ -35,6 +35,17 @@
     overflow: hidden;
 }
 
+/* The backdrop layers only cover ONE display, so moving the window to a screen
+   edge — or across a monitor seam — leaves part of the bled box with no pixels
+   under it, and the blur then samples transparency and washes that side of the
+   card out. A flat near-black behind them turns that into a soft dark falloff
+   (it gets blurred along with everything else) instead of a see-through hole.
+   Only paints while a backdrop layer is actually showing; the plain Transparent
+   preset with no effects stays truly see-through. */
+#bg-backdrop:has(.bg-active) {
+    background: #08080a;
+}
+
 /* Everything inside fills the bled root. */
 #bg-root .bg-scene,
 #bg-root .bg-blob,
@@ -133,15 +144,36 @@
    positioned by JS to line up exactly with the real desktop behind the
    window, so the filters on #bg-root appear to frost the desktop itself —
    and the card's rounded corners clip them cleanly. Sized/offset inline by
-   bgPositionWallpaper(). */
+   bgPositionWallpaper().
+
+   The offset is a TRANSFORM, not left/top: these layers sit under #bg-root's
+   blur filter, so a left/top write dirties layout for the whole filtered
+   subtree — during a window drag that meant re-laying-out and re-blurring a
+   screen-sized video on every step, which is exactly what made the frosted
+   backdrop stutter and trail behind the card. A translate moves the already
+   rasterised layer on the compositor instead, so they anchor at 0,0 here and
+   bgPositionWallpaper() only writes transform. */
 .bg-wallpaper {
     display: none;
     position: absolute;
+    left: 0;
+    top: 0;
     object-fit: cover;
 }
 
 .bg-wallpaper.bg-active {
     display: block;
+    will-change: transform;
+}
+
+/* The live capture is the WHOLE screen and the element is sized to exactly that
+   display, so `fill` maps stream → display 1:1 by construction, whatever
+   resolution the stream comes back at. `cover` (kept for the wallpaper image,
+   which is an arbitrary file that legitimately needs cropping) would turn any
+   aspect-ratio mismatch into a scale-up plus a centred crop — i.e. the backdrop
+   silently zooming and sliding sideways. There is nothing to crop here. */
+#bg-live {
+    object-fit: fill;
 }
 
 /* ── User media + particle canvas ── */

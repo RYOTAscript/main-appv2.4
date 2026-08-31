@@ -192,5 +192,23 @@
                         ${city ? `<button type="button" onclick="weatherEnhUseLocation()" class="text-[10px] text-neutral-400 hover:text-white transition-colors no-drag"><i class="fas fa-location-crosshairs mr-1"></i>Use my location</button>` : ''}
                     </div>
                 </div>
+                ${weatherAttributionHtml()}
             </div>`;
+        }
+
+        // Data-source credit. Place names can come from OpenStreetMap via
+        // Nominatim, and OSM data is ODbL — which requires the attribution to be
+        // shown wherever the data is, not buried in a licence file. The other two
+        // providers are credited alongside it because their free tiers ask for the
+        // same. Keep this visible if you touch the panel layout.
+        function weatherAttributionHtml() {
+            return `<p class="text-[10px] leading-relaxed text-neutral-600 border-t border-white/5 pt-2">
+                Weather by <a href="#" onclick="weatherOpenSource('https://wttr.in'); return false;" class="text-neutral-500 hover:text-neutral-300 transition-colors no-drag">wttr.in</a>.
+                Place names from <a href="#" onclick="weatherOpenSource('https://www.openstreetmap.org/copyright'); return false;" class="text-neutral-500 hover:text-neutral-300 transition-colors no-drag">© OpenStreetMap contributors</a> (ODbL)
+                and <a href="#" onclick="weatherOpenSource('https://www.bigdatacloud.com'); return false;" class="text-neutral-500 hover:text-neutral-300 transition-colors no-drag">BigDataCloud</a>.
+            </p>`;
+        }
+
+        function weatherOpenSource(url) {
+            if (window.electronAPI?.openExternal) window.electronAPI.openExternal(url);
         }

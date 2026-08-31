@@ -2,6 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <!-- Content-Security-Policy: this overlay renders only its own local markup and
+       talks to the main process over IPC, so everything else is denied. script-src
+       keeps 'unsafe-inline' for this file's own inline <script> block. -->
+  <meta http-equiv="Content-Security-Policy" content="
+      default-src 'none';
+      script-src 'self' 'unsafe-inline' file:;
+      style-src 'self' 'unsafe-inline' file:;
+      img-src 'self' file: data: blob:;
+      media-src 'self' file: data: blob:;
+      font-src 'self' file: data:;
+      connect-src 'none';
+      object-src 'none';
+      frame-src 'none';
+      child-src 'none';
+      worker-src 'none';
+      base-uri 'none';
+      form-action 'none';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Unlock main</title>
   <style>

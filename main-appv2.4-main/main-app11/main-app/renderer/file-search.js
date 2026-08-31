@@ -213,7 +213,7 @@
         function fsSortBtn(key, label) {
             const active = fsSortBy === key;
             const arrow = active ? (fsSortDir === 'asc' ? ' <i class="fas fa-arrow-up-short-wide text-[9px]"></i>' : ' <i class="fas fa-arrow-down-wide-short text-[9px]"></i>') : '';
-            return `<button type="button" class="fs-sort-btn no-drag ${active ? 'fs-sort-active' : ''}" onclick="fsSetSort('${key}')">${label}${arrow}</button>`;
+            return `<button type="button" class="fs-sort-btn no-drag ${active ? 'fs-sort-active' : ''}" onclick="fsSetSort(${jsAttr(key)})">${label}${arrow}</button>`;
         }
 
         function fsPaintStatus() {

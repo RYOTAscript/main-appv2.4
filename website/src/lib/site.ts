@@ -14,7 +14,7 @@ export const SITE_URL =
 export const SITE = {
   name: "main",
   /** Current desktop-app version — kept in sync with main-app11 package.json. */
-  version: "4.0.1",
+  version: "4.1.0",
   tagline: "your desktop, glassed.",
   author: "ryota",
   description:

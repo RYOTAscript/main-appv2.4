@@ -1,6 +1,6 @@
 {
   "name": "main-app",
-  "version": "4.0.1",
+  "version": "4.1.0",
   "description": "main",
   "main": "main.js",
   "scripts": {
@@ -42,6 +42,10 @@
       "mic-mute-overlay-preload.js",
       "crosshair-overlay.html",
       "crosshair-overlay-preload.js",
+      "area-select-overlay.html",
+      "area-select-overlay-preload.js",
+      "voice-overlay.html",
+      "voice-overlay-preload.js",
       "icons/**/*",
       "node_modules/ffmpeg-static/**/*"
     ],
