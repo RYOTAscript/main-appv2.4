@@ -70,6 +70,11 @@ const SETTLE_MS = { success: 1000, error: 2000, answer: 3600, answerMax: 6000, e
 const MIN_PEAK_LEVEL = 3;
 // ...and the gate only applies once this many samples prove the meter is live.
 const MIN_LEVEL_SAMPLES = 3;
+// Waking is unsolicited, so it has to clear an unambiguously real voice rather
+// than merely clearing silence. Deliberately a large multiple of MIN_PEAK_LEVEL:
+// the cost of a missed wake is saying it again, the cost of a false wake is the
+// overlay opening on its own and very nearly launching an app.
+const WAKE_MIN_PEAK_LEVEL = 18;
 const EXECUTE_TIMEOUT_MS = 12000;
 const HOST_START_TIMEOUT_MS = 30000;
 
@@ -403,6 +408,7 @@ function init(ctx) {
     }
 
     if (state === V.VOICE_STATES.HIDDEN) {
+      holdEscape(false);
       pendingConfirm = null;
       lastHypothesis = '';
       pushState(extra);
@@ -417,6 +423,7 @@ function init(ctx) {
     ensureOverlay();
     pushState(extra);
     showOverlay();
+    holdEscape(true);
 
     if (state === V.VOICE_STATES.SUCCESS || state === V.VOICE_STATES.ERROR) {
       // Something with content to read stays up long enough to read it.
@@ -762,6 +769,19 @@ function init(ctx) {
     // than a command the user deliberately activated for.
     if (!Number.isFinite(confidence) || confidence < settings.wakeConfidence) {
       logger.debug('Wake phrase below its confidence floor', { text, confidence });
+      return;
+    }
+
+    // ── And its own LEVEL bar ──
+    // MIN_PEAK_LEVEL is set just above the measured silence floor so a
+    // deliberately-activated command from a quiet voice is never thrown away.
+    // That is far too permissive for a phrase nobody asked for: with the wake
+    // word on, the assistant was waking on near-silence — the log literally
+    // reads `Woken by voice {"command":"silence"}` — and popping the overlay
+    // open by itself. Waking is unsolicited, so it must clear a real voice.
+    if (levelSamples >= MIN_LEVEL_SAMPLES && peakLevel < WAKE_MIN_PEAK_LEVEL) {
+      logger.log('Wake ignored: no speech-level audio behind it', 'INFO',
+        { heard: text, peakLevel, floor: WAKE_MIN_PEAK_LEVEL });
       return;
     }
     const parsed = V.stripWakePhrase(text);
@@ -1335,6 +1355,25 @@ function init(ctx) {
     armListenTimeout();
   }
 
+  // ── Esc to dismiss ─────────────────────────────────────────────────────
+  // The overlay is shown INACTIVE (it is a HUD and must not steal focus from a
+  // game), so it almost never receives a keystroke itself. A global accelerator
+  // is the only way Esc can reach it — but Esc is far too valuable a key to hold
+  // permanently, so it is held ONLY while the overlay is actually on screen and
+  // released the moment it is not.
+  let escHeld = false;
+
+  function holdEscape(on) {
+    if (on === escHeld) return;
+    if (on) {
+      try { escHeld = globalShortcut.register('Escape', () => cancel()); }
+      catch (e) { escHeld = false; }
+    } else {
+      try { globalShortcut.unregister('Escape'); } catch (e) { /* already gone */ }
+      escHeld = false;
+    }
+  }
+
   function cancel() {
     clearTimeout(listenTimer);
     listenTimer = null;
@@ -1732,6 +1771,7 @@ function init(ctx) {
     resumeTriggers: () => { triggersSuspended = false; registerHotkey(); reconcileMic(); },
     teardown: () => {
       tearingDown = true;
+      holdEscape(false);
       if (speaker) { speaker.stop(); speaker = null; }
       clearTimeout(listenTimer);
       clearTimeout(settleTimer);

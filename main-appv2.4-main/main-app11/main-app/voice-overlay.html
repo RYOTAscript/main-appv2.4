@@ -1725,8 +1725,12 @@
                 signalled = true;
                 try { api.painted(); } catch (e) { /* window closing */ }
             };
+            // 0, not 24. The DOM was updated synchronously above, and the window
+            // is HIDDEN — it cannot paint, so waiting for frames buys nothing and
+            // simply delays the reveal. rAF stays as a second path for the case
+            // where the window is already visible and a real frame is cheap.
             requestAnimationFrame(() => requestAnimationFrame(signal));
-            setTimeout(signal, 24);
+            setTimeout(signal, 0);
         }
     }
 
@@ -1751,6 +1755,16 @@
             typedEl.focus();
             e.preventDefault();
         }
+    });
+
+    // Esc dismisses. Handled here for when the overlay has focus (the typed
+    // field), and mirrored by a temporary global accelerator in main for when it
+    // does not — the overlay is shown inactive, so it usually never sees a key.
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (!api || current.state === 'hidden') return;
+        e.preventDefault();
+        api.cancel();
     });
 
     // Click the form to listen again (configurable).

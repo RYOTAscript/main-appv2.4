@@ -807,6 +807,30 @@ if (!gotSingleInstanceLock) {
     logger.log(payload.message, payload.type || 'RENDERER', payload.meta || {});
   });
 
+  // ── Globally-destructive accelerators ──
+  // A global shortcut is taken from EVERY application, not just this one. Bound
+  // to something near-universal it does not read as a hotkey at all — it reads
+  // as the app randomly appearing, because the user is pressing Ctrl+N to open a
+  // new tab and getting the launcher instead. Reported exactly that way.
+  //
+  // Not blocked: it is the user's machine and they may have a reason. But it can
+  // no longer happen silently.
+  const RISKY_ACCELERATORS = new Set([
+    'Control+N', 'Control+T', 'Control+W', 'Control+S', 'Control+O', 'Control+P',
+    'Control+F', 'Control+A', 'Control+C', 'Control+V', 'Control+X', 'Control+Z',
+    'Control+Y', 'Control+R', 'Control+D', 'Control+E', 'Control+B', 'Control+L',
+    'Control+G', 'Control+H', 'Control+J', 'Control+K', 'Control+U', 'Control+Q',
+    'Control+Tab', 'Alt+Tab', 'Alt+F4', 'Control+Escape'
+  ]);
+
+  function acceleratorWarning(accel) {
+    const a = String(accel || '').replace(/CommandOrControl/gi, 'Control').trim();
+    if (!RISKY_ACCELERATORS.has(a)) return '';
+    return a.replace('Control', 'Ctrl') +
+      ' is used by almost every app. Bound globally it will be taken from all of them, ' +
+      'so pressing it anywhere will bring main to the front.';
+  }
+
   ipcMain.handle('set-focus-hotkey', (_event, accelerator) => {
     // '-' is the renderer's "unbound" sentinel, not a real binding.
     if (!accelerator || typeof accelerator !== 'string' || accelerator === '-') {
@@ -816,8 +840,10 @@ if (!gotSingleInstanceLock) {
       logger.error('Focus hotkey registration failed', null, { accelerator });
       return { success: false, error: 'Hotkey unavailable or already in use' };
     }
+    const warning = acceleratorWarning(accelerator);
+    if (warning) logger.warn('Focus hotkey bound to a globally-common key', { accelerator });
     logger.success('Focus hotkey updated', { accelerator });
-    return { success: true };
+    return { success: true, warning };
   });
 
   ipcMain.handle('get-focus-hotkey', () => focusHotkey);

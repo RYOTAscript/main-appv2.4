@@ -21,7 +21,7 @@ const path = require('path');
 
 // Entries that are not applications. Shipping these as voice targets would fill
 // the grammar with noise and let "uninstall" become a spoken command.
-const SKIP = /(uninstall|remove |readme|read me|release notes|help$|documentation|website|manual|licence|license|report a (bug|problem)|feedback|command prompt|powershell|registry editor|troubleshoot|check for .*update|what.s new|telemetry|module docs|language preferences|support cent(er|re)|diagnostics|install additional|effect builder|preset manager|administrative tools)/i;
+const SKIP = /(uninstall|remove |readme|read me|release notes|help$|documentation|website|manual|licence|license|report a (bug|problem)|feedback|command prompt|powershell|registry editor|troubleshoot|check for .*update|what.{0,3} new|telemetry|module docs|language preferences|support cent(er|re)|diagnostics|install additional|effect builder|preset manager|administrative tools)/i;
 
 // Windows decorates names in ways nobody says out loud.
 function speakableName(base) {

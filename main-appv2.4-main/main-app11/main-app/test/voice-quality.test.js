@@ -18,6 +18,7 @@ const R = require('../main/voiceResponses');
 const here = (...p) => path.join(__dirname, '..', ...p);
 const hostSrc = fs.readFileSync(here('main', 'voiceHostScript.js'), 'utf8');
 const assistantSrc = fs.readFileSync(here('main', 'voiceAssistant.js'), 'utf8');
+const overlayQ = fs.readFileSync(here('voice-overlay.html'), 'utf8');
 
 const vocab = V.buildVocabulary({});
 
@@ -612,4 +613,70 @@ test('the updates card shows the product mark, not a stock glyph', () => {
   const card = html.slice(html.indexOf('id="updates-section"'), html.indexOf('updates-msg'));
   assert.ok(!/fa-rocket/.test(card), 'the rocket is gone');
   assert.match(card, /updates-avatar[^>]*><img src="icons\/logo-128\.png"/);
+});
+
+// ── Esc, and the cost of holding it ──────────────────────────────────────────
+
+test('Esc is held only while the overlay is actually on screen', () => {
+  // A global accelerator takes the key from every other app, and Esc is far too
+  // valuable to hold permanently. It is registered when the overlay is shown and
+  // released the moment it is hidden — and on teardown, so a crash cannot leave
+  // the user's Esc key captured.
+  assert.match(assistantSrc, /function holdEscape\(on\)/);
+  assert.match(assistantSrc, /globalShortcut\.register\('Escape', \(\) => cancel\(\)\)/);
+  assert.match(assistantSrc, /showOverlay\(\);\s*\n\s*holdEscape\(true\);/);
+  assert.match(assistantSrc, /VOICE_STATES\.HIDDEN\) \{\s*\n\s*holdEscape\(false\);/);
+  assert.match(assistantSrc, /tearingDown = true;\s*\n\s*holdEscape\(false\);/);
+});
+
+test('the overlay also handles Esc itself, for when it does have focus', () => {
+  assert.match(overlayQ, /if \(e\.key !== 'Escape'\) return;/);
+  assert.match(overlayQ, /current\.state === 'hidden'\) return;/,
+    'and does nothing when there is nothing to dismiss');
+});
+
+test('the reveal does not wait for frames the hidden window cannot draw', () => {
+  // A hidden window paints nothing, so waiting on rAF (or a padded timer) before
+  // showing it only delays the reveal. Measured 428ms -> ~15ms across this and
+  // the backgroundThrottling fix.
+  assert.match(overlayQ, /setTimeout\(signal, 0\)/, 'the paint signal is immediate');
+  // And the window keeps running while hidden, or nothing above can fire at all.
+  assert.match(assistantSrc, /backgroundThrottling: false/);
+});
+
+// ── False wakes ──────────────────────────────────────────────────────────────
+// Reported as "the voice overlay comes up randomly". The log showed why:
+//   Woken by voice {"command":"silence"}
+//   Woken by voice {"command":"(none)"}
+//   Risky command held for confirmation {app.launch, confidence:0.601, viaWake:true}
+// The wake word was firing on near-silence and very nearly launched an app.
+
+test('waking requires a real voice, not merely more than silence', () => {
+  // MIN_PEAK_LEVEL sits just above the measured silence floor so a deliberate
+  // command from a quiet voice survives. A phrase nobody asked for cannot use
+  // that bar: the cost of a missed wake is repeating yourself, the cost of a
+  // false wake is the overlay opening by itself.
+  const cmdFloor = Number(assistantSrc.match(/const MIN_PEAK_LEVEL = (\d+);/)[1]);
+  const wakeFloor = Number(assistantSrc.match(/const WAKE_MIN_PEAK_LEVEL = (\d+);/)[1]);
+  assert.ok(wakeFloor >= cmdFloor * 4,
+    `an unsolicited wake (${wakeFloor}) must clear far more than a deliberate command (${cmdFloor})`);
+  assert.match(assistantSrc, /peakLevel < WAKE_MIN_PEAK_LEVEL/);
+});
+
+test('an ignored wake says so in the log', () => {
+  // Silently ignoring is how the opposite failure stayed invisible for a release.
+  assert.match(assistantSrc, /Wake ignored: no speech-level audio behind it/);
+});
+
+test('the wake level check runs after the confidence check, not instead of it', () => {
+  const region = assistantSrc.slice(assistantSrc.indexOf('confidence < settings.wakeConfidence'),
+    assistantSrc.indexOf('const parsed = V.stripWakePhrase'));
+  assert.match(region, /WAKE_MIN_PEAK_LEVEL/, 'both bars apply to a wake');
+});
+
+test('the app index keeps out entries that are not apps', () => {
+  // "What is new in the latest version" reached the grammar, and noise rounded
+  // to it — the log caught it being launched from a false wake.
+  const idxSrc = fs.readFileSync(here('main', 'appIndex.js'), 'utf8');
+  assert.match(idxSrc, /what\.\{0,3\} new/, 'both "whats new" and "what is new" are filtered');
 });
