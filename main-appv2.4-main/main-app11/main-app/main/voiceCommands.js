@@ -130,10 +130,17 @@ const DEFAULT_SETTINGS = Object.freeze({
   // without this a stray noise can round to a destructive phrase and run it.
   confirmRisky: true,
   // Load a free-dictation catch-all beneath the command grammar, so a phrasing
-  // that was never compiled in can still be understood. On by default: without
-  // it, anything the registry does not literally contain is inaudible rather
-  // than merely misheard.
-  freeform: true,
+  // that was never compiled in can still be understood.
+  //
+  // OFF by default. It shipped on in v4.2.0 and was reported the same day as
+  // the assistant no longer hearing anything: a dictation grammar competes for
+  // every utterance, and a result routed to it that fails the fuzzy bar is
+  // dropped silently — indistinguishable from deafness. It is a real feature,
+  // but it can only be judged by speaking to it, so it is opt-in until it has
+  // been. See Behaviour → "Understand loose phrasing".
+  freeform: false,
+  // Set once the v4.2.0 freeform value has been cleared; see normalizeSettings.
+  freeformReset: false,
   transition: 'fade',        // see TRANSITIONS
   vizStyle: 'aurora',        // see VIZ_STYLES
   scale: 1,                  // 0.7 .. 1.6 — the whole panel
@@ -225,7 +232,15 @@ function normalizeSettings(patch, current) {
     listenTimeoutMs: Math.round(clampNumber(pick('listenTimeoutMs'), 2000, 20000, DEFAULT_SETTINGS.listenTimeoutMs)),
     chaining: bool('chaining'),
     confirmRisky: bool('confirmRisky'),
-    freeform: bool('freeform'),
+    // ── One-time correction ──
+    // freeform shipped ON in v4.2.0 and was reported the same day as the
+    // assistant hearing nothing. Flipping the DEFAULT fixes new installs and
+    // does nothing for anyone who already ran that build: their settings file
+    // holds `true`, and a saved value always beats a default. So the bad value
+    // is cleared once, recorded by a flag, after which the user's own choice is
+    // respected for good.
+    freeform: bool('freeformReset') ? bool('freeform') : false,
+    freeformReset: true,
     transition: PANEL_TRANSITIONS.includes(pick('transition')) ? pick('transition') : DEFAULT_SETTINGS.transition,
     vizStyle: VIZ_STYLES.includes(pick('vizStyle')) ? pick('vizStyle') : DEFAULT_SETTINGS.vizStyle,
     // Rounded to a step so the slider and the stored value always agree.

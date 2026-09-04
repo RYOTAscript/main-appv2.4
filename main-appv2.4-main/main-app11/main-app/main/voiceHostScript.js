@@ -64,7 +64,7 @@
 // Bump VOICE_HOST_SCRIPT_VERSION on any change to the script body:
 // scriptCache.ensureVersionedScript() rewrites the cached .ps1 on a version
 // change, and a stale host would silently speak an older protocol.
-const VOICE_HOST_SCRIPT_VERSION = 6;
+const VOICE_HOST_SCRIPT_VERSION = 7;
 
 const VOICE_HOST_SCRIPT_CONTENT = `$ErrorActionPreference = 'Stop'
 try {
@@ -180,10 +180,14 @@ namespace MainVoiceHost {
         // (snappier, and less room for a trailing noise to be folded in) while
         // still tolerating a pause before the user starts.
         try {
-          rec.InitialSilenceTimeout = TimeSpan.FromSeconds(6);
           rec.EndSilenceTimeout = TimeSpan.FromMilliseconds(500);
           rec.EndSilenceTimeoutAmbiguous = TimeSpan.FromMilliseconds(900);
-          rec.BabbleTimeout = TimeSpan.FromSeconds(3);
+          // NO BabbleTimeout. The default is infinite, and capping it means the
+          // engine ABORTS an utterance once it has heard that much non-speech —
+          // which on a noisy room or a far-field laptop array fires constantly
+          // and looks exactly like "it cannot hear me at all". Shipped at 3s in
+          // v4.2.0 and reported in the field as total deafness the same day.
+          rec.InitialSilenceTimeout = TimeSpan.Zero;
         } catch { }
         // Let the engine surface weaker hypotheses instead of silently binning
         // them: the main process re-ranks the alternates against the command

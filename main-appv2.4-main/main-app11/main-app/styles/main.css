@@ -452,6 +452,81 @@
 
         .account-status-msg { font-size: 12px; color: #737373; margin-top: 12px; min-height: 15px; }
 
+        /* ── Updates ──
+           Every state used to look the same: one grey line of text and a bar
+           that only ever showed a percentage. An update is one of the few
+           moments the app asks the user to WAIT, so it should say what it is
+           doing, how far along it is, and when it will be done. */
+        /* The updates card wears the product's own mark rather than a stock
+           rocket glyph — it is the app talking about itself. The avatar keeps
+           its shape and background; the logo just sits inside it. */
+        .updates-avatar { overflow: hidden; padding: 0; }
+        .updates-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            padding: 6px;
+            box-sizing: border-box;
+            -webkit-user-drag: none;
+        }
+
+        .updates-progress-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 8px;
+        }
+        .updates-pct {
+            font-size: 12px;
+            font-weight: 600;
+            color: #e5e5e5;
+            font-variant-numeric: tabular-nums;   /* so it stops jittering as it counts */
+        }
+
+        /* The bar itself: a moving sheen while bytes are arriving, so a slow
+           download still reads as alive rather than stalled. */
+        #updates-progress-wrap .u-bar-track {
+            position: relative;
+            overflow: hidden;
+        }
+        #updates-section.u-downloading #updates-progress-bar::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+            animation: uSheen 1.5s linear infinite;
+        }
+        @keyframes uSheen { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+        /* Before the first byte the total is unknown, and a 0% bar sitting
+           still reads as broken. Sweep instead until there is real progress. */
+        #updates-progress-wrap.u-indeterminate #updates-progress-bar {
+            width: 35% !important;
+            animation: uSweep 1.1s ease-in-out infinite alternate;
+        }
+        @keyframes uSweep { from { margin-left: 0; } to { margin-left: 65%; } }
+
+        /* Checking: the badge breathes, so it is obviously working. */
+        #updates-section.u-checking .account-badge { animation: uPulse 1.2s ease-in-out infinite; }
+        @keyframes uPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+        /* Ready to install is the one state that wants the user to act. */
+        #updates-section.u-ready #updates-install-btn {
+            background: #34d399;
+            border-color: #34d399;
+            color: #06281c;
+            font-weight: 600;
+        }
+        #updates-section.u-ready #updates-install-btn:hover { background: #4ade80; border-color: #4ade80; }
+        #updates-section.u-error .account-status-msg { color: #f87171; }
+
+        @media (prefers-reduced-motion: reduce) {
+            #updates-section.u-downloading #updates-progress-bar::after,
+            #updates-progress-wrap.u-indeterminate #updates-progress-bar,
+            #updates-section.u-checking .account-badge { animation: none; }
+        }
+
         /* ── Log out confirmation dialog ── */
         .logout-overlay {
             position: absolute;

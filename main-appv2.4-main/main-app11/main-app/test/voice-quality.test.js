@@ -112,9 +112,13 @@ test('freeform respects the audio-level evidence too', () => {
   assert.match(region, /levelSamples >= MIN_LEVEL_SAMPLES && peakLevel < MIN_PEAK_LEVEL/);
 });
 
-test('the catch-all can be switched off', () => {
-  assert.strictEqual(V.normalizeSettings({}).freeform, true);
-  assert.strictEqual(V.normalizeSettings({ freeform: false }).freeform, false);
+test('the catch-all is opt-in, and can be switched on', () => {
+  // Shipped ON in v4.2.0 and reported the same day as the assistant hearing
+  // nothing: a dictation grammar competes for every utterance, and a result
+  // routed to it that fails the fuzzy bar is dropped silently. It is opt-in
+  // until it can be judged by actually speaking to it.
+  assert.strictEqual(V.normalizeSettings({}).freeform, false);
+  assert.strictEqual(V.normalizeSettings({ freeform: true, freeformReset: true }).freeform, true);
   assert.match(hostSrc, /case "FREEFORM":/);
   assert.match(assistantSrc, /hostSend\('FREEFORM '/);
 });
@@ -144,10 +148,16 @@ test('stale alternates cannot leak into the next utterance', () => {
 
 // ── Endpointing ──────────────────────────────────────────────────────────────
 
-test('the recognizer is tuned for short commands, not dictation', () => {
+test('the recognizer is tuned for short commands, without a babble cap', () => {
+  // EndSilenceTimeout is LONGER than the default, which is forgiving. A
+  // BabbleTimeout is not tuning at all — it makes the engine abort an utterance
+  // once it has heard that much non-speech, which on a far-field laptop mic
+  // fires constantly and presents as total deafness.
   assert.match(hostSrc, /rec\.EndSilenceTimeout = TimeSpan\.FromMilliseconds\(\d+\)/);
-  assert.match(hostSrc, /rec\.InitialSilenceTimeout/);
-  assert.match(hostSrc, /rec\.BabbleTimeout/);
+  assert.ok(!/rec\.BabbleTimeout = TimeSpan\.FromSeconds/.test(hostSrc),
+    'no finite babble timeout may ship');
+  assert.match(hostSrc, /rec\.InitialSilenceTimeout = TimeSpan\.Zero/,
+    'and no cap on how long the user may take to start speaking');
 });
 
 test('the engine does not bin weak results before the matcher sees them', () => {
@@ -552,4 +562,54 @@ test('primary names are registered before any alias is considered', () => {
   const src = fs.readFileSync(here('main', 'voiceCommands.js'), 'utf8');
   assert.match(src, /Pass 1 — primary names/);
   assert.match(src, /Pass 2 — aliases, which may only take words no primary name claimed/);
+});
+
+// ── The v4.2.0 deafness regression ───────────────────────────────────────────
+// Reported in the field the day it shipped: "my voice was picked up perfectly
+// on 4.1.1, now it can't hear me at all." Three of my own changes could each
+// produce exactly that, and all three were in the one subsystem I cannot test
+// by speaking to it.
+
+test('no finite babble timeout may ship', () => {
+  // The default is infinite. Capping it makes the engine ABORT an utterance
+  // once it has heard that much non-speech, which on a far-field mic array
+  // fires constantly and presents as total deafness.
+  assert.ok(!/BabbleTimeout = TimeSpan\.FromSeconds/.test(hostSrc));
+  assert.match(hostSrc, /rec\.InitialSilenceTimeout = TimeSpan\.Zero/,
+    'nor a cap on how long the user may take to start speaking');
+});
+
+test('the audio-level gate clears measured silence, with headroom for a quiet voice', () => {
+  // Measured on this machine's Intel array: ~18s of silence peaked at 2, median
+  // 0 — the driver's noise suppression flattens everything below speech. A
+  // floor of 8 sat six points above that with no evidence about where speech
+  // lands; if speech lands under it, every command is discarded.
+  const m = assistantSrc.match(/const MIN_PEAK_LEVEL = (\d+);/);
+  assert.ok(m, 'the gate is a named constant');
+  const floor = Number(m[1]);
+  assert.ok(floor > 2, `must still reject the measured silence floor (was ${floor})`);
+  assert.ok(floor <= 4, `must not encroach on speech (was ${floor})`);
+});
+
+test('a discarded result records the level it actually saw', () => {
+  // Silently dropping is what made this invisible for a whole release.
+  assert.match(assistantSrc, /peakLevel, floor: MIN_PEAK_LEVEL, levelSamples/);
+});
+
+test('the bad freeform value is cleared once for anyone who ran v4.2.0', () => {
+  // Flipping a DEFAULT fixes new installs and nobody else: a saved value always
+  // beats a default, so every existing user would have kept the broken setting.
+  assert.strictEqual(V.normalizeSettings({}).freeform, false, 'fresh install');
+  assert.strictEqual(V.normalizeSettings({ freeform: true }).freeform, false,
+    'the value saved by v4.2.0 is cleared');
+  assert.strictEqual(V.normalizeSettings({ freeform: true, freeformReset: true }).freeform, true,
+    'but a deliberate opt-in afterwards is respected');
+  assert.strictEqual(V.normalizeSettings({}).freeformReset, true, 'and the correction is recorded');
+});
+
+test('the updates card shows the product mark, not a stock glyph', () => {
+  const html = fs.readFileSync(here('main.html'), 'utf8');
+  const card = html.slice(html.indexOf('id="updates-section"'), html.indexOf('updates-msg'));
+  assert.ok(!/fa-rocket/.test(card), 'the rocket is gone');
+  assert.match(card, /updates-avatar[^>]*><img src="icons\/logo-128\.png"/);
 });

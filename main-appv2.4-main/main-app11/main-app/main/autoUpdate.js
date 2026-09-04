@@ -24,7 +24,10 @@ let log = null;
 
 // status: dev | disabled | idle | checking | available | not-available |
 //         downloading | downloaded | error
-let state = { status: 'idle', version: null, progress: 0, error: null };
+let state = { status: 'idle', version: null, progress: 0, error: null,
+  // electron-updater reports these on every progress tick and they were all
+  // being thrown away, leaving the UI with nothing to say but a percentage.
+  transferred: 0, total: 0, bytesPerSecond: 0 };
 
 function publicState() {
   return {
@@ -33,6 +36,9 @@ function publicState() {
     status: state.status,
     version: state.version,
     progress: state.progress,
+    transferred: state.transferred,
+    total: state.total,
+    bytesPerSecond: state.bytesPerSecond,
     error: state.error,
   };
 }
@@ -132,7 +138,16 @@ function initAutoUpdate(logger) {
     });
     autoUpdater.on('update-not-available', () => setState({ status: 'not-available' }));
     autoUpdater.on('download-progress', (p) =>
-      setState({ status: 'downloading', progress: Math.max(0, Math.min(100, Math.round(p?.percent || 0))) }),
+      setState({
+        status: 'downloading',
+        progress: Math.max(0, Math.min(100, Math.round(p?.percent || 0))),
+        // Carried through so the UI can show how much of what, how fast, and
+        // how much longer — a bare percentage on a 130MB download tells the
+        // user almost nothing about whether it is worth waiting for.
+        transferred: Number(p?.transferred) || 0,
+        total: Number(p?.total) || 0,
+        bytesPerSecond: Number(p?.bytesPerSecond) || 0
+      }),
     );
     autoUpdater.on('update-downloaded', (info) => {
       setState({ status: 'downloaded', version: info?.version || state.version, progress: 100 });

@@ -1802,6 +1802,8 @@
                     ${voiceSliderRow('Speed', 'speechRate', -5, 5, 1, s.speechRate || 0, 'plain')}` : ''}
                     ${voiceToggleRow('Chain commands in one breath', 'chaining', s.chaining !== false,
                         'e.g. "pause the music and optimize my pc" — up to three at once.')}
+                    ${voiceToggleRow('Understand loose phrasing', 'freeform', !!s.freeform,
+                        'Adds free dictation underneath the command list, so wording that was never written down can still be understood. Off by default — it competes for every utterance, so if recognition gets worse rather than better, turn it back off.')}
                     ${voiceToggleRow('Ask before risky commands', 'confirmRisky', s.confirmRisky !== false,
                         'Speech recognition always returns its closest match, so background noise can land on a real command. This asks first for anything that closes programs, clears something, or changes system settings.')}
                     ${voiceToggleRow('Show what it heard', 'showTranscript', s.showTranscript !== false)}

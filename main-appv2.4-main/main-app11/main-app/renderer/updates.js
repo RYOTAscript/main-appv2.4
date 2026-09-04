@@ -6,6 +6,37 @@
 let __updatesUnsub = null;
 
 function __uSet(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
+
+// ── Human-readable download detail ──
+// A percentage alone says nothing useful about a 130MB download: it cannot tell
+// you whether to wait or walk away. Size, rate and remaining time can.
+function __uBytes(n) {
+    const b = Number(n) || 0;
+    if (b >= 1024 * 1024 * 1024) return (b / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    if (b >= 1024 * 1024) return Math.round(b / (1024 * 1024)) + ' MB';
+    if (b >= 1024) return Math.round(b / 1024) + ' KB';
+    return b + ' B';
+}
+
+function __uRate(bps) {
+    const v = Number(bps) || 0;
+    if (v <= 0) return '';
+    return __uBytes(v) + '/s';
+}
+
+// Time left, phrased the way a person would say it. Returns '' when there is
+// not enough information to be honest about it — a made-up estimate is worse
+// than none.
+function __uEta(transferred, total, bps) {
+    const left = (Number(total) || 0) - (Number(transferred) || 0);
+    const rate = Number(bps) || 0;
+    if (left <= 0 || rate <= 0) return '';
+    const secs = Math.round(left / rate);
+    if (secs < 5) return 'almost done';
+    if (secs < 60) return secs + 's left';
+    const mins = Math.round(secs / 60);
+    return mins + (mins === 1 ? ' min left' : ' mins left');
+}
 function __uBadge(text, color) {
     const el = document.getElementById('updates-badge');
     if (!el) return;
@@ -42,7 +73,8 @@ function renderUpdatesState(s) {
             status = 'Downloading update' + (s.version ? ' v' + s.version : '') + '…';
             badge = 'Downloading'; badgeColor = '#60a5fa'; showProgress = true; checkDisabled = true; break;
         case 'downloaded':
-            status = 'Update ' + (s.version ? 'v' + s.version + ' ' : '') + 'ready — restart to install.';
+            status = (s.version ? 'Version ' + s.version : 'The update') +
+                     ' is downloaded and ready. Restarting takes a few seconds.';
             badge = 'Ready'; badgeColor = '#34d399'; showInstall = true; checkDisabled = true; break;
         case 'error':
             status = "Couldn't check for updates. Try again shortly."; badge = 'Error'; badgeColor = '#f87171'; break;
@@ -55,12 +87,32 @@ function renderUpdatesState(s) {
     if (checkBtn) { checkBtn.disabled = checkDisabled; checkBtn.textContent = checkLabel; checkBtn.classList.toggle('hidden', showInstall); }
     if (installBtn) installBtn.classList.toggle('hidden', !showInstall);
 
+    // A state class on the section, so the styling can respond to what is
+    // happening rather than every state looking identical.
+    const section = document.getElementById('updates-section');
+    if (section) {
+        section.classList.remove('u-checking', 'u-downloading', 'u-ready', 'u-error', 'u-current');
+        const cls = { checking: 'u-checking', available: 'u-downloading', downloading: 'u-downloading',
+                      downloaded: 'u-ready', error: 'u-error', 'not-available': 'u-current' }[s.status];
+        if (cls) section.classList.add(cls);
+    }
+
     const wrap = document.getElementById('updates-progress-wrap');
     if (wrap) wrap.classList.toggle('hidden', !showProgress);
     if (showProgress && bar) {
         const pct = Math.max(0, Math.min(100, s.progress || 0));
         bar.style.width = pct + '%';
-        __uSet('updates-progress-text', 'Downloading… ' + pct + '%');
+        // Indeterminate until the first byte lands: a 0% bar that sits still
+        // reads as broken, when it is actually still connecting.
+        if (wrap) wrap.classList.toggle('u-indeterminate', !s.total);
+        __uSet('updates-progress-pct', pct + '%');
+        const detail = [];
+        if (s.total) detail.push(__uBytes(s.transferred) + ' of ' + __uBytes(s.total));
+        const rate = __uRate(s.bytesPerSecond);
+        if (rate) detail.push(rate);
+        const eta = __uEta(s.transferred, s.total, s.bytesPerSecond);
+        if (eta) detail.push(eta);
+        __uSet('updates-progress-text', detail.length ? detail.join('  ·  ') : 'Starting download…');
     }
 
     const msg = document.getElementById('updates-msg');

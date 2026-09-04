@@ -55,9 +55,19 @@ const SETTLE_MS = { success: 1000, error: 2000, answer: 3600, answerMax: 6000, e
 // A dispatched command must answer within this, or the renderer is treated as
 // unavailable — a hung executor must never strand the assistant mid-command.
 // A result whose loudest moment never reached this is the room, not a voice.
-// The host reports 0..100. Deliberately low — this is meant to catch silence
-// and faint bleed, not to judge how quietly someone is allowed to speak.
-const MIN_PEAK_LEVEL = 8;
+//
+// The host reports 0..100, but that scale is NOT evenly used: measured on a
+// built-in Intel mic array, ~18 seconds of silence peaked at 2 with a median of
+// 0, because the driver's noise suppression flattens everything below speech.
+// The original 8 therefore sat only six points above the noise floor with no
+// evidence about where speech actually lands — and if speech lands under it,
+// every single command is discarded and the assistant appears deaf. It was
+// shipped at 8 in v4.2.0 and reported as exactly that.
+//
+// 3 clears the measured silence floor while leaving as much headroom as
+// possible for a quiet or distant voice. This gate exists to catch "nobody
+// spoke", not to rule on how loudly someone is allowed to.
+const MIN_PEAK_LEVEL = 3;
 // ...and the gate only applies once this many samples prove the meter is live.
 const MIN_LEVEL_SAMPLES = 3;
 const EXECUTE_TIMEOUT_MS = 12000;
@@ -837,7 +847,9 @@ function init(ctx) {
     // proper hit, and acting on a weak dictation guess is how an assistant ends
     // up doing something nobody asked for.
     if (match.status !== 'matched' || !(match.score >= FREEFORM_MIN_SCORE)) {
-      logger.debug('Freeform text did not resolve to a command', { text, score: match.score });
+      // INFO, not debug: this is the path that silently swallows an utterance,
+      // so it has to be visible in the log or the failure is invisible.
+      logger.log('Heard, but not a command', 'INFO', { heard: text, score: match.score });
       // Recorded even though nothing ran: this is precisely the evidence that
       // shows whether the words were heard correctly and merely failed to match.
       recordHistory({ transcript: text, commandId: '', outcome: 'heard-only', confidence, viaFree: true });
@@ -873,7 +885,7 @@ function init(ctx) {
     // assistant. Missing evidence blocks nothing here; it simply skips the gate.
     if (levelSamples >= MIN_LEVEL_SAMPLES && peakLevel < MIN_PEAK_LEVEL) {
       logger.log('Voice result discarded: no speech-level audio behind it', 'INFO',
-        { text, confidence, peakLevel, levelSamples });
+        { heard: text, confidence, peakLevel, floor: MIN_PEAK_LEVEL, levelSamples });
       return;
     }
 

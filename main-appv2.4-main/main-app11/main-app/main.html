@@ -77,7 +77,7 @@
                         onerror="this.outerHTML='<div class=\'w-9 h-9 bg-white rounded-2xl flex items-center justify-center text-xl font-bold text-black\'>M</div>'">
                     <div>
                         <h1 class="text-2xl font-semibold tracking-tight text-white">main</h1>
-                        <p class="text-[10px] text-neutral-500 tracking-widest">v4.2.0</p>
+                        <p class="text-[10px] text-neutral-500 tracking-widest">v4.2.1</p>
                     </div>
                 </div>
                 <div class="no-drag flex items-center gap-3 text-sm">
@@ -391,7 +391,7 @@
                             <h3 class="text-sm font-medium mb-4 text-neutral-300">App updates</h3>
                             <div class="account-card">
                                 <div class="account-head">
-                                    <div class="account-avatar"><i class="fas fa-rocket text-sm"></i></div>
+                                    <div class="account-avatar updates-avatar"><img src="icons/logo-128.png" alt="" draggable="false"></div>
                                     <div class="account-id">
                                         <p class="account-name">main <span id="updates-version" class="text-neutral-500 font-normal">v—</span></p>
                                         <p class="account-mail" id="updates-status">Checking for updates…</p>
@@ -400,10 +400,13 @@
                                 </div>
 
                                 <div id="updates-progress-wrap" class="hidden" style="margin-top:16px">
-                                    <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.08);overflow:hidden">
+                                    <div class="u-bar-track" style="height:6px;border-radius:99px;background:rgba(255,255,255,0.08);overflow:hidden">
                                         <div id="updates-progress-bar" style="height:100%;width:0%;background:var(--accent-solid,#7c5cff);transition:width .25s ease"></div>
                                     </div>
-                                    <p id="updates-progress-text" class="account-meta" style="margin-top:8px">Downloading… 0%</p>
+                                    <div class="updates-progress-row">
+                                        <p id="updates-progress-text" class="account-meta">Starting download…</p>
+                                        <p id="updates-progress-pct" class="updates-pct">0%</p>
+                                    </div>
                                 </div>
 
                                 <div class="account-actions">
@@ -991,7 +994,7 @@
                 class="absolute bottom-5 left-8 right-8 text-[10px] text-neutral-600 flex justify-between tracking-wide reveal-item"
                 style="animation-delay:0.5s">
                 <div id="footer-hotkeys" class="font-mono"></div>
-                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v4.2.0</div>
+                <div class="font-mono"><span class="text-neutral-700">made by ryota</span> · v4.2.1</div>
             </div>
         </div>
         <!-- Log out confirmation (glass dialog, styled to match the app) -->
