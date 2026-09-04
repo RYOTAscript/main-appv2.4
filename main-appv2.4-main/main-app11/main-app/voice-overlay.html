@@ -1647,9 +1647,29 @@
         // anyway, and refusing here keeps a hostile value from ever reaching src.
         const rawArt = typeof payload.art === 'string' ? payload.art : '';
         const art = hasAnswer && /^https?:\/\//i.test(rawArt) ? rawArt : '';
-        stage.classList.toggle('has-art', !!art);
-        if (art) { if (answerArtEl.src !== art) answerArtEl.src = art; }
-        else { answerArtEl.removeAttribute('src'); }
+        // Art is best-effort. The overlay is a separate top-level page, and
+        // Chromium partitions its network cache per site, so it cannot reuse an
+        // image the main window already fetched — it makes its own request. On a
+        // machine behind a TLS-inspecting proxy that request can fail outright
+        // (the same thing that breaks Spotify's API here), and a card with a
+        // blank square where the cover should be looks broken in a way that no
+        // art at all does not. So a failure simply removes the slot.
+        if (art) {
+            if (answerArtEl.getAttribute('src') !== art) {
+                stage.classList.remove('has-art');
+                answerArtEl.onload = () => stage.classList.add('has-art');
+                answerArtEl.onerror = () => {
+                    stage.classList.remove('has-art');
+                    answerArtEl.removeAttribute('src');
+                };
+                answerArtEl.src = art;
+            }
+            // Already loaded (same track asked about twice): show it immediately.
+            if (answerArtEl.complete && answerArtEl.naturalWidth > 0) stage.classList.add('has-art');
+        } else {
+            stage.classList.remove('has-art');
+            answerArtEl.removeAttribute('src');
+        }
 
         answerHeadlineEl.textContent = hasAnswer ? headline : '';
         // A temperature stays large; a track title has to shrink and wrap.

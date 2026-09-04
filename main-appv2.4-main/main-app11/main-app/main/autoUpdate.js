@@ -16,7 +16,7 @@
 // registered — even in dev — so the Updates section can at least show the
 // current version and a clear "updates only in the installed build" state.
 
-const { app, ipcMain, BrowserWindow } = require('electron');
+const { app, ipcMain, BrowserWindow, Notification } = require('electron');
 
 let started = false;
 let autoUpdater = null;
@@ -132,9 +132,42 @@ function initAutoUpdate(logger) {
     }
 
     autoUpdater.on('checking-for-update', () => setState({ status: 'checking', error: null }));
+  // ── Telling the user ──
+  // The updates section only exists inside Settings, so an update could download
+  // and sit waiting indefinitely without the user ever knowing. A notification is
+  // the only channel that reaches someone who is not looking at the app.
+  //
+  // Deliberately two, and no more: one when a version starts downloading and one
+  // when it is ready to install. Anything chattier is an app nagging about
+  // itself. `silent` because an update is not worth a sound.
+  let notifiedFor = null;
+
+  function notify(title, body, onClick) {
+    try {
+      if (!Notification.isSupported()) return;
+      const n = new Notification({ title, body, silent: true, icon: appIconPath() });
+      if (typeof onClick === 'function') n.on('click', onClick);
+      n.show();
+    } catch (e) {
+      // A notification failing must never affect the update itself.
+      logger?.warn?.('[autoUpdate] notification failed', e?.message || e);
+    }
+  }
+
+  function appIconPath() {
+    try { return require('path').join(__dirname, '..', 'icons', 'main.ico'); }
+    catch (e) { return undefined; }
+  }
+
     autoUpdater.on('update-available', (info) => {
       setState({ status: 'available', version: info?.version || null });
       logger?.info?.('[autoUpdate] update available', info?.version);
+      const v = info?.version;
+      // Once per version, so a restart or a re-check cannot re-nag.
+      if (v && notifiedFor !== v) {
+        notifiedFor = v;
+        notify('main ' + v + ' is available', 'Downloading now — you can keep working.');
+      }
     });
     autoUpdater.on('update-not-available', () => setState({ status: 'not-available' }));
     autoUpdater.on('download-progress', (p) =>
@@ -152,6 +185,16 @@ function initAutoUpdate(logger) {
     autoUpdater.on('update-downloaded', (info) => {
       setState({ status: 'downloaded', version: info?.version || state.version, progress: 100 });
       logger?.success?.('[autoUpdate] update downloaded — installs on quit', info?.version);
+      const v = info?.version || state.version || '';
+      notify(
+        'main ' + v + ' is ready',
+        'Click here to restart and install, or it will apply next time you quit.',
+        () => {
+          // Same path the Settings button uses, so there is one way to install.
+          try { autoUpdater.quitAndInstall(false, true); }
+          catch (e) { logger?.warn?.('[autoUpdate] install from notification failed', e?.message || e); }
+        }
+      );
     });
     autoUpdater.on('error', (err) => {
       setState({ status: 'error', error: err?.message || 'Update error.' });

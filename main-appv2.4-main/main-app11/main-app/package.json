@@ -1,6 +1,6 @@
 {
   "name": "main-app",
-  "version": "4.2.2",
+  "version": "4.2.3",
   "description": "main",
   "main": "main.js",
   "scripts": {
@@ -124,6 +124,13 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "main",
+      "installerIcon": "icons/main.ico",
+      "uninstallerIcon": "icons/main.ico",
+      "installerHeaderIcon": "icons/main.ico",
+      "installerHeader": "build/installerHeader.bmp",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+      "uninstallDisplayName": "main ${version}",
       "license": "eula.txt",
       "artifactName": "main-Setup-${version}.${ext}"
     },

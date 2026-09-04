@@ -130,6 +130,15 @@ function init(ctx) {
   // of the room, not speech — see onResult.
   let peakLevel = 0;
   let levelSamples = 0;
+  // A rolling window of recent level samples, for the wake gate only.
+  // `peakLevel` is a per-session maximum, which is the right measure for a
+  // command the user deliberately started and the wrong one for a wake word:
+  // waking has no session, so the session peak it read belonged to whatever
+  // happened last. Dismissing the overlay without speaking left it at ~2, below
+  // the wake floor, and nothing waking does ever raised it again — so the wake
+  // word stayed deaf until the next spoken command.
+  const LEVEL_WINDOW_MS = 1500;
+  let levelWindow = [];
   // The last command actually executed, so "undo that" has something to reverse.
   // Separate from lastIntent (which drives "do that again") because a repeat and
   // an undo must never chase each other.
@@ -641,6 +650,14 @@ function init(ctx) {
   //
   // The invariant: the mic is open only while the overlay needs it, OR while the
   // wake word is switched on. Nothing else opens it.
+  // Loudest sample in the recent window; anything older simply does not count.
+  function recentPeak() {
+    const cut = Date.now() - LEVEL_WINDOW_MS;
+    let peak = 0;
+    for (const sample of levelWindow) if (sample.at >= cut && sample.lvl > peak) peak = sample.lvl;
+    return peak;
+  }
+
   function reconcileMic() {
     if (tearingDown || !enabled || !hostReady) return;
     if (V.isMicOpenState(state)) return;          // command listening owns it
@@ -699,7 +716,13 @@ function init(ctx) {
         const lvl = parseInt(rest, 10) || 0;
         if (lvl > peakLevel) peakLevel = lvl;
         levelSamples++;
-        sendOverlay('voice:overlay-level', lvl);
+        const now = Date.now();
+        levelWindow.push({ at: now, lvl });
+        while (levelWindow.length && now - levelWindow[0].at > LEVEL_WINDOW_MS) levelWindow.shift();
+        // Only a visible overlay wants a meter. Wake mode measures now too, but
+        // it is idle and hidden — it must not push frames at a window nobody is
+        // looking at.
+        if (V.isMicOpenState(state)) sendOverlay('voice:overlay-level', lvl);
         return;
       }
       case 'AUDIO':
@@ -779,9 +802,13 @@ function init(ctx) {
     // word on, the assistant was waking on near-silence — the log literally
     // reads `Woken by voice {"command":"silence"}` — and popping the overlay
     // open by itself. Waking is unsolicited, so it must clear a real voice.
-    if (levelSamples >= MIN_LEVEL_SAMPLES && peakLevel < WAKE_MIN_PEAK_LEVEL) {
+    // Measured over the last second and a half, not over a session that may
+    // have ended minutes ago. As everywhere else here, too few samples to judge
+    // means the gate stands down rather than silencing anything.
+    const recent = recentPeak();
+    if (levelWindow.length >= MIN_LEVEL_SAMPLES && recent < WAKE_MIN_PEAK_LEVEL) {
       logger.log('Wake ignored: no speech-level audio behind it', 'INFO',
-        { heard: text, peakLevel, floor: WAKE_MIN_PEAK_LEVEL });
+        { heard: text, peak: recent, floor: WAKE_MIN_PEAK_LEVEL });
       return;
     }
     const parsed = V.stripWakePhrase(text);
@@ -1320,6 +1347,7 @@ function init(ctx) {
     // A fresh listen is a fresh measurement.
     peakLevel = 0;
     levelSamples = 0;
+    levelWindow = [];
     clearTimeout(alternateTimer);
     pendingAlternates = null;
     clearTimeout(listenTimer);
@@ -1656,6 +1684,7 @@ function init(ctx) {
       };
       peakLevel = 0;
       levelSamples = 0;
+      levelWindow = [];
       setHostMode('command', ms);
     });
   });

@@ -660,7 +660,11 @@ test('waking requires a real voice, not merely more than silence', () => {
   const wakeFloor = Number(assistantSrc.match(/const WAKE_MIN_PEAK_LEVEL = (\d+);/)[1]);
   assert.ok(wakeFloor >= cmdFloor * 4,
     `an unsolicited wake (${wakeFloor}) must clear far more than a deliberate command (${cmdFloor})`);
-  assert.match(assistantSrc, /peakLevel < WAKE_MIN_PEAK_LEVEL/);
+  // Measured over a rolling window rather than the session peak: waking has no
+  // session, so a session maximum belongs to whatever happened last and stops
+  // updating the moment the overlay closes.
+  assert.match(assistantSrc, /recent < WAKE_MIN_PEAK_LEVEL/);
+  assert.match(assistantSrc, /function recentPeak\(\)/);
 });
 
 test('an ignored wake says so in the log', () => {
@@ -679,4 +683,51 @@ test('the app index keeps out entries that are not apps', () => {
   // to it — the log caught it being launched from a false wake.
   const idxSrc = fs.readFileSync(here('main', 'appIndex.js'), 'utf8');
   assert.match(idxSrc, /what\.\{0,3\} new/, 'both "whats new" and "what is new" are filtered');
+});
+
+// ── Installer and update notifications ───────────────────────────────────────
+
+test('the installer ships its own artwork at the sizes NSIS demands', () => {
+  // NSIS silently ignores a sidebar that is not a BMP of exactly 164x314 (and a
+  // header that is not 150x57) and falls back to the stock grey installer, so
+  // the dimensions are the thing worth asserting.
+  const pkg = JSON.parse(fs.readFileSync(here('package.json'), 'utf8'));
+  const nsis = pkg.build.nsis;
+  for (const k of ['installerIcon', 'uninstallerIcon', 'installerHeaderIcon',
+                   'installerHeader', 'installerSidebar', 'uninstallerSidebar']) {
+    assert.ok(nsis[k], `nsis.${k} is set`);
+    assert.ok(fs.existsSync(here(nsis[k])), `${nsis[k]} exists on disk`);
+  }
+  const dims = (p) => {
+    // BMP header: width at byte 18, height at 22, both little-endian int32.
+    const b = fs.readFileSync(here(p));
+    return [b.readInt32LE(18), Math.abs(b.readInt32LE(22))];
+  };
+  assert.deepStrictEqual(dims(nsis.installerSidebar), [164, 314]);
+  assert.deepStrictEqual(dims(nsis.uninstallerSidebar), [164, 314]);
+  assert.deepStrictEqual(dims(nsis.installerHeader), [150, 57]);
+});
+
+test('an update is announced once, and only twice in total', () => {
+  // The updates section lives inside Settings, so a downloaded update could wait
+  // forever unseen. Two notifications: downloading, and ready. Anything more is
+  // an app nagging about itself.
+  const src = fs.readFileSync(here('main', 'autoUpdate.js'), 'utf8');
+  assert.match(src, /Notification/);
+  assert.match(src, /notifiedFor !== v/, 'once per version, so a re-check cannot re-nag');
+  assert.match(src, /is available/);
+  assert.match(src, /is ready/);
+  assert.strictEqual((src.match(/notify\(\s*$|notify\('/gm) || []).length, 2,
+    'exactly two notification sites');
+});
+
+test('the ready notification installs through the same path as the button', () => {
+  const src = fs.readFileSync(here('main', 'autoUpdate.js'), 'utf8');
+  assert.match(src, /n\.on\('click', onClick\)/);
+  assert.match(src, /autoUpdater\.quitAndInstall\(false, true\)/);
+});
+
+test('a failed notification never affects the update itself', () => {
+  const src = fs.readFileSync(here('main', 'autoUpdate.js'), 'utf8');
+  assert.match(src, /catch \(e\) \{[\s\S]{0,200}?notification failed/);
 });

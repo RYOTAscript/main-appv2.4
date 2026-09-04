@@ -64,7 +64,7 @@
 // Bump VOICE_HOST_SCRIPT_VERSION on any change to the script body:
 // scriptCache.ensureVersionedScript() rewrites the cached .ps1 on a version
 // change, and a stale host would silently speak an older protocol.
-const VOICE_HOST_SCRIPT_VERSION = 7;
+const VOICE_HOST_SCRIPT_VERSION = 8;
 
 const VOICE_HOST_SCRIPT_CONTENT = `$ErrorActionPreference = 'Stop'
 try {
@@ -536,8 +536,14 @@ namespace MainVoiceHost {
       Emit("HYP " + OneLine(e.Result.Text));
     }
 
+    // Levels are emitted in BOTH modes, deliberately. Wake mode stays silent
+    // about hypotheses and audio state because nothing is watching, but the main
+    // process gates an unsolicited wake on whether real speech-level audio was
+    // behind it — and a gate fed only by command-mode levels judges the wake
+    // word on the loudness of some earlier, unrelated session. It never updated
+    // while waking, so once it was low it stayed low and the wake word went deaf.
     static void OnLevel(object sender, AudioLevelUpdatedEventArgs e) {
-      if (e == null || !listening || mode == "wake") return;
+      if (e == null || !listening) return;
       Emit("LEVEL " + e.AudioLevel);
     }
 

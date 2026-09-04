@@ -320,15 +320,26 @@ test('a wake hit is reported distinctly from a command result', () => {
   assert.ok(assistantSrc.includes('function onWaked'), 'the module handles it separately');
 });
 
-test('idle wake listening does not stream level or hypothesis events', () => {
-  // The mic is open continuously in wake mode; streaming ~7 events/sec forever
-  // would be pure waste.
-  for (const fn of ['OnLevel', 'OnHypothesized', 'OnAudioState']) {
+test('idle wake listening streams nothing the main process cannot use', () => {
+  // The mic is open continuously in wake mode, so anything emitted there is
+  // emitted forever. Hypotheses and audio-state changes have no consumer while
+  // idle and stay suppressed.
+  for (const fn of ['OnHypothesized', 'OnAudioState']) {
     const at = hostSrc.indexOf('static void ' + fn);
     assert.ok(at !== -1, fn + ' exists');
     const guard = hostSrc.slice(at, at + 260);
     assert.ok(guard.includes('mode == "wake"'), fn + ' is silent in wake mode');
   }
+  // LEVEL is the exception, and has to be: it is the ONLY evidence the wake
+  // gate has that a wake phrase had a real voice behind it. Suppressing it here
+  // is what made the gate read a stale peak from an earlier command session and
+  // go permanently deaf after the overlay was dismissed without speaking.
+  const at = hostSrc.indexOf('static void OnLevel');
+  const body = hostSrc.slice(at, at + 200);
+  assert.ok(!body.includes('mode == "wake"'), 'OnLevel must measure in wake mode too');
+  // The cost that guard was paying for is instead paid on the receiving side.
+  assert.ok(/if \(V\.isMicOpenState\(state\)\) sendOverlay\('voice:overlay-level'/.test(assistantSrc),
+    'idle levels must not be forwarded to the hidden overlay');
 });
 
 test('switching between wake and command never re-acquires the microphone', () => {

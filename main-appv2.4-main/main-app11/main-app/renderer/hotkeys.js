@@ -203,12 +203,6 @@
         async function applyFocusHotkey(accelerator) {
             if (!window.electronAPI?.setFocusHotkey) return false;
             const result = await window.electronAPI.setFocusHotkey(accelerator);
-            // A global binding on a near-universal key does not feel like a
-            // hotkey, it feels like the app appearing at random. Say so at the
-            // moment it is chosen, while the user still has it in mind.
-            if (result?.warning && typeof showToast === 'function') {
-                showToast(result.warning, 'warning');
-            }
             return result?.success;
         }
 
