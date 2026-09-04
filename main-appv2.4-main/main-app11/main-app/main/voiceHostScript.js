@@ -64,7 +64,7 @@
 // Bump VOICE_HOST_SCRIPT_VERSION on any change to the script body:
 // scriptCache.ensureVersionedScript() rewrites the cached .ps1 on a version
 // change, and a stale host would silently speak an older protocol.
-const VOICE_HOST_SCRIPT_VERSION = 3;
+const VOICE_HOST_SCRIPT_VERSION = 6;
 
 const VOICE_HOST_SCRIPT_CONTENT = `$ErrorActionPreference = 'Stop'
 try {
@@ -83,6 +83,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Speech.Recognition;
 using System.Speech.Synthesis;
+using System.Text;
 using System.Threading;
 
 namespace MainVoiceHost {
@@ -119,6 +120,10 @@ namespace MainVoiceHost {
     // which is far too slow to sit between a wake word and the command after it.
     static Grammar commandGrammar;
     static Grammar dictationGrammar;
+    static Grammar freeGrammar;
+    static Grammar bulkGrammar;
+    static List<string> pendingBulk = new List<string>();
+    static bool freeform = true;
     static Grammar confirmGrammar;
     static Grammar wakeGrammar;
 
@@ -151,7 +156,40 @@ namespace MainVoiceHost {
       } catch (Exception e) { Fail("synthesizer init", e); }
 
       try {
-        rec = new SpeechRecognitionEngine(Culture);
+        // Prefer an installed recognizer that actually matches the culture. The
+        // default constructor takes whatever is first, which on some machines is
+        // a worse engine than one already installed alongside it.
+        RecognizerInfo best = null;
+        try {
+          foreach (RecognizerInfo ri in SpeechRecognitionEngine.InstalledRecognizers()) {
+            if (ri == null || ri.Culture == null) continue;
+            if (ri.Culture.Name == Culture.Name) { best = ri; break; }
+            if (best == null && ri.Culture.TwoLetterISOLanguageName == Culture.TwoLetterISOLanguageName) best = ri;
+          }
+        } catch { }
+        rec = (best != null) ? new SpeechRecognitionEngine(best) : new SpeechRecognitionEngine(Culture);
+        // More candidates for the main process to re-rank against the real
+        // command list. Cheap, and the extra ones are exactly what rescues a
+        // miss when the top pick is wrong.
+        try { rec.MaxAlternates = 8; } catch { }
+        // Let the engine adapt to this speaker over time.
+        try { rec.UpdateRecognizerSetting("AdaptationOn", 1); } catch { }
+        // ── Endpointing ──
+        // Defaults are tuned for dictating prose. A command is one short
+        // phrase, so the engine should stop waiting sooner after speech ends
+        // (snappier, and less room for a trailing noise to be folded in) while
+        // still tolerating a pause before the user starts.
+        try {
+          rec.InitialSilenceTimeout = TimeSpan.FromSeconds(6);
+          rec.EndSilenceTimeout = TimeSpan.FromMilliseconds(500);
+          rec.EndSilenceTimeoutAmbiguous = TimeSpan.FromMilliseconds(900);
+          rec.BabbleTimeout = TimeSpan.FromSeconds(3);
+        } catch { }
+        // Let the engine surface weaker hypotheses instead of silently binning
+        // them: the main process re-ranks the alternates against the command
+        // registry and is far better placed to judge which one is plausible.
+        // Rejection here would throw that evidence away before anyone sees it.
+        try { rec.UpdateRecognizerSetting("CFGConfidenceRejectionThreshold", 10); } catch { }
         rec.SpeechRecognized += OnRecognized;
         rec.SpeechRecognitionRejected += OnRejected;
         rec.SpeechHypothesized += OnHypothesized;
@@ -194,16 +232,23 @@ namespace MainVoiceHost {
       switch (cmd) {
         case "GRAMMAR-BEGIN":
           pendingPhrases = new List<string>();
+          pendingBulk = new List<string>();
           pendingDictation = new List<string>();
           pendingConfirm = new List<string>();
           pendingWake = new List<string>();
           break;
         case "PHRASE": if (arg.Length > 0) pendingPhrases.Add(arg); break;
+        // Bulk vocabulary — names discovered from the machine rather than
+        // written into the registry. Same recognizer, lower weight.
+        case "BULK": if (arg.Length > 0) pendingBulk.Add(arg); break;
         case "DICTATION": if (arg.Length > 0) pendingDictation.Add(arg); break;
         case "CONFIRM": if (arg.Length > 0) pendingConfirm.Add(arg); break;
         case "WAKE": if (arg.Length > 0) pendingWake.Add(arg); break;
         case "CHAIN": chaining = (arg != "0"); break;
         case "GRAMMAR-END": LoadGrammars(); break;
+        // Whether the free-dictation catch-all is loaded. Off makes the
+        // assistant strictly literal again.
+        case "FREEFORM": freeform = (arg == "1"); break;
         case "LISTEN": SetMode("command", ParseInt(arg, 7000)); StartListening(ParseInt(arg, 7000)); break;
         case "WAKE-LISTEN": SetMode("wake", 0); StartListening(0); break;
         case "MODE": {
@@ -256,6 +301,8 @@ namespace MainVoiceHost {
           }
           commandGrammar = new Grammar(gb);
           commandGrammar.Name = "commands";
+          // Outranks the freeform catch-all, so a real command always wins.
+          try { commandGrammar.Priority = 10; commandGrammar.Weight = 1.0f; } catch { }
           rec.LoadGrammar(commandGrammar);
           count += pendingPhrases.Count;
         }
@@ -272,6 +319,56 @@ namespace MainVoiceHost {
           dictationGrammar.Name = "dictation";
           rec.LoadGrammar(dictationGrammar);
           count += pendingDictation.Count;
+        }
+
+        // ── The catch-all ──
+        // Everything above is a CLOSED grammar: it can only hear phrases that
+        // were compiled into it, and anything else is not misheard, it is
+        // inaudible. That is the single biggest reason the assistant "doesn't
+        // understand what I said" — the words never reached it at all.
+        //
+        // So a free dictation grammar sits underneath as a safety net. It is far
+        // less accurate at exact transcription, but it produces SOMETHING, and
+        // the main process can fuzzy-match that against the real command list —
+        // which is a much easier problem than transcribing English.
+        //
+        // Priority and weight keep it strictly subordinate: whenever the command
+        // grammar fires, it wins, so this can only add understanding rather than
+        // degrade what already worked.
+        // ── Bulk vocabulary ──
+        // App names discovered from the Start Menu are ~29% of every phrase the
+        // recognizer knows, and they are not equal in value to a real command:
+        // "pause the music" should never lose to an app that happens to sound
+        // like it. A closed grammar discriminates across everything loaded, so
+        // adding hundreds of names makes the core commands harder to hear.
+        //
+        // Splitting them into their own lower-weight, lower-priority grammar
+        // keeps the coverage without paying for it on every other command.
+        if (pendingBulk.Count > 0) {
+          try {
+            GrammarBuilder gbulk = new GrammarBuilder();
+            gbulk.Culture = Culture;
+            gbulk.Append(new Choices(pendingBulk.ToArray()));
+            bulkGrammar = new Grammar(gbulk);
+            bulkGrammar.Name = "bulk";
+            // Below the command grammar's 10/1.0, above the freeform catch-all.
+            try { bulkGrammar.Priority = 5; bulkGrammar.Weight = 0.45f; } catch { }
+            rec.LoadGrammar(bulkGrammar);
+            count += pendingBulk.Count;
+          } catch (Exception be) { Fail("bulk grammar", be); }
+        }
+
+        if (freeform) {
+          try {
+            freeGrammar = new DictationGrammar();
+            freeGrammar.Name = "freeform";
+            // Priority cannot be set on a DictationGrammar, and does not need to
+            // be: the command grammar sets its own to 10, which already outranks
+            // this one's default of 0. Weight is attempted separately so that a
+            // refusal there cannot stop the grammar loading at all.
+            try { freeGrammar.Weight = 0.15f; } catch { }
+            rec.LoadGrammar(freeGrammar);
+          } catch (Exception ge) { Fail("freeform grammar", ge); }
         }
 
         if (pendingConfirm.Count > 0) {
@@ -394,7 +491,31 @@ namespace MainVoiceHost {
       // command in the same breath, and the main process gates it on a separate,
       // higher confidence threshold.
       bool fromWake = e.Result.Grammar != null && e.Result.Grammar.Name == "wake";
-      Emit((fromWake ? "WAKED " : "RESULT ") + conf + " " + OneLine(e.Result.Text));
+      bool fromFree = e.Result.Grammar != null && e.Result.Grammar.Name == "freeform";
+      // FREE, not RESULT: this text came from open dictation, so it is a guess
+      // at what was SAID rather than a match against what can be DONE. The main
+      // process treats it accordingly — it has to clear the fuzzy matcher on its
+      // own merits, and it never gets the benefit of the doubt a grammar hit does.
+      Emit((fromWake ? "WAKED " : fromFree ? "FREE " : "RESULT ") + conf + " " + OneLine(e.Result.Text));
+
+      // ── N-best ──
+      // The top result is the engine's guess, not the only thing it heard. When
+      // it is wrong it is very often wrong in a way the SECOND candidate fixes,
+      // and the main process can check each against the real command list —
+      // something the recognizer cannot do. Emitted after RESULT so a listener
+      // that ignores ALT behaves exactly as before.
+      if (!fromWake && !fromFree) {
+        try {
+          int n = 0;
+          foreach (RecognizedPhrase alt in e.Result.Alternates) {
+            if (alt == null) continue;
+            // The first alternate is the accepted result itself.
+            if (String.Equals(alt.Text, e.Result.Text, StringComparison.OrdinalIgnoreCase)) continue;
+            Emit("ALT " + alt.Confidence.ToString("0.000", CultureInfo.InvariantCulture) + " " + OneLine(alt.Text));
+            if (++n >= 4) break;
+          }
+        } catch { }
+      }
     }
 
     static void OnRejected(object sender, SpeechRecognitionRejectedEventArgs e) {
@@ -422,11 +543,53 @@ namespace MainVoiceHost {
     }
 
     // ── Synthesis ──
+    // Escapes text for use inside an SSML document.
+    static string Xml(string t) {
+      if (t == null) return "";
+      StringBuilder b = new StringBuilder(t.Length + 16);
+      foreach (char c in t) {
+        if (c == '&') b.Append("&amp;");
+        else if (c == '<') b.Append("&lt;");
+        else if (c == '>') b.Append("&gt;");
+        else if (c == '"') b.Append("&quot;");
+        // (char)39 is an apostrophe. Written as a code point on purpose: this C#
+        // lives inside a JS template literal, which eats the backslash and hands
+        // the compiler an empty character literal.
+        else if (c == (char)39) b.Append("&apos;");
+        else b.Append(c);
+      }
+      return b.ToString();
+    }
+
+    // ── Prosody ──
+    // The stock SAPI voices read a flat line at a constant pitch, which is most
+    // of why they sound synthetic. SSML costs nothing and fixes the two worst
+    // parts: it gives punctuation real breathing room, and it stops every
+    // sentence landing on the same note. Applied to whatever voice is selected,
+    // so it improves the ones already installed rather than depending on better
+    // ones being available.
+    static string BuildSsml(string text) {
+      string body = Xml(text);
+      // A dash in an answer ("Working but fine — CPU at 34 percent") is a beat,
+      // not a word. Without this the voice runs the two halves together.
+      body = body.Replace("&#8212;", ", ").Replace("—", ", ");
+      return
+        "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>" +
+        "<prosody rate='" + (rate >= 0 ? "+" : "") + (rate * 6).ToString(CultureInfo.InvariantCulture) + "%' pitch='+2%'>" +
+        body +
+        "</prosody></speak>";
+    }
+
     static void Speak(string text) {
       if (syn == null || text == null || text.Length == 0) { Emit("SPEAK-DONE"); return; }
       try {
         syn.SpeakAsyncCancelAll();
-        syn.SpeakAsync(text);
+        try {
+          syn.SpeakSsmlAsync(BuildSsml(text));
+        } catch {
+          // A voice that will not take SSML must still be able to talk.
+          syn.SpeakAsync(text);
+        }
       } catch (Exception e) { Fail("speak", e); Emit("SPEAK-DONE"); }
     }
 
@@ -443,11 +606,15 @@ namespace MainVoiceHost {
       } catch (Exception e) { Fail("voice", e); }
     }
 
-    static void SetRate(int rate) {
+    static int rate = 0;
+
+    static void SetRate(int r) {
+      if (r < -5) r = -5;
+      if (r > 5) r = 5;
+      rate = r;
+      // Kept on the synthesizer too, for the plain-text fallback path.
       if (syn == null) return;
-      if (rate < -5) rate = -5;
-      if (rate > 5) rate = 5;
-      try { syn.Rate = rate; } catch (Exception e) { Fail("rate", e); }
+      try { syn.Rate = r; } catch (Exception e) { Fail("rate", e); }
     }
 
     // ── Push-to-talk ──

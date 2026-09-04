@@ -198,8 +198,12 @@ test('every compiled phrase is speakable — plain lowercase words only', () => 
 test('every phrase maps back to a real command with no parsing', () => {
   const ids = new Set(V.COMMANDS.map(c => c.id));
   for (const p of GRAMMAR.phrases) {
-    const hit = GRAMMAR.index.get(p);
-    assert.ok(hit, `"${p}" is indexed`);
+    // Normalized first, exactly as matchIntent does with a recognizer result.
+    // Contracted spellings ("whats the weather") are compiled so they can be
+    // HEARD, and collapse back to their expanded form before lookup — so the
+    // real guarantee, that a grammar hit needs no fuzzy parsing, still holds.
+    const hit = GRAMMAR.index.get(p) || GRAMMAR.index.get(V.normalizeTranscript(p));
+    assert.ok(hit, `"${p}" resolves without parsing`);
     assert.ok(ids.has(hit.commandId), `"${p}" maps to a registered command`);
   }
 });

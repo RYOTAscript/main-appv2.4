@@ -124,7 +124,7 @@ test('the host compiles and answers its handshake', {
 // is actually implemented.
 // Commands about the assistant itself never leave the main process.
 const MAIN_HANDLED = new Set(['assistant.help', 'assistant.cancel',
-  'assistant.repeat', 'assistant.quiet']);
+  'assistant.repeat', 'assistant.quiet', 'assistant.undo']);
 
 function executorIds() {
   const body = executorSrc.slice(executorSrc.indexOf('const VOICE_EXECUTORS = {'));
@@ -467,6 +467,52 @@ test('the exit animation is never cleared before the window is hidden', () => {
     'no timer resets the stage class mid-exit');
   assert.match(assistantSrc, /V\.EXIT_MS\[settings\.transition\]/,
     'main hides the window using the chosen transition duration');
+});
+
+// An answer that cannot be read is not an answer.
+test('a result with something to read outlives a bare acknowledgement', () => {
+  // The answer card was on screen for about 1.25s, which is fine for "Paused"
+  // and far too short for a temperature plus a date plus chips — what actually
+  // registered was the "Done" label and a flash. Success and answer must stay
+  // separate durations.
+  assert.match(assistantSrc, /SETTLE_MS\s*=\s*\{[^}]*answer:\s*(\d+)/,
+    'SETTLE_MS declares a distinct duration for an answer');
+  const answerMs = Number(assistantSrc.match(/SETTLE_MS\s*=\s*\{[^}]*answer:\s*(\d+)/)[1]);
+  const successMs = Number(assistantSrc.match(/SETTLE_MS\s*=\s*\{[^}]*success:\s*(\d+)/)[1]);
+  assert.ok(answerMs >= successMs * 2,
+    `an answer (${answerMs}ms) must linger well beyond an acknowledgement (${successMs}ms)`);
+  assert.match(assistantSrc, /extra && extra\.headline/,
+    'the settle duration is chosen from whether the payload carries a headline');
+});
+
+// Measured: 428ms per popup before this, ~20ms after.
+test('the overlay window is exempt from background throttling', () => {
+  // The window spends all of its idle life hidden, and Chromium throttles a
+  // hidden window: rAF stops entirely and timers are clamped. That throttled
+  // the `painted` handshake itself — the one thing that has to run BEFORE the
+  // window can be shown — so every activation fell back to the reveal timer.
+  assert.match(assistantSrc, /backgroundThrottling: false/,
+    'the overlay must keep running while hidden or it can never signal readiness');
+});
+
+test('the painted signal does not depend on a frame being rendered', () => {
+  // A hidden window produces no frames, so rAF alone can never fire.
+  assert.match(overlaySrc, /requestAnimationFrame\(\(\) => requestAnimationFrame\(signal\)\)/);
+  assert.match(overlaySrc, /setTimeout\(signal, \d+\)/, 'a timer races the frame callback');
+  assert.match(overlaySrc, /if \(signalled\) return;/, 'and only one of them wins');
+});
+
+test('the reveal fallback is a safety net, not the normal path', () => {
+  const m = assistantSrc.match(/setTimeout\(revealOverlay, (\d+)\)/);
+  assert.ok(m, 'there is still a fallback');
+  assert.ok(Number(m[1]) <= 250, `the fallback (${m && m[1]}ms) must not be what the user waits for`);
+});
+
+test('the overlay is built before it is first needed', () => {
+  // Creating it lazily put window creation and page load in front of the very
+  // first popup.
+  assert.match(assistantSrc, /ensureHost\(\)\.catch[\s\S]{0,400}?ensureOverlay\(\);/,
+    'the window is warmed alongside the speech host');
 });
 
 test('the window is only revealed once a visible state has been painted', () => {

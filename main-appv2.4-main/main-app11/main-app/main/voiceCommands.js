@@ -124,6 +124,16 @@ const DEFAULT_SETTINGS = Object.freeze({
   // being true, and that is the user's call to make rather than ours.
   // One sentence, several commands: "pause the music and optimize my pc".
   chaining: true,
+  // Ask before running a command that closes programs, wipes something, or
+  // changes machine-wide settings, unless the recognizer is near-certain.
+  // On by default: a closed grammar cannot say "that was not a command", so
+  // without this a stray noise can round to a destructive phrase and run it.
+  confirmRisky: true,
+  // Load a free-dictation catch-all beneath the command grammar, so a phrasing
+  // that was never compiled in can still be understood. On by default: without
+  // it, anything the registry does not literally contain is inaudible rather
+  // than merely misheard.
+  freeform: true,
   transition: 'fade',        // see TRANSITIONS
   vizStyle: 'aurora',        // see VIZ_STYLES
   scale: 1,                  // 0.7 .. 1.6 — the whole panel
@@ -214,6 +224,8 @@ function normalizeSettings(patch, current) {
     confidence: clampNumber(pick('confidence'), 0.2, 0.95, DEFAULT_SETTINGS.confidence),
     listenTimeoutMs: Math.round(clampNumber(pick('listenTimeoutMs'), 2000, 20000, DEFAULT_SETTINGS.listenTimeoutMs)),
     chaining: bool('chaining'),
+    confirmRisky: bool('confirmRisky'),
+    freeform: bool('freeform'),
     transition: PANEL_TRANSITIONS.includes(pick('transition')) ? pick('transition') : DEFAULT_SETTINGS.transition,
     vizStyle: VIZ_STYLES.includes(pick('vizStyle')) ? pick('vizStyle') : DEFAULT_SETTINGS.vizStyle,
     // Rounded to a step so the slider and the stored value always agree.
@@ -247,6 +259,75 @@ function numberToWords(n) {
 
 // Inverse of numberToWords, plus bare digits — used by the typed fallback and by
 // the fuzzy path, where the text didn't come from our own generated phrases.
+// The spoken durations compiled into the recognizer's grammar, alongside the
+// plain numbers. `spoken` is what the recognizer listens for; the template it
+// fills already ends in "minutes", so each of these has to read correctly with
+// that word dropped (see the minutes branch of the slot matcher).
+const DURATION_IDIOMS = Object.freeze([
+  { value: 30,  label: '30 min', spoken: 'half an hour', aliases: ['a half hour', 'half hour'] },
+  { value: 60,  label: '1 hour', spoken: 'an hour', aliases: ['one hour'] },
+  { value: 90,  label: '90 min', spoken: 'an hour and a half', aliases: ['one and a half hours'] },
+  { value: 15,  label: '15 min', spoken: 'a quarter of an hour', aliases: ['quarter of an hour'] },
+  { value: 120, label: '2 hours', spoken: 'two hours', aliases: [] },
+  { value: 180, label: '3 hours', spoken: 'three hours', aliases: [] },
+  { value: 2,   label: '2 min', spoken: 'a couple of minutes', aliases: ['a couple minutes'] },
+  { value: 5,   label: '5 min', spoken: 'a few minutes', aliases: [] }
+]);
+
+// Durations as people actually say them. wordsToNumber handles bare integers up
+// to 100, which is fine for a volume percentage and useless for a timer: "half
+// an hour", "an hour and a half" and "a couple of minutes" are the normal ways
+// to ask, and all three used to fall straight through to "unknown".
+//
+// Returns whole minutes, or null when the text is not a duration.
+function parseDuration(text) {
+  const s = String(text || '').toLowerCase()
+    .replace(/[-]/g, ' ')
+    .replace(/\band\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s) return null;
+
+  // Fixed idioms first — they do not decompose into number + unit.
+  const IDIOMS = {
+    'half an hour': 30, 'half hour': 30, 'an hour and a half': 90,
+    'hour and a half': 90, 'a quarter of an hour': 15, 'quarter of an hour': 15,
+    'a couple of minutes': 2, 'couple of minutes': 2, 'a couple minutes': 2,
+    'a few minutes': 5, 'few minutes': 5, 'a minute': 1, 'a moment': 1,
+    'an hour': 60, 'one hour': 60, 'a day': 1440
+  };
+  if (IDIOMS[s] !== undefined) return IDIOMS[s];
+
+  // "<n> hours <n> minutes", either part optional.
+  let total = 0;
+  let saw = false;
+  const hourMatch = s.match(/^(.*?)\s*(?:hours?|hrs?|h)\b/);
+  let rest = s;
+  if (hourMatch) {
+    const h = hourMatch[1].trim();
+    const hv = h === '' || h === 'a' || h === 'an' ? 1 : wordsToNumber(h);
+    if (hv === null) return null;
+    total += hv * 60;
+    saw = true;
+    rest = s.slice(hourMatch[0].length).trim();
+  }
+  if (rest) {
+    const minMatch = rest.match(/^(.*?)\s*(?:minutes?|mins?|m)?$/);
+    const m = (minMatch ? minMatch[1] : rest).trim();
+    if (m) {
+      if (m === 'a half' || m === 'half') { total += 30; saw = true; }
+      else {
+        const mv = m === 'a' || m === 'an' ? 1 : wordsToNumber(m);
+        if (mv === null) return saw ? total : null;
+        total += mv;
+        saw = true;
+      }
+    }
+  }
+  if (!saw || total <= 0) return null;
+  return total;
+}
+
 function wordsToNumber(text) {
   const s = String(text || '').trim().toLowerCase().replace(/[-]/g, ' ').replace(/\s+/g, ' ');
   if (!s) return null;
@@ -320,22 +401,30 @@ const COMMANDS = Object.freeze([
   // ── Spotify ──
   {
     id: 'spotify.play', title: 'Resume playback', category: 'Spotify', needs: 'spotify',
-    phrases: ['play', 'resume', 'play music', 'resume music', 'resume playback', 'unpause', 'keep playing'],
+    phrases: ['play', 'resume', 'play music', 'resume music', 'resume playback', 'unpause', 'keep playing',
+      'start the music', 'put the music back on', 'resume the song'
+    ],
     reply: 'Playing'
   },
   {
     id: 'spotify.pause', title: 'Pause playback', category: 'Spotify', needs: 'spotify',
-    phrases: ['pause', 'pause music', 'pause the music', 'stop music', 'stop the music', 'pause playback'],
+    phrases: ['pause', 'pause music', 'pause the music', 'stop music', 'stop the music', 'pause playback',
+      'pause the song', 'hold the music'
+    ],
     reply: 'Paused'
   },
   {
     id: 'spotify.next', title: 'Next track', category: 'Spotify', needs: 'spotify',
-    phrases: ['next track', 'next song', 'skip track', 'skip song', 'skip this song', 'play the next song'],
+    phrases: ['next track', 'next song', 'skip track', 'skip song', 'skip this song', 'play the next song',
+      'next', 'skip', 'play the next one'
+    ],
     reply: 'Next track'
   },
   {
     id: 'spotify.previous', title: 'Previous track', category: 'Spotify', needs: 'spotify',
-    phrases: ['previous track', 'previous song', 'last song', 'go back a song', 'play the previous song'],
+    phrases: ['previous track', 'previous song', 'last song', 'go back a song', 'play the previous song',
+      'play that again from before'
+    ],
     reply: 'Previous track'
   },
   {
@@ -356,34 +445,46 @@ const COMMANDS = Object.freeze([
   },
   {
     id: 'spotify.like', title: 'Save this track', category: 'Spotify', needs: 'spotify',
-    phrases: ['like this song', 'like this track', 'save this song', 'save this track', 'add this to my library'],
+    phrases: ['like this song', 'like this track', 'save this song', 'save this track', 'add this to my library',
+      'i like this song', 'favourite this', 'favorite this song'
+    ],
     reply: 'Saved to your library'
   },
   {
     id: 'spotify.whatsPlaying', title: 'What is playing', category: 'Spotify', needs: 'spotify',
-    phrases: ['what is playing', 'what song is this', 'what is this song', 'what am i listening to', 'now playing'],
+    phrases: ['what is playing', 'what song is this', 'what is this song', 'what am i listening to', 'now playing',
+      'who is this', 'who sings this', 'name this song'
+    ],
     reply: 'Checking'
   },
 
   // ── System audio & microphone ──
   {
     id: 'system.mute', title: 'Mute system audio', category: 'System',
-    phrases: ['mute the sound', 'mute system audio', 'mute everything', 'silence'],
+    phrases: ['mute the sound', 'mute system audio', 'mute everything', 'silence',
+      'silence the computer'
+    ],
     reply: 'Muted'
   },
   {
     id: 'system.unmute', title: 'Unmute system audio', category: 'System',
-    phrases: ['unmute the sound', 'unmute system audio', 'unmute everything'],
+    phrases: ['unmute the sound', 'unmute system audio', 'unmute everything',
+      'sound back on'
+    ],
     reply: 'Unmuted'
   },
   {
     id: 'mic.mute', title: 'Mute microphone', category: 'System',
-    phrases: ['mute my microphone', 'mute my mic', 'mute the microphone'],
+    phrases: ['mute my microphone', 'mute my mic', 'mute the microphone',
+      'mute me', 'turn my microphone off'
+    ],
     reply: 'Microphone muted'
   },
   {
     id: 'mic.unmute', title: 'Unmute microphone', category: 'System',
-    phrases: ['unmute my microphone', 'unmute my mic', 'unmute the microphone'],
+    phrases: ['unmute my microphone', 'unmute my mic', 'unmute the microphone',
+      'unmute me', 'turn my microphone on'
+    ],
     reply: 'Microphone live'
   },
 
@@ -398,13 +499,17 @@ const COMMANDS = Object.freeze([
   // ── Performance ──
   {
     id: 'fps.optimize', title: 'Optimize performance', category: 'Performance',
-    phrases: ['optimize my pc', 'optimise my pc', 'boost performance', 'optimize performance', 'optimise performance', 'speed up my pc'],
+    phrases: ['optimize my pc', 'optimise my pc', 'boost performance', 'optimize performance', 'optimise performance', 'speed up my pc',
+      'make my pc faster', 'free up some memory', 'clean up my computer'
+    ],
     reply: 'Optimizing'
   },
   {
     id: 'fps.nuke', title: 'Close background apps', category: 'Performance', confirm: true,
     confirmPrompt: 'Close background apps?',
-    phrases: ['close background apps', 'kill background apps', 'free up memory', 'maximum performance'],
+    phrases: ['close background apps', 'kill background apps', 'free up memory', 'maximum performance',
+      'close all background apps', 'shut down background programs'
+    ],
     reply: 'Clearing background apps'
   },
   {
@@ -415,19 +520,25 @@ const COMMANDS = Object.freeze([
   {
     id: 'fps.revert', title: 'Restore default settings', category: 'Performance', confirm: true,
     confirmPrompt: 'Restore the default performance settings?',
-    phrases: ['restore defaults', 'revert optimizations', 'revert optimisations', 'undo the optimizations'],
+    phrases: ['restore defaults', 'revert optimizations', 'revert optimisations', 'undo the optimizations',
+      'undo the optimisation', 'put my settings back', 'restore my settings'
+    ],
     reply: 'Defaults restored'
   },
 
   // ── Crosshair ──
   {
     id: 'crosshair.show', title: 'Show crosshair', category: 'Gaming',
-    phrases: ['show the crosshair', 'crosshair on', 'turn on the crosshair'],
+    phrases: ['show the crosshair', 'crosshair on', 'turn on the crosshair',
+      'give me a crosshair', 'put the crosshair up'
+    ],
     reply: 'Crosshair on'
   },
   {
     id: 'crosshair.hide', title: 'Hide crosshair', category: 'Gaming',
-    phrases: ['hide the crosshair', 'crosshair off', 'turn off the crosshair'],
+    phrases: ['hide the crosshair', 'crosshair off', 'turn off the crosshair',
+      'get rid of the crosshair', 'take the crosshair away'
+    ],
     reply: 'Crosshair off'
   },
 
@@ -447,12 +558,16 @@ const COMMANDS = Object.freeze([
   },
   {
     id: 'app.openSettings', title: 'Open settings', category: 'Launcher',
-    phrases: ['open settings', 'show settings', 'open the settings', 'open preferences'],
+    phrases: ['open settings', 'show settings', 'open the settings', 'open preferences',
+      'open your settings', 'show me settings', 'let me change settings'
+    ],
     reply: 'Settings'
   },
   {
     id: 'app.focus', title: 'Show the launcher', category: 'Launcher',
-    phrases: ['show the launcher', 'open the launcher', 'bring up main', 'show main'],
+    phrases: ['show the launcher', 'open the launcher', 'bring up main', 'show main',
+      'come here', 'show yourself', 'bring up the launcher'
+    ],
     reply: 'Here'
   },
 
@@ -470,12 +585,16 @@ const COMMANDS = Object.freeze([
   // ── Information ──
   {
     id: 'weather.now', title: 'Current weather', category: 'Information',
-    phrases: ['what is the weather', 'how is the weather', 'what is the weather like', 'weather', 'the weather'],
+    phrases: ['what is the weather', 'how is the weather', 'what is the weather like', 'weather', 'the weather',
+      'whats it like outside', 'is it raining', 'how hot is it', 'temperature outside'
+    ],
     reply: 'Checking the weather'
   },
   {
     id: 'system.stats', title: 'System status', category: 'Information',
-    phrases: ['how is my pc doing', 'system status', 'check my cpu', 'cpu usage', 'how much memory am i using'],
+    phrases: ['how is my pc doing', 'system status', 'check my cpu', 'cpu usage', 'how much memory am i using',
+      'how is my computer doing', 'check my system', 'how is performance', 'is my pc struggling'
+    ],
     reply: 'Checking'
   },
 
@@ -483,17 +602,21 @@ const COMMANDS = Object.freeze([
   {
     id: 'timer.start', title: 'Start a timer', category: 'Productivity',
     slot: 'minutes', prompt: 'A timer for how many minutes?',
-    phrases: ['set a timer for {minutes} minutes', 'start a timer for {minutes} minutes', 'timer for {minutes} minutes'],
+    phrases: ['set a timer for {minutes}', 'start a timer for {minutes}', 'timer for {minutes}'],
     reply: (p) => `Timer set for ${p.minutes} min`
   },
   {
     id: 'timer.cancel', title: 'Cancel the timer', category: 'Productivity',
-    phrases: ['cancel the timer', 'stop the timer', 'clear the timer'],
+    phrases: ['cancel the timer', 'stop the timer', 'clear the timer',
+      'forget the timer', 'cancel my timer'
+    ],
     reply: 'Timer cancelled'
   },
   {
     id: 'clipboard.open', title: 'Open clipboard history', category: 'Productivity',
-    phrases: ['open my clipboard', 'clipboard history', 'show my clipboard'],
+    phrases: ['open my clipboard', 'clipboard history', 'show my clipboard',
+      'open clipboard history'
+    ],
     reply: 'Clipboard history'
   },
   {
@@ -506,7 +629,9 @@ const COMMANDS = Object.freeze([
   // ── The assistant itself ──
   {
     id: 'assistant.help', title: 'What can I say', category: 'Assistant',
-    phrases: ['what can i say', 'what can you do', 'help', 'show me the commands', 'list commands'],
+    phrases: ['what can i say', 'what can you do', 'help', 'show me the commands', 'list commands',
+      'what commands do you know', 'how do i use you', 'list your commands'
+    ],
     reply: 'Here is what I can do'
   },
   // ── Spotify, deeper ──
@@ -523,7 +648,9 @@ const COMMANDS = Object.freeze([
   },
   {
     id: 'spotify.restart', title: 'Restart this track', category: 'Spotify', needs: 'spotify',
-    phrases: ['start this song over', 'restart this track', 'play this from the beginning'],
+    phrases: ['start this song over', 'restart this track', 'play this from the beginning',
+      'play this from the start'
+    ],
     reply: 'From the top'
   },
   {
@@ -544,7 +671,7 @@ const COMMANDS = Object.freeze([
   {
     id: 'spotify.sleepTimer', title: 'Sleep timer', category: 'Spotify', needs: 'spotify',
     slot: 'minutes', prompt: 'A sleep timer for how long?',
-    phrases: ['sleep timer for {minutes} minutes', 'stop the music in {minutes} minutes'],
+    phrases: ['sleep timer for {minutes}', 'stop the music in {minutes}'],
     reply: (p) => `Music stops in ${p.minutes} min`
   },
   {
@@ -556,12 +683,16 @@ const COMMANDS = Object.freeze([
   // ── System volume (the Volume Mixer engine, not Spotify) ──
   {
     id: 'system.volumeUp', title: 'System volume up', category: 'System',
-    phrases: ['volume up', 'turn the volume up', 'raise the volume'],
+    phrases: ['volume up', 'turn the volume up', 'raise the volume',
+      'make it louder', 'volume higher', 'increase the volume', 'crank the volume'
+    ],
     reply: 'Volume up'
   },
   {
     id: 'system.volumeDown', title: 'System volume down', category: 'System',
-    phrases: ['volume down', 'turn the volume down', 'lower the volume'],
+    phrases: ['volume down', 'turn the volume down', 'lower the volume',
+      'make it quieter', 'volume lower', 'decrease the volume', 'turn the sound down'
+    ],
     reply: 'Volume down'
   },
   {
@@ -591,12 +722,16 @@ const COMMANDS = Object.freeze([
   // ── Bluetooth ──
   {
     id: 'bluetooth.on', title: 'Bluetooth on', category: 'System',
-    phrases: ['turn on bluetooth', 'bluetooth on', 'enable bluetooth'],
+    phrases: ['turn on bluetooth', 'bluetooth on', 'enable bluetooth',
+      'switch bluetooth on'
+    ],
     reply: 'Bluetooth on'
   },
   {
     id: 'bluetooth.off', title: 'Bluetooth off', category: 'System',
-    phrases: ['turn off bluetooth', 'bluetooth off', 'disable bluetooth'],
+    phrases: ['turn off bluetooth', 'bluetooth off', 'disable bluetooth',
+      'switch bluetooth off'
+    ],
     reply: 'Bluetooth off'
   },
   {
@@ -681,12 +816,16 @@ const COMMANDS = Object.freeze([
   // ── Gaming utilities ──
   {
     id: 'gameMode.on', title: 'Game Mode on', category: 'Gaming',
-    phrases: ['turn on game mode', 'game mode on', 'enable game mode'],
+    phrases: ['turn on game mode', 'game mode on', 'enable game mode',
+      'i am gaming', 'turn on gaming mode'
+    ],
     reply: 'Game Mode on'
   },
   {
     id: 'gameMode.off', title: 'Game Mode off', category: 'Gaming',
-    phrases: ['turn off game mode', 'game mode off', 'disable game mode'],
+    phrases: ['turn off game mode', 'game mode off', 'disable game mode',
+      'i am done gaming', 'turn off gaming mode'
+    ],
     reply: 'Game Mode off'
   },
   {
@@ -737,7 +876,9 @@ const COMMANDS = Object.freeze([
   },
   {
     id: 'timer.status', title: 'Time left on the timer', category: 'Productivity',
-    phrases: ['how long is left', 'how much time is left', 'check the timer'],
+    phrases: ['how long is left', 'how much time is left', 'check the timer',
+      'check my timer', 'how long on the timer'
+    ],
     reply: 'Checking'
   },
   {
@@ -761,6 +902,8 @@ const COMMANDS = Object.freeze([
   },
   {
     id: 'app.minimize', title: 'Minimise the launcher', category: 'Launcher',
+    // "go away" is deliberately NOT here — assistant.cancel owns it. Said to an
+    // assistant it means "dismiss this", not "minimise the launcher".
     phrases: ['minimize the launcher', 'minimise the launcher', 'hide the launcher', 'get out of the way'],
     reply: 'Hidden'
   },
@@ -797,13 +940,33 @@ const COMMANDS = Object.freeze([
 
   // ── Information ──
   {
+    id: 'system.battery', title: 'Check the battery', category: 'Information',
+    phrases: ['how is my battery', 'what is my battery', 'battery level',
+              'how much battery do i have', 'check my battery',
+      'battery status', 'how much charge do i have', 'am i charging'
+    ],
+    reply: 'Checking the battery'
+  },
+  {
+    id: 'system.disk', title: 'Check free space', category: 'Information',
+    phrases: ['how much space is left', 'how much disk space do i have',
+              'check my disk space', 'how much storage is left', 'free space',
+      'do i have space', 'is my disk full', 'storage left'
+    ],
+    reply: 'Checking your disk'
+  },
+  {
     id: 'system.time', title: 'What time is it', category: 'Information',
-    phrases: ['what time is it', 'what is the time', 'tell me the time'],
+    phrases: ['what time is it', 'what is the time', 'tell me the time',
+      'do you have the time', 'whats the time', 'time please'
+    ],
     reply: 'Checking'
   },
   {
     id: 'weather.forecast', title: 'The forecast', category: 'Information',
-    phrases: ['what is the forecast', 'what is the weather tomorrow', 'give me the forecast'],
+    phrases: ['what is the forecast', 'what is the weather tomorrow', 'give me the forecast',
+      'what is tomorrow like', 'and tomorrow', 'what about tomorrow', 'will it rain tomorrow'
+    ],
     reply: 'Checking the forecast'
   },
 
@@ -825,6 +988,15 @@ const COMMANDS = Object.freeze([
     id: 'assistant.quiet', title: 'Stop talking', category: 'Assistant',
     phrases: ['be quiet', 'stop talking', 'shush'],
     reply: 'Quiet'
+  },
+  {
+    // Deliberately NOT "never mind" — that is assistant.cancel, which dismisses
+    // the overlay without touching anything. Undo reverses the last action.
+    id: 'assistant.undo', title: 'Undo the last thing', category: 'Assistant',
+    phrases: ['undo that', 'undo', 'take that back', 'reverse that', 'put that back',
+      'undo the last thing', 'revert that', 'that was wrong undo it'
+    ],
+    reply: 'Undone'
   },
   {
     id: 'assistant.cancel', title: 'Dismiss', category: 'Assistant',
@@ -860,7 +1032,31 @@ const LEADING_FILLERS = Object.freeze([
 ]);
 
 // Trailing courtesies, stripped from the END for the same reason.
-const TRAILING_FILLERS = Object.freeze(['please', 'thanks', 'thank you', 'for me', 'right now', 'now']);
+const TRAILING_FILLERS = Object.freeze([
+  'please', 'thanks', 'thank you', 'for me', 'right now', 'now',
+  'if you can', 'if you could', 'would you', 'will you', 'alright', 'ok', 'okay'
+]);
+
+// Fillers that land in the MIDDLE of an utterance. Leading/trailing stripping
+// alone cannot reach these, and one stray "um" was enough to drop a phrase below
+// the match floor: "turn the um volume up" scored as though a word were missing,
+// because to the matcher one was.
+//
+// EVERY entry must be a word that appears in no command template, or stripping
+// it silently destroys a working command. "like" is the cautionary example — it
+// looks like a filler, but "like this song" is how you favourite a track, and
+// removing it leaves the bare "this song". `test/voice-commands.test.js` asserts
+// this list stays disjoint from the registry's vocabulary, so a future command
+// that uses one of these words fails the build instead of breaking in the field.
+//
+// There is deliberately NO synonym-rewriting table here. Collapsing verbs to a
+// canonical form ("lower" -> "turn") reads as an obvious win and is actively
+// harmful: the registry already enumerates the natural variants, so "lower the
+// volume" is ALREADY a template, and rewriting it produces "turn the volume",
+// which matches neither that template nor "turn the volume down". A rewrite can
+// only move an utterance away from a phrase it already matched. Add new wordings
+// to a command's `phrases` instead.
+const INNER_FILLERS = Object.freeze(['um', 'uh', 'erm', 'ah', 'basically', 'literally', 'actually']);
 
 function normalizeTranscript(text) {
   let s = String(text == null ? '' : text).toLowerCase();
@@ -883,6 +1079,15 @@ function normalizeTranscript(text) {
       if (s.startsWith(f + ' ')) { s = s.slice(f.length + 1); changed = true; break; }
     }
   }
+  // Mid-sentence fillers, between the leading and trailing passes so a stripped
+  // inner word can expose a new leading/trailing filler.
+  if (s) {
+    const kept = s.split(' ').filter((w) => !INNER_FILLERS.includes(w));
+    // Never let filler-stripping empty an utterance that had real words — an
+    // all-filler phrase should stay unknown, not silently become something else.
+    if (kept.length) s = kept.join(' ');
+  }
+
   changed = true;
   while (changed && s) {
     changed = false;
@@ -919,27 +1124,44 @@ function speakableName(name) {
 
 // Normalises one { id, name, aliases } list. Entries that sanitise to nothing
 // are dropped (they can never be spoken), and duplicates collapse to the first.
+// TWO passes, and the order matters more than it looks.
+//
+// Names and aliases used to share one `seen` set filled in list order, so an
+// earlier entry's ALIAS could claim a word that was a later entry's real NAME —
+// and that later app was then dropped from the vocabulary entirely. A pinned
+// "Rainbow Six Siege" tile with a derived alias of "steam" silently deleted
+// Steam, and "open steam" launched the game instead. Aliases are guesses
+// (derived from an exe, icon or folder name); a primary name is what the user
+// actually calls the thing, so a guess must never be allowed to shadow one.
 function buildVocabularyList(raw) {
   const out = [];
-  const seen = new Set();
   if (!Array.isArray(raw)) return out;
+
+  // Pass 1 — primary names. First writer wins among these, as before.
+  const taken = new Set();
+  const kept = [];
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
     const id = String(item.id == null ? '' : item.id).slice(0, 200);
     const label = String(item.name == null ? '' : item.name).slice(0, 120);
     if (!id || !label) continue;
     const spoken = speakableName(label);
-    if (!spoken || seen.has(spoken)) continue;
-    seen.add(spoken);
+    if (!spoken || taken.has(spoken)) continue;
+    taken.add(spoken);
+    kept.push({ id, label, spoken, item });
+    if (kept.length >= MAX_VOCAB_ENTRIES) break;
+  }
+
+  // Pass 2 — aliases, which may only take words no primary name claimed.
+  for (const k of kept) {
     const aliases = [];
-    if (Array.isArray(item.aliases)) {
-      for (const a of item.aliases.slice(0, 6)) {
+    if (Array.isArray(k.item.aliases)) {
+      for (const a of k.item.aliases.slice(0, 6)) {
         const sa = speakableName(a);
-        if (sa && sa !== spoken && !seen.has(sa)) { seen.add(sa); aliases.push(sa); }
+        if (sa && sa !== k.spoken && !taken.has(sa)) { taken.add(sa); aliases.push(sa); }
       }
     }
-    out.push({ id, label, spoken, aliases });
-    if (out.length >= MAX_VOCAB_ENTRIES) break;
+    out.push({ id: k.id, label: k.label, spoken: k.spoken, aliases });
   }
   return out;
 }
@@ -949,6 +1171,9 @@ function buildVocabulary(raw) {
   // NB: `raw.accent` is deliberately not part of the vocabulary — it travels on
   // the same message but is a look setting, handled in main/voiceAssistant.js.
   return {
+    // Validated on the way in: an alias reaching the grammar unchecked could
+    // shadow a built-in phrase.
+    aliases: validateAliases(raw && raw.aliases, null).aliases,
     apps: buildVocabularyList(v.apps),
     // Widgets the user has ENABLED (things worth opening) vs the whole catalogue
     // (things worth switching on or off) — two different questions.
@@ -978,7 +1203,27 @@ function slotEntries(slot, vocab) {
     case 'crosshairStyle': return CROSSHAIR_STYLES.map((c) => ({ ...c, aliases: [] }));
     case 'colour': return COLOURS.map((c) => ({ ...c, aliases: [] }));
     case 'volume': return VOLUME_STEPS.map((n) => ({ id: String(n), label: `${n}%`, spoken: numberToWords(n), aliases: [], value: n }));
-    case 'minutes': return TIMER_MINUTES.map((n) => ({ id: String(n), label: `${n} min`, spoken: numberToWords(n), aliases: [], value: n }));
+    case 'minutes': {
+      // `spoken` carries the unit because the template no longer does. That is
+      // what lets "ten minutes" and "half an hour" fill the same slot, instead
+      // of a "{minutes} minutes" template forcing every duration to end in that
+      // word and compiling idioms to "half an hour minutes".
+      const numeric = TIMER_MINUTES.map((n) => ({
+        id: String(n),
+        label: `${n} min`,
+        spoken: `${numberToWords(n)} ${n === 1 ? 'minute' : 'minutes'}`,
+        aliases: [`${n} minutes`],
+        value: n
+      }));
+      // Recognition runs against a CLOSED grammar: a phrasing the matcher can
+      // parse is still unhearable unless it is compiled in as a choice. These
+      // are the idiomatic durations people actually say, added so "set a timer
+      // for half an hour" works by voice and not only when typed.
+      const idioms = DURATION_IDIOMS.map((d) => ({
+        id: String(d.value), label: d.label, spoken: d.spoken, aliases: d.aliases || [], value: d.value
+      }));
+      return numeric.concat(idioms);
+    }
     default: return [];
   }
 }
@@ -1003,6 +1248,167 @@ function slotParams(slot, entry) {
   }
 }
 
+// ── User aliases ─────────────────────────────────────────────────────────────
+// Users can add their own wording for a command. This is the SAFE shape of the
+// idea that a synonym table got wrong: an alias is an extra phrase on a command,
+// so it can only add matches. A rewrite could move an utterance away from a
+// phrase that already worked, which is how "lower the volume" got broken.
+//
+// Aliases are user input, so they are validated hard before they can reach the
+// grammar: a phrase that collides with an existing one is rejected rather than
+// silently shadowing a built-in command.
+const MAX_ALIASES = 60;
+const MAX_ALIAS_WORDS = 8;
+
+// Cleans one alias. Returns '' when it cannot be used.
+function normalizeAlias(text) {
+  const t = normalizeTranscript(text);
+  if (!t) return '';
+  const words = t.split(' ').filter(Boolean);
+  if (!words.length || words.length > MAX_ALIAS_WORDS) return '';
+  // A one-word alias is exactly the shape room noise fits best; the confidence
+  // floors already distrust those, and letting users mint more of them makes
+  // false accepts more likely rather than less.
+  if (words.length < 2) return '';
+  return words.join(' ');
+}
+
+// Validates a whole alias map ({ commandId: [phrase, ...] }) against the
+// registry and against the phrases already in use.
+//
+// Returns { aliases, rejected } — rejected explains itself so the UI can say
+// WHY a phrase was refused instead of silently dropping it.
+function validateAliases(map, vocabulary) {
+  const out = {};
+  const rejected = [];
+  if (!map || typeof map !== 'object') return { aliases: out, rejected };
+
+  const byId = new Map(COMMANDS.map((c) => [c.id, c]));
+  // Every phrase the built-in grammar already claims.
+  const taken = new Set();
+  for (const cmd of COMMANDS) {
+    for (const phrase of cmd.phrases) {
+      if (cmd.slot && phrase.includes('{' + cmd.slot + '}')) continue;
+      taken.add(normalizeTranscript(phrase));
+    }
+  }
+
+  let count = 0;
+  for (const [commandId, list] of Object.entries(map)) {
+    if (!byId.has(commandId)) { rejected.push({ commandId, phrase: '', why: 'no such command' }); continue; }
+    if (!Array.isArray(list)) continue;
+    for (const raw of list) {
+      if (count >= MAX_ALIASES) { rejected.push({ commandId, phrase: String(raw), why: 'too many aliases' }); continue; }
+      const phrase = normalizeAlias(raw);
+      if (!phrase) { rejected.push({ commandId, phrase: String(raw), why: 'needs 2 to 8 words' }); continue; }
+      if (taken.has(phrase)) { rejected.push({ commandId, phrase, why: 'already means something else' }); continue; }
+      taken.add(phrase);
+      (out[commandId] = out[commandId] || []).push(phrase);
+      count++;
+    }
+  }
+  return { aliases: out, rejected };
+}
+
+// ── Voice training ───────────────────────────────────────────────────────────
+// A read-these-phrases flow, and it is worth being precise about what it can and
+// cannot do, because the obvious assumption is wrong.
+//
+// It does NOT retrain an acoustic model. System.Speech exposes no API to feed
+// training audio — the acoustic profile belongs to Windows, and the only thing
+// that adapts it is Windows' own trainer (SpeechUXWiz.exe UserTraining), which
+// the panel offers separately.
+//
+// What it DOES do is the half Windows cannot: it learns how THIS user phrases
+// things, on THIS microphone.
+//
+//   1. If a prompt is consistently heard as something else, that mishearing is
+//      offered as a user ALIAS. Aliases only ever ADD phrases, so this can widen
+//      what is understood without ever breaking a phrase that already worked.
+//   2. It measures the real confidence of correct recognitions and proposes a
+//      threshold from that, instead of everyone sharing one guessed number.
+//   3. It measures peak input level, which is usually the actual problem and is
+//      invisible without measuring it.
+//
+// Prompts are chosen to be phonetically varied and to cover the command shapes
+// people use most, so the sample says something about ordinary use.
+const TRAINING_PROMPTS = Object.freeze([
+  { commandId: 'system.time',           say: 'what time is it' },
+  { commandId: 'weather.now',           say: 'what is the weather' },
+  { commandId: 'spotify.pause',         say: 'pause the music' },
+  { commandId: 'spotify.next',          say: 'skip this song' },
+  { commandId: 'system.volumeUp',       say: 'turn the volume up' },
+  { commandId: 'app.openSettings',      say: 'open settings' },
+  { commandId: 'system.stats',          say: 'how is my pc doing' },
+  { commandId: 'assistant.help',        say: 'what can i say' }
+]);
+
+// Levels below this are the real limit on accuracy, whatever the wording.
+const TRAINING_LOW_PEAK = 15;
+
+function median(values) {
+  const v = values.filter((n) => Number.isFinite(n)).slice().sort((a, b) => a - b);
+  if (!v.length) return 0;
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 ? v[mid] : Math.round((v[mid - 1] + v[mid]) / 2);
+}
+
+// Turns a completed training run into concrete, applicable changes.
+//
+// samples: [{ commandId, said, heard, confidence, peak, matchedId }]
+//   heard     what the recognizer returned ('' if it heard nothing)
+//   matchedId which command that text resolved to ('' if none)
+//
+// Returns { accuracy, heardCount, peakMedian, lowMic, confidence, aliases,
+//           misheard, skipped } — `aliases` is already validated, so it can be
+// saved as-is.
+function analyzeTraining(samples, vocabulary) {
+  const list = Array.isArray(samples) ? samples : [];
+  const attempted = list.filter((x) => x && x.heard);
+  const correct = attempted.filter((x) => x.matchedId && x.matchedId === x.commandId);
+  const wrong = attempted.filter((x) => !x.matchedId || x.matchedId !== x.commandId);
+
+  const peakMedian = median(list.map((x) => Number(x && x.peak)));
+
+  // A threshold derived from what this user's correct recognitions actually
+  // score, rather than one number guessed for everybody. Set a little under the
+  // weakest correct sample so a normal utterance is not rejected, and clamped so
+  // a bad run can never disable the guard or make it impossible to trigger.
+  let confidence = null;
+  if (correct.length >= 3) {
+    const lowest = Math.min(...correct.map((x) => Number(x.confidence) || 0));
+    confidence = Math.max(0.35, Math.min(0.8, Math.round((lowest - 0.08) * 100) / 100));
+  }
+
+  // A mishearing is only worth teaching if the words are stable enough to be a
+  // phrase: a one-word fragment is exactly what room noise produces, and would
+  // make false accepts more likely rather than less.
+  const proposed = {};
+  const misheard = [];
+  for (const x of wrong) {
+    const heard = normalizeTranscript(x.heard);
+    if (!heard || heard.split(' ').filter(Boolean).length < 2) continue;
+    // Never teach a phrase that already means something else — validateAliases
+    // enforces this too, but recording the reason here makes the UI honest.
+    misheard.push({ commandId: x.commandId, said: x.said, heard });
+    (proposed[x.commandId] = proposed[x.commandId] || []).push(heard);
+  }
+  const { aliases, rejected } = validateAliases(proposed, vocabulary);
+
+  return {
+    total: list.length,
+    heardCount: attempted.length,
+    skipped: list.length - attempted.length,
+    accuracy: attempted.length ? Math.round((correct.length / attempted.length) * 100) : 0,
+    peakMedian,
+    lowMic: attempted.length > 0 && peakMedian < TRAINING_LOW_PEAK,
+    confidence,
+    aliases,
+    misheard,
+    rejected
+  };
+}
+
 // ── Grammar compilation ───────────────────────────────────────────────────
 // Produces:
 //   phrases     literal strings for the recognizer's closed Choices grammar
@@ -1012,10 +1418,48 @@ function slotParams(slot, entry) {
 //   collisions  phrases claimed by more than one command — first wins, but the
 //               list is asserted empty in the tests so an accidental clash from
 //               a future command is caught at build time rather than in the field
+// ── Contractions in the grammar ──────────────────────────────────────────────
+// normalizeTranscript EXPANDS contractions ("whats" -> "what is") so matching
+// only ever has to deal with one form. That is right for matching and wrong for
+// the grammar: the recognizer listens for literal strings, and the registry is
+// written out in full, so "what is the weather" was compiled and "what's the
+// weather" was not. Saying the contraction — which is how nearly everyone
+// actually says it — was inaudible.
+//
+// So every compiled phrase also gets its contracted spelling. Only the grammar
+// needs them; a recognized contraction normalizes straight back to the expanded
+// form and finds the command in the index as usual.
+const CONTRACTION_VARIANTS = Object.freeze([
+  ['what is', 'whats'], ['what are', 'whatre'], ['how is', 'hows'],
+  ['it is', 'its'], ['that is', 'thats'], ['there is', 'theres'],
+  ['who is', 'whos'], ['where is', 'wheres'], ['when is', 'whens'],
+  ['i am', 'im'], ['i have', 'ive'], ['i will', 'ill'], ['i would', 'id'],
+  ['you are', 'youre'], ['we are', 'were'], ['they are', 'theyre'],
+  ['do not', 'dont'], ['does not', 'doesnt'], ['did not', 'didnt'],
+  ['is not', 'isnt'], ['are not', 'arent'], ['was not', 'wasnt'],
+  ['can not', 'cant'], ['cannot', 'cant'], ['will not', 'wont'],
+  ['have not', 'havent'], ['let us', 'lets']
+]);
+
+// Every contracted spelling of a phrase. Returns [] when none apply, so callers
+// can skip the common case cheaply.
+function contractedVariants(phrase) {
+  const out = [];
+  for (const [long, short] of CONTRACTION_VARIANTS) {
+    if (!phrase.includes(long)) continue;
+    const variant = phrase.split(long).join(short).replace(/\s+/g, ' ').trim();
+    if (variant && variant !== phrase && !out.includes(variant)) out.push(variant);
+  }
+  return out;
+}
+
 const MAX_GRAMMAR_PHRASES = 4000;
 
 function compileGrammar(vocabulary) {
   const vocab = vocabulary && vocabulary.apps ? vocabulary : buildVocabulary(vocabulary);
+  // User aliases are compiled in exactly like built-in phrases — a phrasing the
+  // matcher understands but the grammar has never heard is unusable by voice.
+  const aliasMap = (vocab && vocab.aliases) || {};
   const index = new Map();
   const phrases = [];
   const dictation = [];
@@ -1073,6 +1517,31 @@ function compileGrammar(vocabulary) {
     }
   }
 
+  // Contracted spellings of everything compiled so far. Added to `phrases` only
+  // — NOT to the index — because a recognized contraction normalizes back to the
+  // expanded form, which is already indexed. Adding them through `add()` would
+  // be a no-op for exactly that reason: the key would collide with itself.
+  const spoken = phrases.slice();
+  for (const phrase of spoken) {
+    for (const variant of contractedVariants(phrase)) {
+      if (phrases.length >= MAX_GRAMMAR_PHRASES) { truncated = true; break; }
+      // Only compile a variant that ROUND-TRIPS. A contraction the normalizer
+      // cannot expand again ("whos this") would be hearable but unresolvable —
+      // the recognizer would return a phrase nothing could map to a command.
+      // Checking rather than trusting the table means the two can never drift.
+      if (normalizeTranscript(variant) !== phrase) continue;
+      if (!index.has(variant) && !phrases.includes(variant)) phrases.push(variant);
+    }
+  }
+
+  // User aliases last, so a built-in phrase always wins a tie: `add` keeps the
+  // first claim on a phrase, which means an alias can extend the grammar but can
+  // never shadow a command the user did not write.
+  for (const [commandId, list] of Object.entries(aliasMap)) {
+    if (!Array.isArray(list)) continue;
+    for (const phrase of list) add(phrase, { commandId, params: {} });
+  }
+
   return { phrases, index, dictation, collisions, truncated };
 }
 
@@ -1110,11 +1579,20 @@ function similarity(a, b) {
 // similarity floor for near-misses.
 const VOCAB_SIMILARITY_FLOOR = 0.72;
 
+// How close a second candidate may be before picking one becomes a coin toss.
+const VOCAB_AMBIGUITY_DELTA = 0.08;
+
 function resolveEntry(fragment, entries) {
   const frag = normalizeTranscript(fragment);
   if (!frag || !entries.length) return null;
   let best = null;
+  // The best score from a DIFFERENT entry. Tracked because picking the winner
+  // of a near-tie silently is how "open discord" can launch Steam: with dozens
+  // of installed apps in the slot, two names scoring 0.72 and 0.71 is ordinary,
+  // and the loser is discarded without anyone being told there was a contest.
+  let runnerUp = null;
   for (const entry of entries) {
+    let entryBest = 0;
     for (const name of [entry.spoken, ...entry.aliases]) {
       let score;
       if (name === frag) score = 1;
@@ -1122,10 +1600,22 @@ function resolveEntry(fragment, entries) {
       else if (name.includes(' ' + frag + ' ')) score = 0.9;
       else if (frag.startsWith(name + ' ') || frag.endsWith(' ' + name)) score = 0.88;
       else score = similarity(frag, name);
-      if (!best || score > best.score) best = { entry, score };
+      if (score > entryBest) entryBest = score;
+    }
+    if (!best || entryBest > best.score) {
+      if (best) runnerUp = best.score;
+      best = { entry, score: entryBest };
+    } else if (runnerUp === null || entryBest > runnerUp) {
+      runnerUp = entryBest;
     }
   }
-  return best && best.score >= VOCAB_SIMILARITY_FLOOR ? best : null;
+  if (!best || best.score < VOCAB_SIMILARITY_FLOOR) return null;
+  // An exact match is never ambiguous, whatever else scored close: saying a
+  // name correctly must always just work.
+  best.ambiguous = best.score < 1 &&
+    runnerUp !== null && (best.score - runnerUp) < VOCAB_AMBIGUITY_DELTA;
+  best.runnerUp = runnerUp;
+  return best;
 }
 
 // Token overlap between an utterance and a phrase template's fixed words.
@@ -1148,6 +1638,95 @@ function scoreTemplate(tokens, templateTokens) {
   return coverage - Math.min(0.25, extra * 0.05);
 }
 
+// ── Phonetic matching ────────────────────────────────────────────────────────
+// The characteristic failure of this recognizer is not hearing nonsense — it is
+// hearing something that SOUNDS like what you said. "Open settings" comes back
+// as "open sentences"; "pause the music" as "paws the music". Letter-level
+// similarity barely helps there (settings/sentences share few letters in the
+// same order) but the two are near-identical to the ear.
+//
+// So this is a last-resort layer that compares how words SOUND. A compact
+// Metaphone-style key: drop vowels after the first, fold the digraphs English
+// spells inconsistently, and collapse doubles. Deliberately hand-rolled rather
+// than pulled in — it is thirty lines, and a dependency in a shipped paid
+// product has to earn itself.
+//
+// It only ever runs when every other stage has already failed, so it cannot
+// change a match that was working; it can only rescue one that was lost.
+const PHONETIC_FOLD = Object.freeze([
+  [/[^A-Z]/g, ''],
+  // Silent leading clusters.
+  [/^(KN|GN|PN|AE|WR)/, 'N'],
+  [/^X/, 'S'],
+  [/^WH/, 'W'],
+  // Digraphs, longest first.
+  [/PH/g, 'F'],
+  [/TCH/g, 'CH'],
+  [/SCH/g, 'SK'],
+  [/CH/g, 'X'],
+  [/SH/g, 'X'],
+  [/TH/g, '0'],
+  [/CK/g, 'K'],
+  [/GH/g, ''],
+  [/QU/g, 'KW'],
+  [/[CQ]/g, 'K'],
+  [/Z/g, 'S'],
+  [/V/g, 'F'],
+  [/[WY]/g, ''],
+  // A trailing S is grammatical noise far more often than it is meaning:
+  // "setting" and "settings" must not be treated as different words.
+  [/S$/, '']
+]);
+
+function phoneticKey(word) {
+  let w = String(word || '').toUpperCase();
+  const first = w.charAt(0);
+  for (const [pattern, replacement] of PHONETIC_FOLD) w = w.replace(pattern, replacement);
+  if (!w) return '';
+  // Vowels carry almost no discriminating power once a recognizer has already
+  // guessed wrong, but the FIRST sound of a word is strongly preserved in
+  // mishearings, so it is kept whatever it is.
+  const head = /[AEIOU]/.test(first) ? first : '';
+  const body = w.replace(/[AEIOU]/g, '');
+  // Collapse runs: "SETTINGS" -> "STNGS", not "STTNGS".
+  const collapsed = (head + body).replace(/(.)\1+/g, '$1');
+  return collapsed;
+}
+
+// Do these two words plausibly sound the same? Compared on their phonetic keys
+// with the same edit-distance similarity the literal matcher uses.
+function soundsLike(a, b) {
+  const ka = phoneticKey(a);
+  const kb = phoneticKey(b);
+  if (!ka || !kb) return 0;
+  if (ka === kb) return 1;
+  // A single-character key matching by chance is noise, not evidence.
+  if (ka.length < 2 || kb.length < 2) return 0;
+  return similarity(ka, kb);
+}
+
+// Scores a heard phrase against a template by sound rather than by spelling.
+// Mirrors scoreTemplate's in-order walk so the two are comparable.
+function phoneticScore(tokens, templateTokens) {
+  if (!templateTokens.length) return 0;
+  let matched = 0;
+  let cursor = 0;
+  for (const t of templateTokens) {
+    let found = -1;
+    for (let i = cursor; i < tokens.length; i++) {
+      if (tokens[i] === t || soundsLike(tokens[i], t) >= 0.82) { found = i; break; }
+    }
+    if (found !== -1) { matched++; cursor = found + 1; }
+  }
+  const coverage = matched / templateTokens.length;
+  const extra = Math.max(0, tokens.length - templateTokens.length);
+  return coverage - Math.min(0.25, extra * 0.05);
+}
+
+// Higher than MATCH_FLOOR: sounding similar is weaker evidence than being
+// similar, so it has to be a better fit before it is worth acting on.
+const PHONETIC_FLOOR = 0.86;
+
 const MATCH_FLOOR = 0.7;        // below this an utterance is simply unknown
 const AMBIGUITY_DELTA = 0.06;   // two different commands this close = ambiguous
 
@@ -1158,6 +1737,170 @@ const AMBIGUITY_DELTA = 0.06;   // two different commands this close = ambiguous
 //   { status: 'missing-slot', commandId, command, slot, prompt, score }
 //   { status: 'ambiguous',    options: [{ commandId, title, score }] }
 //   { status: 'unknown',      transcript }
+// ── Pronouns ─────────────────────────────────────────────────────────────────
+// "Turn it up" is the single most natural thing to say and the registry cannot
+// answer it, because "it" is not a word — it is a reference to whatever you were
+// just doing. Without this the phrase is genuinely ambiguous between the music
+// and the system volume, and the matcher would either guess or give up.
+//
+// So the assistant remembers the last SUBJECT it acted on and resolves bare
+// pronoun commands against it. Scoped deliberately tightly: only a fixed set of
+// phrases, only against a subject the user themselves just established, and only
+// when there IS one — with no antecedent, "turn it up" stays unknown rather than
+// guessing which volume to change.
+//
+// A subject is { kind, params }. The params matter: undoing or acting on "it"
+// after "open the weather widget" has to reach THAT widget, so the slot travels
+// with the subject rather than being re-derived.
+
+// Which subject each command establishes as "it" for the next utterance.
+const PRONOUN_TARGETS = Object.freeze({
+  music: [
+    'spotify.play', 'spotify.pause', 'spotify.next', 'spotify.previous',
+    'spotify.volumeUp', 'spotify.volumeDown', 'spotify.setVolume', 'spotify.mute',
+    'spotify.full', 'spotify.like', 'spotify.unlike', 'spotify.restart',
+    'spotify.queue', 'spotify.whatsPlaying', 'spotify.playPlaylist'
+  ],
+  system: [
+    'system.mute', 'system.unmute', 'system.volumeUp', 'system.volumeDown',
+    'system.setVolume'
+  ],
+  // Established by anything that names a widget, so "turn it off" afterwards
+  // means that widget rather than the music.
+  widget: ['widget.open', 'widget.enable', 'widget.disable'],
+  // An app the user just launched.
+  app: ['app.launch']
+});
+
+// The bare phrases that need a subject supplied, and what each means per subject.
+// A phrase absent for a subject simply does not resolve for it — "skip it" means
+// nothing for a widget, and must not be forced into meaning something.
+const PRONOUN_PHRASES = Object.freeze({
+  'turn it up':   { music: 'spotify.volumeUp',   system: 'system.volumeUp' },
+  'turn it down': { music: 'spotify.volumeDown', system: 'system.volumeDown' },
+  'turn that up':   { music: 'spotify.volumeUp',   system: 'system.volumeUp' },
+  'turn that down': { music: 'spotify.volumeDown', system: 'system.volumeDown' },
+  'louder':       { music: 'spotify.volumeUp',   system: 'system.volumeUp' },
+  'quieter':      { music: 'spotify.volumeDown', system: 'system.volumeDown' },
+  'mute it':      { music: 'spotify.mute',       system: 'system.mute' },
+  'mute that':    { music: 'spotify.mute',       system: 'system.mute' },
+  'unmute it':    { music: 'spotify.play',       system: 'system.unmute' },
+  'stop it':      { music: 'spotify.pause',      system: 'system.mute' },
+  'pause it':     { music: 'spotify.pause',      system: 'system.mute' },
+  'skip it':      { music: 'spotify.next',       system: 'spotify.next' },
+  'play it':      { music: 'spotify.play',       system: 'spotify.play' },
+  // Widget-subject phrases. These carry the remembered slot (see resolvePronoun).
+  'turn it off':  { widget: 'widget.disable' },
+  'turn that off': { widget: 'widget.disable' },
+  'disable it':   { widget: 'widget.disable' },
+  'turn it on':   { widget: 'widget.enable' },
+  'enable it':    { widget: 'widget.enable' },
+  'open it':      { widget: 'widget.open' },
+  'close it':     { widget: 'widget.disable' }
+});
+
+// Commands whose resolved form needs the subject's slot carried into it.
+// widget.enable/disable take the 'anyWidget' slot; widget.open takes 'widget'.
+const WIDGET_SLOT_FOR = Object.freeze({
+  'widget.enable': 'anyWidget',
+  'widget.disable': 'anyWidget',
+  'widget.open': 'widget'
+});
+
+// Which subject a command id establishes. Returns '' for commands that say
+// nothing about a subject, so an unrelated command never becomes the antecedent
+// — "open settings" must not make "turn it up" mean anything.
+function pronounSubjectOf(commandId) {
+  if (!commandId) return '';
+  for (const subject of Object.keys(PRONOUN_TARGETS)) {
+    if (PRONOUN_TARGETS[subject].includes(commandId)) return subject;
+  }
+  return '';
+}
+
+// Resolves a bare pronoun phrase against the last subject the user acted on.
+//
+//   text     the transcript
+//   subject  either a bare kind string ('music'), or { kind, params } when the
+//            subject carries a slot that must travel with it
+//
+// Returns { commandId, params } or null. Null when this is not a pronoun
+// phrase, when there is no antecedent, or when the phrase means nothing for
+// that subject — refusing beats guessing, because a wrong guess here mutes or
+// disables the wrong thing.
+function resolvePronoun(text, subject) {
+  const t = normalizeTranscript(text);
+  if (!t) return null;
+  const mapping = PRONOUN_PHRASES[t];
+  if (!mapping) return null;
+
+  const kind = typeof subject === 'string' ? subject : (subject && subject.kind) || '';
+  const subjectParams = (subject && typeof subject === 'object' && subject.params) || {};
+  if (!Object.prototype.hasOwnProperty.call(PRONOUN_TARGETS, kind)) return null;
+
+  const commandId = mapping[kind];
+  if (!commandId) return null;
+
+  // Carry the remembered widget across, translating between the two slot names.
+  const wantSlot = WIDGET_SLOT_FOR[commandId];
+  if (wantSlot) {
+    const id = subjectParams.widget || subjectParams.anyWidget;
+    const label = subjectParams.widgetLabel || subjectParams.anyWidgetLabel;
+    // Nothing to act on: better unknown than acting on the wrong widget.
+    if (!id) return null;
+    const params = {};
+    params[wantSlot] = id;
+    params[wantSlot + 'Label'] = label;
+    return { commandId, params };
+  }
+  return { commandId, params: {} };
+}
+
+// ── Follow-up suggestions ────────────────────────────────────────────────────
+// After an answer, the useful next thing is usually predictable. Offering it as
+// a chip turns discovery into something you can see rather than something you
+// have to already know — the help list is 90 commands long, and nobody reads it
+// twice.
+//
+// Every target is a real command id, asserted by the tests, so a suggestion can
+// never advertise something the assistant cannot do.
+const SUGGESTIONS = Object.freeze({
+  'weather.now': [{ label: 'Tomorrow', commandId: 'weather.forecast' }],
+  'weather.forecast': [{ label: 'Right now', commandId: 'weather.now' }],
+  'system.time': [{ label: 'Weather', commandId: 'weather.now' }],
+  'system.stats': [
+    { label: 'Free up memory', commandId: 'fps.optimize' },
+    { label: 'Disk space', commandId: 'system.disk' }
+  ],
+  'system.battery': [{ label: 'Battery saver', commandId: 'fps.battery' }],
+  'system.disk': [{ label: 'Clear temp files', commandId: 'fps.clearTemp' }],
+  'spotify.whatsPlaying': [
+    { label: 'Like', commandId: 'spotify.like' },
+    { label: 'Skip', commandId: 'spotify.next' }
+  ],
+  'spotify.play': [{ label: "What's this?", commandId: 'spotify.whatsPlaying' }],
+  'spotify.next': [{ label: "What's this?", commandId: 'spotify.whatsPlaying' }],
+  'timer.start': [{ label: 'How long left?', commandId: 'timer.status' }],
+  'timer.status': [{ label: 'Cancel it', commandId: 'timer.cancel' }],
+  'fps.optimize': [{ label: 'How is it now?', commandId: 'system.stats' }],
+  'fps.nuke': [{ label: 'How is it now?', commandId: 'system.stats' }],
+  'crosshair.show': [{ label: 'Change style', commandId: 'crosshair.style' }]
+});
+
+// The follow-ups to offer after a command, minus anything whose command needs a
+// slot the caller cannot fill.
+function suggestionsFor(commandId) {
+  const list = SUGGESTIONS[commandId];
+  if (!list) return [];
+  return list.filter((x) => {
+    const target = COMMANDS.find((c) => c.id === x.commandId);
+    // A chip dispatches with no params. A command that needs a slot filled
+    // would arrive empty and fail, so it can never be offered as one — the
+    // "Change style" chip would have run crosshair.style with no style.
+    return target && !target.slot;
+  }).map((x) => ({ label: x.label, commandId: x.commandId }));
+}
+
 function matchIntent(transcript, vocabulary, compiled) {
   const vocab = vocabulary && vocabulary.apps ? vocabulary : buildVocabulary(vocabulary);
   const grammar = compiled || compileGrammar(vocab);
@@ -1199,8 +1942,15 @@ function matchIntent(transcript, vocabulary, compiled) {
       if (!before && after) continue; // slot-first templates aren't used
       let rest = before ? text.slice(before.length + 1) : text;
       if (after) {
-        if (!rest.endsWith(' ' + after)) continue;
-        rest = rest.slice(0, -(after.length + 1));
+        if (rest.endsWith(' ' + after)) {
+          rest = rest.slice(0, -(after.length + 1));
+        } else if (cmd.slot !== 'minutes') {
+          continue;
+        }
+        // Duration templates carry no trailing unit any more — the unit lives in
+        // the slot value. This branch stays as a guard: if a template ever
+        // reintroduces one, the tail is kept whole and parseDuration reads the
+        // unit out of it rather than the phrase silently failing to match.
       }
       rest = rest.trim();
       if (!rest) continue;
@@ -1211,10 +1961,19 @@ function matchIntent(transcript, vocabulary, compiled) {
         continue;
       }
       if (cmd.slot === 'volume' || cmd.slot === 'minutes') {
-        const n = wordsToNumber(rest.replace(/\bpercent\b|\bminutes\b|\bminute\b/g, '').trim());
+        if (cmd.slot === 'minutes') {
+          // parseDuration understands "half an hour" and "an hour and a half";
+          // wordsToNumber is the fallback for a bare "ten".
+          const mins = parseDuration(rest);
+          const n = mins !== null ? mins : wordsToNumber(rest.replace(/\bminutes?\b/g, '').trim());
+          if (n === null) continue;
+          const cand = { cmd, params: { minutes: Math.max(1, Math.min(1440, n)) }, score: 0.95 };
+          if (!bestSlot || cand.score > bestSlot.score) bestSlot = cand;
+          continue;
+        }
+        const n = wordsToNumber(rest.replace(/\bpercent\b/g, '').trim());
         if (n === null) continue;
-        const params = cmd.slot === 'volume' ? { volume: Math.min(100, n) } : { minutes: Math.max(1, n) };
-        const cand = { cmd, params, score: 0.95 };
+        const cand = { cmd, params: { volume: Math.min(100, n) }, score: 0.95 };
         if (!bestSlot || cand.score > bestSlot.score) bestSlot = cand;
         continue;
       }
@@ -1222,7 +1981,14 @@ function matchIntent(transcript, vocabulary, compiled) {
       if (!hit) continue;
       // A longer fixed prefix is stronger evidence than a bare one-word verb.
       const specificity = before ? Math.min(0.1, before.split(' ').length * 0.03) : 0;
-      const cand = { cmd, params: slotParams(cmd.slot, hit.entry), score: 0.82 + hit.score * 0.12 + specificity };
+      const cand = {
+        cmd, params: slotParams(cmd.slot, hit.entry),
+        score: 0.82 + hit.score * 0.12 + specificity,
+        // A near-tie between two vocabulary entries is confirmed rather than
+        // guessed. Launching the wrong program is not a small mistake, and the
+        // codebase's rule everywhere else is that refusing beats guessing.
+        ambiguous: !!hit.ambiguous
+      };
       if (!bestSlot || cand.score > bestSlot.score) bestSlot = cand;
     }
   }
@@ -1248,11 +2014,44 @@ function matchIntent(transcript, vocabulary, compiled) {
   if (slotScore >= fixedScore && slotScore > 0) {
     return {
       status: 'matched', commandId: bestSlot.cmd.id, command: bestSlot.cmd,
-      params: { ...bestSlot.params }, phrase: text, score: slotScore, confirm: !!bestSlot.cmd.confirm
+      params: { ...bestSlot.params }, phrase: text, score: slotScore,
+      // Confirm when the registry says so OR when the NAME was a close call.
+      // The recognizer can be perfectly confident about the words and still
+      // leave the matcher choosing between two similar app names.
+      confirm: !!bestSlot.cmd.confirm || !!bestSlot.ambiguous,
+      ambiguousSlot: !!bestSlot.ambiguous
     };
   }
 
-  if (!scored.length) return { status: 'unknown', transcript: text };
+  // Nothing matched on spelling. Before giving up, try on SOUND — this is where
+  // "open sentences" finally reaches app.openSettings.
+  if (!scored.length) {
+    const heard = [];
+    for (const cmd of COMMANDS) {
+      let best = 0;
+      for (const template of cmd.phrases) {
+        if (cmd.slot && template.includes(`{${cmd.slot}}`)) continue;
+        const tt = normalizeTranscript(template).split(' ').filter(Boolean);
+        if (!tt.length) continue;
+        const sc = phoneticScore(tokens, tt);
+        if (sc > best) best = sc;
+      }
+      if (best >= PHONETIC_FLOOR) heard.push({ cmd, score: best });
+    }
+    heard.sort((a, b) => b.score - a.score);
+    // Two commands that sound equally alike is not a rescue, it is a coin toss.
+    if (heard.length && (heard.length === 1 || heard[0].score - heard[1].score >= AMBIGUITY_DELTA)) {
+      const w = heard[0];
+      return {
+        status: 'matched', commandId: w.cmd.id, command: w.cmd,
+        params: {}, phrase: text,
+        // Reported below the literal floor on purpose: this is a sound-alike, so
+        // anything risky reached this way still has to be confirmed.
+        score: Math.min(0.85, w.score), viaPhonetic: true, confirm: !!w.cmd.confirm
+      };
+    }
+    return { status: 'unknown', transcript: text };
+  }
 
   if (scored.length > 1 && scored[0].score - scored[1].score < AMBIGUITY_DELTA) {
     return {
@@ -1280,7 +2079,16 @@ function matchIntent(transcript, vocabulary, compiled) {
 // Longer phrases are self-verifying — noise essentially never lines up with
 // "set a timer for ten minutes" — and keep the base threshold, which is what
 // the user's sensitivity setting actually tunes.
-const SHORT_PHRASE_FLOORS = Object.freeze({ 1: 0.82, 2: 0.72 });
+// Short utterances get a higher bar than long ones, because a closed grammar
+// rounds noise to its nearest phrase and short phrases are what noise fits.
+//
+// Relaxed from 0.82/0.72. Those numbers predate the two defences that do this
+// job far better: a result with no audio level behind it is now discarded
+// outright, and anything destructive is confirmed rather than run. What the old
+// floors were left doing was rejecting ordinary short commands — "next track"
+// needed 0.72, which a built-in microphone array often does not reach, so it
+// was silently dropped rather than misheard.
+const SHORT_PHRASE_FLOORS = Object.freeze({ 1: 0.74, 2: 0.64 });
 
 function confidenceFloor(text, baseThreshold) {
   const base = Number.isFinite(Number(baseThreshold)) ? Number(baseThreshold) : DEFAULT_SETTINGS.confidence;
@@ -1296,6 +2104,140 @@ function meetsConfidence(text, confidence, baseThreshold) {
   const c = Number(confidence);
   if (!Number.isFinite(c)) return false;
   return c >= confidenceFloor(text, baseThreshold);
+}
+
+// ── Risk, and the false-accept problem ───────────────────────────────────────
+// A closed grammar ALWAYS returns its nearest phrase. It cannot answer "that
+// wasn't a command" — only "of the 700 things I know, this was closest". So room
+// noise does not get rejected, it gets rounded to whatever it happens to sit
+// nearest, and during testing that was enough to make the assistant open the
+// Settings window on its own with nobody speaking to it.
+//
+// confidenceFloor already raises the bar for short utterances. That is not
+// enough on its own, because the damage a false accept does has nothing to do
+// with how long the phrase was: mishearing "pause" costs a keypress, while
+// mishearing "close background apps" closes the user's applications.
+//
+// So risk is classified per command, and a risky command that arrives with
+// anything less than near-certainty is CONFIRMED rather than run. The user
+// keeps one keystroke of friction on the handful of commands that deserve it,
+// and none at all on the ninety that don't.
+const RISKY_COMMANDS = Object.freeze([
+  // Closes or changes other programs.
+  'fps.nuke', 'fps.optimize', 'app.launch', 'macro.play', 'routine.run',
+  // Destroys something the user cannot get back.
+  'clipboard.clear', 'fps.clearTemp', 'fps.clearStandby',
+  // Changes machine-wide configuration.
+  'fps.revert', 'fps.ultimate', 'fps.high', 'fps.balanced', 'fps.battery',
+  'fps.lowLatency', 'fps.cpuPriority', 'fps.hags', 'fps.flushDns',
+  'app.autostartOn', 'app.autostartOff',
+  // Takes over input, or turns off something the user may be relying on.
+  'autoClicker.start', 'widget.disable', 'bluetooth.off', 'bluetooth.disconnect',
+  'search.reindex'
+]);
+
+// How certain a risky command has to be before it runs without asking. Well
+// above the ordinary floor: this is the bar for "act on this without checking".
+const RISK_CONFIDENCE = 0.92;
+
+// Utterances that arrived without the user deliberately activating — i.e. the
+// wake word was listening the whole time — carry a penalty on top, because
+// nobody was necessarily talking to the assistant at all.
+const PASSIVE_PENALTY = 0.06;
+
+function isRiskyCommand(command) {
+  if (!command) return false;
+  // An explicit `confirm: true` in the registry already means "ask first".
+  if (command.confirm) return true;
+  return RISKY_COMMANDS.includes(command.id);
+}
+
+// Should this match be confirmed rather than executed?
+//
+//   command     the matched registry entry
+//   confidence  the recognizer's score (1 for typed input — a typed command was
+//               unambiguously intended, so it is never second-guessed)
+//   opts.viaWake     the utterance came from the always-listening wake path
+//   opts.confirmRisky the user's setting; false disables the whole guard
+function needsRiskConfirm(command, confidence, opts) {
+  const o = opts || {};
+  if (o.confirmRisky === false) return false;
+  if (!isRiskyCommand(command)) return false;
+  // A registry `confirm: true` always asks, at any confidence — that is what
+  // the flag has always meant and this must not weaken it.
+  if (command && command.confirm) return true;
+  const c = Number(confidence);
+  // No score at all is not evidence of certainty. Typed input passes 1
+  // explicitly; anything that cannot say how sure it is gets confirmed.
+  if (!Number.isFinite(c)) return true;
+  const bar = RISK_CONFIDENCE + (o.viaWake ? PASSIVE_PENALTY : 0);
+  return c < bar;
+}
+
+// ── Undo ─────────────────────────────────────────────────────────────────────
+// The counterpart to the guard above: a false accept that does get through
+// should be one sentence away from being put back. Only commands with a true
+// inverse are listed — "undo" must never be a second, differently-wrong action.
+// Anything absent from this map answers honestly that it cannot be undone.
+const INVERSE_COMMANDS = Object.freeze({
+  'spotify.play': 'spotify.pause',
+  'spotify.pause': 'spotify.play',
+  'spotify.next': 'spotify.previous',
+  'spotify.previous': 'spotify.next',
+  'spotify.volumeUp': 'spotify.volumeDown',
+  'spotify.volumeDown': 'spotify.volumeUp',
+  'spotify.mute': 'spotify.play',
+  'spotify.like': 'spotify.unlike',
+  'spotify.unlike': 'spotify.like',
+  'spotify.sleepTimer': 'spotify.sleepCancel',
+  'system.mute': 'system.unmute',
+  'system.unmute': 'system.mute',
+  'system.volumeUp': 'system.volumeDown',
+  'system.volumeDown': 'system.volumeUp',
+  'mic.mute': 'mic.unmute',
+  'mic.unmute': 'mic.mute',
+  'bluetooth.on': 'bluetooth.off',
+  'bluetooth.off': 'bluetooth.on',
+  'crosshair.show': 'crosshair.hide',
+  'crosshair.hide': 'crosshair.show',
+  'gameMode.on': 'gameMode.off',
+  'gameMode.off': 'gameMode.on',
+  'autoClicker.start': 'autoClicker.stop',
+  'autoClicker.stop': 'autoClicker.start',
+  'widget.enable': 'widget.disable',
+  'widget.disable': 'widget.enable',
+  'timer.pause': 'timer.resume',
+  'timer.resume': 'timer.pause',
+  'timer.start': 'timer.cancel',
+  'app.autostartOn': 'app.autostartOff',
+  'app.autostartOff': 'app.autostartOn',
+  // Every fps.* power tweak is undone by the same restore command.
+  'fps.ultimate': 'fps.revert',
+  'fps.high': 'fps.revert',
+  'fps.balanced': 'fps.revert',
+  'fps.battery': 'fps.revert',
+  'fps.lowLatency': 'fps.revert',
+  'fps.cpuPriority': 'fps.revert',
+  'fps.hags': 'fps.revert',
+  'fps.optimize': 'fps.revert',
+  'fps.nuke': 'fps.revert'
+});
+
+// The inverse of a command, with the params it should carry.
+// Returns null when the command cannot be undone.
+function inverseOf(commandId, params) {
+  const target = INVERSE_COMMANDS[commandId];
+  if (!target) return null;
+  const p = params || {};
+  // Slot commands hand their slot straight to the inverse: undoing
+  // "enable the crosshair widget" has to disable THAT widget.
+  if (commandId === 'widget.enable' || commandId === 'widget.disable') {
+    if (!p.anyWidget) return null;
+    return { commandId: target, params: { anyWidget: p.anyWidget, anyWidgetLabel: p.anyWidgetLabel } };
+  }
+  // A volume set has no inverse without knowing the previous level, and
+  // guessing one is worse than admitting it.
+  return { commandId: target, params: {} };
 }
 
 // ── Command chaining ──────────────────────────────────────────────────────
@@ -1418,6 +2360,34 @@ module.exports = {
   PANEL_TRANSITIONS,
   VIZ_STYLES,
   EXIT_MS,
+  parseDuration,
+  DURATION_IDIOMS,
+  phoneticKey,
+  soundsLike,
+  VOCAB_AMBIGUITY_DELTA,
+  contractedVariants,
+  CONTRACTION_VARIANTS,
+  phoneticScore,
+  PHONETIC_FLOOR,
+  RISKY_COMMANDS,
+  RISK_CONFIDENCE,
+  isRiskyCommand,
+  needsRiskConfirm,
+  INVERSE_COMMANDS,
+  inverseOf,
+  INNER_FILLERS,
+  resolvePronoun,
+  pronounSubjectOf,
+  PRONOUN_TARGETS,
+  PRONOUN_PHRASES,
+  SUGGESTIONS,
+  suggestionsFor,
+  normalizeAlias,
+  validateAliases,
+  TRAINING_PROMPTS,
+  TRAINING_LOW_PEAK,
+  analyzeTraining,
+  MAX_ALIASES,
   normalizeSettings,
   COMMANDS,
   CONFIRM_YES,

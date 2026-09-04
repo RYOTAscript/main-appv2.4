@@ -9,7 +9,9 @@
     default-src 'none';
     script-src 'self' 'unsafe-inline' file:;
     style-src 'self' 'unsafe-inline' file:;
-    img-src 'self' file: data: blob:;
+    /* https: is for Spotify album art, the same allowance main.html already
+       makes for the same images. Nothing else remote is permitted. */
+    img-src 'self' file: data: blob: https:;
     media-src 'self' file: data: blob:;
     font-src 'self' file: data:;
     connect-src 'none';
@@ -466,6 +468,114 @@
     #transcript.provisional { color: rgba(255, 255, 255, 0.46); font-weight: 400; }
     #transcript:empty { min-height: 0; }
 
+    /* ── The answer card ──
+       An assistant that can only render one line of grey text is a command
+       parser with a voice. When a command comes back with a real VALUE — a
+       temperature, a track, a time — the value is the answer and it should be
+       the biggest thing on the panel, with the sentence demoted to support.
+
+       The card only appears when an executor returned a headline, so ordinary
+       acknowledgements ("Paused") stay exactly as they were: one clean line. */
+    #answer {
+        display: none;
+        margin-top: 8px;
+        text-align: center;
+    }
+    #stage.has-answer #answer,
+    #stage.has-hint #answer { display: block; }
+    /* A hint explains the message above it, so it must not replace it. */
+    #stage.has-hint #answer-headline { display: none; }
+    #stage.has-hint #answer-detail { margin-top: 6px; }
+    /* The spoken sentence is redundant once the value is on screen, so the
+       card takes over the readout rather than stacking beneath it. */
+    #stage.has-answer #transcript { display: none; }
+
+    /* Album art. Hidden unless an answer actually carries one, so every other
+       card keeps its existing spacing exactly. */
+    #answer-art {
+        display: none;
+        width: 46px;
+        height: 46px;
+        border-radius: 8px;
+        margin: 0 auto 7px;
+        object-fit: cover;
+        box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.8);
+        animation: answerIn 0.26s var(--ease-out) both;
+    }
+    #stage.has-art #answer-art { display: block; }
+    #stage.reduced #answer-art { animation: none; }
+
+    #answer-headline {
+        font-size: 30px;
+        font-weight: 300;
+        letter-spacing: -0.02em;
+        line-height: 1.06;
+        color: #fff;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    /* A track title is prose and needs to wrap; a temperature never does. The
+       long modifier is set by the renderer on character count. */
+    #answer-headline.long {
+        font-size: 17px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        line-height: 1.28;
+    }
+
+    #answer-detail {
+        margin-top: 3px;
+        font-size: 11.5px;
+        font-weight: 450;
+        color: rgba(255, 255, 255, 0.52);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #answer-detail:empty { display: none; }
+
+    #answer-meta {
+        margin-top: 7px;
+        display: flex;
+        justify-content: center;
+        gap: 5px;
+        flex-wrap: wrap;
+    }
+    #answer-meta:empty { display: none; }
+    #answer-meta span {
+        font-size: 9.5px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        padding: 3px 7px;
+        border-radius: 5px;
+        color: rgba(255, 255, 255, 0.62);
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        white-space: nowrap;
+    }
+
+    /* The card settles in rather than appearing — it arrives after the pause of
+       actually fetching something, and a hard cut there reads as a glitch. */
+    #stage.has-answer #answer-headline { animation: answerIn 0.26s var(--ease-out) both; }
+    #stage.has-answer #answer-detail,
+    #stage.has-hint #answer-detail     { animation: answerIn 0.26s var(--ease-out) 0.04s both; }
+    #stage.has-answer #answer-meta     { animation: answerIn 0.26s var(--ease-out) 0.08s both; }
+    @keyframes answerIn {
+        from { opacity: 0; transform: translateY(4px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    #stage.reduced #answer-headline,
+    #stage.reduced #answer-detail,
+    #stage.reduced #answer-meta { animation: none; }
+    @media (prefers-reduced-motion: reduce) {
+        #answer-headline, #answer-detail, #answer-meta { animation: none !important; }
+    }
+
     /* ── Chips (confirmation + disambiguation) ── */
     #chips {
         display: flex;
@@ -589,6 +699,12 @@
             <div id="readout">
                 <div id="state-label">Ready</div>
                 <div id="transcript"></div>
+                <div id="answer">
+                    <img id="answer-art" alt="">
+                    <div id="answer-headline"></div>
+                    <div id="answer-detail"></div>
+                    <div id="answer-meta"></div>
+                </div>
             </div>
             <div id="chips"></div>
             <div id="typed-row"><input id="typed" type="text" spellcheck="false" autocomplete="off"
@@ -608,6 +724,10 @@
     const canvas = document.getElementById('viz');
     const labelEl = document.getElementById('state-label');
     const transcriptEl = document.getElementById('transcript');
+    const answerHeadlineEl = document.getElementById('answer-headline');
+    const answerArtEl = document.getElementById('answer-art');
+    const answerDetailEl = document.getElementById('answer-detail');
+    const answerMetaEl = document.getElementById('answer-meta');
     const chipsEl = document.getElementById('chips');
     const typedRow = document.getElementById('typed-row');
     const typedEl = document.getElementById('typed');
@@ -1502,6 +1622,48 @@
         transcriptEl.textContent = payload.showTranscript === false && provisional ? '' : text;
         transcriptEl.classList.toggle('provisional', provisional);
 
+        // ── Answer card ──
+        // Everything here is textContent, never innerHTML: headline and detail
+        // carry track titles, city names and app names, none of which the
+        // assistant controls.
+        const headline = typeof payload.headline === 'string' ? payload.headline : '';
+        const detail = typeof payload.detail === 'string' ? payload.detail : '';
+        const meta = Array.isArray(payload.meta) ? payload.meta : [];
+        // A card without a headline is not a card. A failure's `detail` is a
+        // hint under the message, so it must not switch the readout off.
+        // Two shapes: a full card (a real value came back) and a bare hint line
+        // (a failure explaining the way out). A hint must NOT hide the message
+        // it is explaining, which is why it gets its own class rather than
+        // reusing has-answer.
+        const hasAnswer = !!headline;
+        const hasHint = !headline && !!detail;
+        stage.classList.toggle('has-answer', hasAnswer);
+        stage.classList.toggle('has-hint', hasHint);
+
+        // Always rewrite, never leave the previous answer behind: without this
+        // the card kept the last headline after a plain acknowledgement, and a
+        // later state could flash stale content for a frame.
+        // Album art. Only http(s) is accepted: the CSP would block anything else
+        // anyway, and refusing here keeps a hostile value from ever reaching src.
+        const rawArt = typeof payload.art === 'string' ? payload.art : '';
+        const art = hasAnswer && /^https?:\/\//i.test(rawArt) ? rawArt : '';
+        stage.classList.toggle('has-art', !!art);
+        if (art) { if (answerArtEl.src !== art) answerArtEl.src = art; }
+        else { answerArtEl.removeAttribute('src'); }
+
+        answerHeadlineEl.textContent = hasAnswer ? headline : '';
+        // A temperature stays large; a track title has to shrink and wrap.
+        answerHeadlineEl.classList.toggle('long', hasAnswer && headline.length > 14);
+        answerDetailEl.textContent = (hasAnswer || hasHint) ? detail : '';
+        answerMetaEl.textContent = '';
+        if (hasAnswer) {
+            for (const m of meta.slice(0, 4)) {
+                const el = document.createElement('span');
+                el.textContent = String(m);
+                answerMetaEl.appendChild(el);
+            }
+        }
+
         // ── Chips ──
         const chips = [];
         if (payload.confirmPrompt) {
@@ -1511,6 +1673,15 @@
         if (Array.isArray(payload.options) && payload.options.length) {
             for (const opt of payload.options.slice(0, 3)) {
                 chips.push({ label: opt.title, kind: 'choose', value: opt.commandId });
+            }
+        }
+        // Follow-ups after an answer. Same 'choose' path as disambiguation —
+        // they are offers, never confirmations, so they are never `primary`
+        // and must not appear while something is waiting to be confirmed.
+        if (!payload.confirmPrompt && Array.isArray(payload.suggestions)) {
+            for (const sug of payload.suggestions.slice(0, 3)) {
+                if (!sug || typeof sug.commandId !== 'string' || !sug.label) continue;
+                chips.push({ label: String(sug.label), kind: 'choose', value: sug.commandId });
             }
         }
         if (state === 'error' && payload.retry !== false) {
@@ -1538,9 +1709,24 @@
         // showing whatever was on screen last time — the other half of the
         // flicker. Two frames, so layout and the first canvas pass are both done.
         if (api) {
-            requestAnimationFrame(() => requestAnimationFrame(() => {
+            // rAF is the cleanest signal — layout and the first canvas pass are
+            // both done — but a HIDDEN window produces no frames at all, so it
+            // never fires on any activation after the first, and main sat on its
+            // 400ms safety net every single time. That was the whole delay.
+            //
+            // So race it against a short timer. When the window can paint, rAF
+            // wins and the signal is as clean as before; when it cannot, the
+            // timer wins immediately. The DOM has already been updated
+            // synchronously above either way, so there is no stale state to
+            // show. painted() is idempotent on the main side.
+            let signalled = false;
+            const signal = () => {
+                if (signalled) return;
+                signalled = true;
                 try { api.painted(); } catch (e) { /* window closing */ }
-            }));
+            };
+            requestAnimationFrame(() => requestAnimationFrame(signal));
+            setTimeout(signal, 24);
         }
     }
 
@@ -1569,7 +1755,12 @@
 
     // Click the form to listen again (configurable).
     canvas.addEventListener('click', () => {
-        if (!api || current.clickActivate === false) return;
+        if (!api) return;
+        // Barge-in first, and deliberately NOT gated on clickActivate: cutting
+        // off a reply that is already talking over you is not "activation", and
+        // someone who turned click-to-listen off still needs a way to stop it.
+        if (current.state === 'speaking') { api.shutup(); return; }
+        if (current.clickActivate === false) return;
         if (current.state === 'success' || current.state === 'error' || current.state === 'idle') api.listen();
         else if (current.state === 'listening') api.cancel();
     });

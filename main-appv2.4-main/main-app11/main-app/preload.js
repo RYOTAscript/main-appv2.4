@@ -36,6 +36,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   launchApp: (path, options) => ipcRenderer.invoke('launch-app', path, options),
   setAutoStart: (enabled) => ipcRenderer.invoke('set-autostart', enabled),
   getAutoStart: () => ipcRenderer.invoke('get-autostart'),
+  // Battery and free disk space. Separate from getSystemStats because these
+  // need PowerShell and are cached for 30s; the stats handler is polled
+  // roughly once a second and must stay cheap.
+  getSystemExtra: () => ipcRenderer.invoke('get-system-extra'),
+  // Apps discovered from the Start Menu, for the voice vocabulary.
+  appIndexList: () => ipcRenderer.invoke('app-index-list'),
   getSystemStats: () => ipcRenderer.invoke('get-system-stats'),
   selectIcon: () => ipcRenderer.invoke('select-icon'),
   minimizeWindow: () => ipcRenderer.send('window-minimize'),
@@ -364,6 +370,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // The executor's reply. Carries the requestId it was given, so a late answer
   // can never be mistaken for the current command's.
   voiceExecuteResult: (payload) => ipcRenderer.invoke('voice:execute-result', payload),
+  voiceGetHistory: () => ipcRenderer.invoke('voice:get-history'),
+  voiceTrainPrompts: () => ipcRenderer.invoke('voice:train-prompts'),
+  voiceTrainListen: (ms) => ipcRenderer.invoke('voice:train-listen', ms),
+  voiceTrainCancel: () => ipcRenderer.invoke('voice:train-cancel'),
+  voiceTrainAnalyze: (samples) => ipcRenderer.invoke('voice:train-analyze', samples),
+  // Takes no argument on purpose — see the handler in main.js.
+  openSpeechTraining: () => ipcRenderer.invoke('open-speech-training'),
+  onVoiceDuck: (cb) => ipcRenderer.on('voice:duck', (_e, payload) => cb(payload)),
   onVoiceExecute: (callback) => {
     const listener = (_e, payload) => { try { callback(payload); } catch (err) { /* ignore */ } };
     ipcRenderer.on('voice:execute', listener);

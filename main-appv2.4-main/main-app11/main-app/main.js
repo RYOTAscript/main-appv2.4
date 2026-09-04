@@ -2,6 +2,7 @@ const { app, BrowserWindow, shell, ipcMain, globalShortcut, Menu, Tray, session,
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { spawn } = require('child_process');
 const Logger = require('./logger');
 
 // Give main a head start at boot: raise this process's scheduling priority so it
@@ -26,6 +27,7 @@ const gameModeMac = require('./main/gameModeMac');
 const claudeLimitMac = require('./main/claudeLimitMac');
 const macMacros = require('./main/macMacros');
 const systemStats = require('./main/systemStats');
+const appIndex = require('./main/appIndex');
 const appLauncher = require('./main/appLauncher');
 const fpsOptimizer = require('./main/fpsOptimizer');
 const micMute = require('./main/micMute');
@@ -532,6 +534,9 @@ if (!gotSingleInstanceLock) {
     spotifyModule = spotify.init(ctx);
     autostart.init(ctx);
     systemStats.init(ctx);
+    // Installed-app discovery, so the assistant can launch more than the
+    // handful of apps the user happens to have pinned.
+    appIndex.init(ctx);
     appLauncher.init(ctx);
     lyrics.init(ctx);
     weather.init(ctx);
@@ -857,6 +862,39 @@ if (!gotSingleInstanceLock) {
     if (voiceAssistantModule) voiceAssistantModule.resumeTriggers();
     logger.log('All hotkeys re-enabled');
     return { success: true };
+  });
+
+  // Opens the Windows speech-recognition TRAINING wizard.
+  //
+  // Deliberately its own handler taking NO argument, rather than going through
+  // open-external: that handler refuses non-web URLs precisely so a custom
+  // protocol cannot be used to launch a program, and widening it for this would
+  // trade a real security property for one button. Here the path and the
+  // argument are both constants, so there is nothing for a caller to influence.
+  //
+  // Note this is the legacy Speech Recognition trainer, not `ms-settings:speech`
+  // — that page is modern voice typing, which has nothing to do with the SAPI
+  // desktop recognizer the assistant actually uses. This is the one that adapts
+  // the acoustic profile behind System.Speech.
+  ipcMain.handle('open-speech-training', async () => {
+    // Built with path.join rather than written as a literal: a backslashed
+    // Windows path in a JS string is one escaping mistake away from silently
+    // collapsing ("\W" and "\S" are not escapes, so they simply vanish), and
+    // that failure looks exactly like "the wizard isn't installed".
+    const wiz = path.join(process.env.SystemRoot || 'C:/Windows',
+      'System32', 'Speech', 'SpeechUX', 'SpeechUXWiz.exe');
+    try {
+      if (!fs.existsSync(wiz)) {
+        logger.warn('Windows speech training wizard not present', { wiz });
+        return false;
+      }
+      spawn(wiz, ['UserTraining'], { detached: true, stdio: 'ignore' }).unref();
+      logger.log('Opened Windows speech training');
+      return true;
+    } catch (e) {
+      logger.error('Could not open Windows speech training', e);
+      return false;
+    }
   });
 
   ipcMain.handle('open-external', async (_event, url) => {

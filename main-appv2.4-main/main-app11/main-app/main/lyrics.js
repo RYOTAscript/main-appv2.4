@@ -1,5 +1,7 @@
 const { ipcMain } = require('electron');
-const { safeFetch } = require('./httpClient');
+// Uses the Electron-`net` transport so lyric fetches honour the OS certificate
+// store (works behind a TLS-inspecting proxy/AV). See main/netClient.js.
+const { netFetch: safeFetch } = require('./netClient');
 const { BoundedCache } = require('./boundedCache');
 
 const LRCLIB_BASE = 'https://lrclib.net/api';

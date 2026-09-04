@@ -8,6 +8,19 @@ const { isWindows } = require('./platform');
 const { parseAccelerator } = require('./macros');
 const { VOICE_HOST_SCRIPT_CONTENT, VOICE_HOST_SCRIPT_VERSION } = require('./voiceHostScript');
 const V = require('./voiceCommands');
+const { createResponder, forSpeech } = require('./voiceResponses');
+const { createSpeaker } = require('./voiceSpeaker');
+
+// One responder for the whole session: its phrase pools rotate, so the user
+// hears the variation rather than the same wording every time. A fresh one per
+// utterance would always return the first variant and defeat the point.
+const responder = createResponder();
+
+// What "it" currently refers to — set from the last command the user ran that
+// established a subject (see V.pronounSubjectOf). Cleared on nothing: a stale
+// antecedent is still the best available guess, and an unrelated command simply
+// does not overwrite it.
+let pronounSubject = null;   // { kind, params } — see V.resolvePronoun
 
 // ── Voice Assistant ─────────────────────────────────────────────────────────
 //
@@ -32,9 +45,21 @@ const OVERLAY_HEIGHT = 500;
 const OVERLAY_TOP_MARGIN = 8;
 
 // How long a finished state lingers before the overlay dismisses itself.
-const SETTLE_MS = { success: 1000, error: 2000 };
+//
+// `answer` is deliberately much longer than `success`. An acknowledgement
+// ("Paused") only has to register, and a second is plenty. A real ANSWER — a
+// temperature, a time, a track, with a supporting line and chips — has to be
+// READ, and at one second the panel was gone while the user was still looking
+// at the "Done" label: the answer appeared to be "Done".
+const SETTLE_MS = { success: 1000, error: 2000, answer: 3600, answerMax: 6000, errorHint: 3000 };
 // A dispatched command must answer within this, or the renderer is treated as
 // unavailable — a hung executor must never strand the assistant mid-command.
+// A result whose loudest moment never reached this is the room, not a voice.
+// The host reports 0..100. Deliberately low — this is meant to catch silence
+// and faint bleed, not to judge how quietly someone is allowed to speak.
+const MIN_PEAK_LEVEL = 8;
+// ...and the gate only applies once this many samples prove the meter is live.
+const MIN_LEVEL_SAMPLES = 3;
 const EXECUTE_TIMEOUT_MS = 12000;
 const HOST_START_TIMEOUT_MS = 30000;
 
@@ -68,6 +93,11 @@ function init(ctx) {
   let tearingDown = false;
   let recognizerName = '';
   let availableVoices = [];
+  // Voices only WinRT can reach (OneCore). Tracked separately so the picker can
+  // show which engine a voice comes from, and so a stale WinRT name can never
+  // be handed to the SAPI fallback, which has never heard of it.
+  let winrtVoices = [];
+  let speaker = null;
 
   let vocabulary = V.EMPTY_VOCABULARY;
   let grammar = V.compileGrammar(vocabulary);
@@ -80,6 +110,44 @@ function init(ctx) {
   let listenTimer = null;
   let settleTimer = null;
   let pendingConfirm = null;           // { commandId, params, command }
+  // The loudest input seen since listening began, and how many level samples
+  // arrived. A recognizer result that never had any audio behind it is an echo
+  // of the room, not speech — see onResult.
+  let peakLevel = 0;
+  let levelSamples = 0;
+  // The last command actually executed, so "undo that" has something to reverse.
+  // Separate from lastIntent (which drives "do that again") because a repeat and
+  // an undo must never chase each other.
+  let lastExecuted = null;
+
+  // ── Training ───────────────────────────────────────────────────────────
+  // While a training run is active the assistant LISTENS but never acts. That
+  // is the whole safety property of this mode: the user is reading prompts
+  // aloud, not issuing commands, and "open settings" during training must open
+  // nothing. Every recognition path checks this before dispatching.
+  let training = null;   // { resolve, timer } while waiting on one prompt
+
+  // ── History ────────────────────────────────────────────────────────────
+  // What was heard, what it matched, and how sure it was. This exists because
+  // of the false-accept incident: without a record, "it opened Settings on its
+  // own" is unfalsifiable, and there is no way to tell a misheard command from
+  // a mis-implemented one. Capped and in-memory only — it is a debugging aid,
+  // not a transcript, and nothing about what a user says is written to disk.
+  const HISTORY_MAX = 40;
+  const history = [];
+  const usageCounts = new Map();
+
+  function recordHistory(entry) {
+    // The peak input level is recorded WITH the outcome, because the two
+    // together are what identify the failure. "Heard the wrong words at a good
+    // level" is an acoustic or grammar problem; "heard nothing at a peak of 4"
+    // is a microphone problem, and no amount of grammar work fixes the second.
+    history.unshift(Object.assign({ at: Date.now(), peak: peakLevel }, entry));
+    if (history.length > HISTORY_MAX) history.length = HISTORY_MAX;
+    if (entry.commandId) {
+      usageCounts.set(entry.commandId, (usageCounts.get(entry.commandId) || 0) + 1);
+    }
+  }
   let lastHypothesis = '';
   let micState = 'unknown';            // 'ok' | 'denied' | 'missing' | 'error'
   // White until the launcher says otherwise (see setVocabulary).
@@ -167,6 +235,16 @@ function init(ctx) {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
+        // Chromium throttles a hidden or occluded window: rAF stops entirely and
+        // timers are clamped. This window spends ALL of its idle life hidden, so
+        // the throttle applied to exactly the code that has to run before it can
+        // be shown — the `painted` handshake never arrived and every activation
+        // after the first sat on the reveal fallback instead. It is also what
+        // froze the entrance animation mid-flight.
+        //
+        // Safe here because the window is tiny, and it only animates while it is
+        // actually on screen: hidden, it renders nothing and costs nothing.
+        backgroundThrottling: false,
         preload: path.join(appRoot, 'voice-overlay-preload.js')
       }
     });
@@ -220,7 +298,10 @@ function init(ctx) {
     positionOverlay();
     if (win.isVisible()) return;
     clearTimeout(revealTimer);
-    revealTimer = setTimeout(revealOverlay, 400);
+    // Pure safety net now that `painted` reliably arrives within ~25ms even
+    // when the window is hidden. It only matters for a renderer that is still
+    // loading, so it no longer needs to be generous.
+    revealTimer = setTimeout(revealOverlay, 220);
   }
 
   // The HUD must sit above everything, including the launcher — which this
@@ -328,7 +409,21 @@ function init(ctx) {
     showOverlay();
 
     if (state === V.VOICE_STATES.SUCCESS || state === V.VOICE_STATES.ERROR) {
-      const ms = SETTLE_MS[state] || 2000;
+      // Something with content to read stays up long enough to read it.
+      const hasCard = !!(extra && extra.headline);
+      const hasHint = !!(extra && extra.detail);
+      // Scale with how much there is to read. A two-digit temperature and a
+      // wrapped track title are both "an answer", but they are not the same
+      // amount of reading, and a fixed dwell is wrong for one of them.
+      let ms;
+      if (hasCard) {
+        const chars = String(extra.headline).length + String(extra.detail || '').length;
+        ms = Math.min(SETTLE_MS.answerMax, SETTLE_MS.answer + Math.max(0, chars - 20) * 28);
+      } else if (state === V.VOICE_STATES.ERROR && hasHint) {
+        ms = SETTLE_MS.errorHint;
+      } else {
+        ms = SETTLE_MS[state] || 2000;
+      }
       settleTimer = setTimeout(() => setState(V.VOICE_EVENTS.SETTLE), ms);
     }
     return changed;
@@ -340,6 +435,10 @@ function init(ctx) {
   }
 
   function ensureHost() {
+    // The better-voices helper comes up with the host. Independent processes on
+    // purpose: if this one never becomes ready, speech falls back to SAPI and
+    // recognition is completely unaffected.
+    startSpeaker();
     return new Promise((resolve, reject) => {
       if (hostProc && hostReady) { resolve(); return; }
       hostStartWaiters.push({ resolve, reject });
@@ -412,6 +511,45 @@ function init(ctx) {
     }
   }
 
+  // ── Speaking ───────────────────────────────────────────────────────────
+  // Prefer the WinRT (OneCore) voices: SAPI5 can only see the older "Desktop"
+  // voices, which is most of why the assistant sounded synthetic. If the helper
+  // is not up — old Windows, WinRT unavailable — this falls straight back to the
+  // host's own synthesizer, so speech degrades in quality but never disappears.
+  function speakReply(text) {
+    const wantsWinrt = !settings.voiceName || winrtVoices.includes(settings.voiceName);
+    if (speaker && speaker.isReady() && wantsWinrt) {
+      if (speaker.speak(text, settings.voiceName, settings.speechRate)) return;
+    }
+    hostSend('SPEAK ' + text);
+  }
+
+  function stopSpeaking() {
+    if (speaker && speaker.isReady()) speaker.stopSpeaking();
+    hostSend('SHUTUP');
+  }
+
+  function startSpeaker() {
+    if (speaker) return;
+    speaker = createSpeaker({
+      logger,
+      onEvent: (kind, payload) => {
+        if (kind === 'voices' && Array.isArray(payload)) {
+          winrtVoices = payload.slice();
+          // Offered ahead of the SAPI names: these are the better ones.
+          availableVoices = winrtVoices.concat(availableVoices.filter((v) => !winrtVoices.includes(v)));
+          pushState();
+        } else if (kind === 'speak-done') {
+          duckMusic(false);
+          if (state === V.VOICE_STATES.SPEAKING) setState(V.VOICE_EVENTS.SPOKEN, lastSpokenExtra);
+        } else if (kind === 'unavailable' || kind === 'exit') {
+          winrtVoices = [];
+        }
+      }
+    });
+    speaker.start();
+  }
+
   function killHost() {
     if (!hostProc) return;
     hostKillRequested = true;
@@ -430,7 +568,14 @@ function init(ctx) {
   function pushGrammar() {
     if (!hostReady) return;
     hostSend('GRAMMAR-BEGIN');
-    for (const phrase of grammar.phrases) hostSend('PHRASE ' + phrase);
+    // Machine-discovered app names go to the bulk bucket: they are the bulk of
+    // the vocabulary and the least valuable part of it, so they are loaded at a
+    // lower weight rather than competing with real commands head-on.
+    for (const phrase of grammar.phrases) {
+      const entry = grammar.index.get(phrase);
+      const bulk = entry && entry.commandId === 'app.launch';
+      hostSend((bulk ? 'BULK ' : 'PHRASE ') + phrase);
+    }
     for (const d of grammar.dictation) hostSend('DICTATION ' + d.carrier);
     for (const w of V.CONFIRM_YES) hostSend('CONFIRM ' + w);
     for (const w of V.CONFIRM_NO) hostSend('CONFIRM ' + w);
@@ -439,6 +584,9 @@ function init(ctx) {
     // switch rather than a grammar rebuild.
     for (const w of V.WAKE_PHRASES) hostSend('WAKE ' + w);
     hostSend('CHAIN ' + (settings.chaining ? '1' : '0'));
+    // Sent before GRAMMAR-END so the flag is in place when the host builds its
+    // grammars — the catch-all is loaded during that build, not after it.
+    hostSend('FREEFORM ' + (settings.freeform === false ? '0' : '1'));
     hostSend('GRAMMAR-END');
     grammarDirty = false;
   }
@@ -511,9 +659,32 @@ function init(ctx) {
       case 'STOPPED':
         hostMode = 'off';
         return;
-      case 'LEVEL':
-        sendOverlay('voice:overlay-level', parseInt(rest, 10) || 0);
+      case 'FREE':
+        // Open-dictation text. Not a command match — a guess at the words. It
+        // goes through the same matcher, but with no confidence benefit of the
+        // doubt: it has to earn a match on the words alone.
+        onFreeform(rest);
         return;
+      case 'ALT':
+        // An n-best candidate for the result just emitted. Held rather than
+        // acted on: the decision needs the whole set, and RESULT arrives first.
+        if (pendingAlternates) {
+          const sp = rest.indexOf(' ');
+          if (sp !== -1) {
+            pendingAlternates.push({
+              confidence: parseFloat(rest.slice(0, sp)),
+              text: rest.slice(sp + 1).trim()
+            });
+          }
+        }
+        return;
+      case 'LEVEL': {
+        const lvl = parseInt(rest, 10) || 0;
+        if (lvl > peakLevel) peakLevel = lvl;
+        levelSamples++;
+        sendOverlay('voice:overlay-level', lvl);
+        return;
+      }
       case 'AUDIO':
         return;
       case 'HYP':
@@ -543,6 +714,7 @@ function init(ctx) {
       case 'SPEAK-START':
         return;
       case 'SPEAK-DONE':
+        duckMusic(false);
         if (state === V.VOICE_STATES.SPEAKING) setState(V.VOICE_EVENTS.SPOKEN, lastSpokenExtra);
         return;
       case 'KEY-DOWN':
@@ -594,13 +766,88 @@ function init(ctx) {
       // SUBMIT, not ACTIVATE: the words are already in hand, so the overlay has
       // no reason to open its own microphone for a listening animation.
       setState(V.VOICE_EVENTS.SUBMIT, { transcript: parsed.rest });
-      handleUtterance(parsed.rest);
+      // Nobody deliberately activated: this came from the always-listening wake
+      // path, so a risky command has to clear a higher bar.
+      handleUtterance(parsed.rest, { confidence, viaWake: true });
       return;
     }
     // Bare wake phrase — open up and listen for the command.
     setState(V.VOICE_EVENTS.ACTIVATE);
     setHostMode('command', settings.listenTimeoutMs);
     armListenTimeout();
+  }
+
+  // ── N-best re-ranking ──────────────────────────────────────────────────
+  // The recognizer's top pick is its acoustic best guess. It has no idea which
+  // phrases are real commands right now, and the main process does — so when
+  // the top pick matches nothing, a lower-scoring alternate that DOES match a
+  // command is much more likely to be what was said.
+  //
+  // Strictly a rescue path: a top result that already matches always wins, so
+  // this can only turn a miss into a hit, never change a working answer.
+  let pendingAlternates = null;
+  let alternateTimer = null;
+
+  // How much worse an alternate may be before preferring it stops being
+  // reasonable. A candidate the engine barely heard is not evidence.
+  const ALT_MIN_CONFIDENCE = 0.35;
+
+  function chooseFromAlternates(alts, topText, topConfidence) {
+    if (!alts || !alts.length) return null;
+    for (const alt of alts) {
+      if (!alt.text || !Number.isFinite(alt.confidence)) continue;
+      if (alt.confidence < ALT_MIN_CONFIDENCE) continue;
+      const m = V.matchIntent(alt.text, vocabulary, grammar);
+      if (m.status === 'matched' || m.status === 'missing-slot') {
+        logger.log('Voice result rescued from an alternate', 'INFO', {
+          heard: topText, confidence: topConfidence, used: alt.text, altConfidence: alt.confidence
+        });
+        return alt;
+      }
+    }
+    return null;
+  }
+
+  // ── Freeform ───────────────────────────────────────────────────────────
+  // The closed grammar can only hear what was compiled into it, so anything
+  // phrased differently was not misheard — it was inaudible. The catch-all
+  // dictation grammar produces a transcription of ANY speech, and matching that
+  // against ~90 known commands is a far easier problem than transcribing
+  // English correctly, so a rough transcription is usually enough.
+  //
+  // Held to a higher bar than a grammar hit, deliberately: dictation fires on
+  // everything, including speech that was never meant for the assistant.
+  const FREEFORM_MIN_SCORE = 0.78;
+
+  function onFreeform(rest) {
+    const sp = rest.indexOf(' ');
+    const confidence = parseFloat(sp === -1 ? rest : rest.slice(0, sp));
+    const text = sp === -1 ? '' : rest.slice(sp + 1).trim();
+    if (!text) return;
+    // Training captures whatever was heard and runs nothing.
+    if (training) { captureTraining(text, confidence); return; }
+    if (state !== V.VOICE_STATES.LISTENING) return;
+
+    // Same audio-level evidence the grammar path needs.
+    if (levelSamples >= MIN_LEVEL_SAMPLES && peakLevel < MIN_PEAK_LEVEL) return;
+
+    const match = V.matchIntent(text, vocabulary, grammar);
+    // Only a confident, unambiguous match is worth acting on. Anything less and
+    // we stay silent and keep listening — the grammar may still produce a
+    // proper hit, and acting on a weak dictation guess is how an assistant ends
+    // up doing something nobody asked for.
+    if (match.status !== 'matched' || !(match.score >= FREEFORM_MIN_SCORE)) {
+      logger.debug('Freeform text did not resolve to a command', { text, score: match.score });
+      // Recorded even though nothing ran: this is precisely the evidence that
+      // shows whether the words were heard correctly and merely failed to match.
+      recordHistory({ transcript: text, commandId: '', outcome: 'heard-only', confidence, viaFree: true });
+      return;
+    }
+    logger.log('Understood via free dictation', 'INFO', { text, commandId: match.commandId, score: match.score });
+    // Passed as the ACTUAL confidence so the risk guard still applies: a risky
+    // command reached this way is confirmed, not run.
+    recordHistory({ transcript: text, commandId: match.commandId, outcome: 'freeform', confidence, viaFree: true });
+    handleUtterance(text, { confidence, viaWake: false, viaFreeform: true });
   }
 
   function onResult(rest) {
@@ -617,6 +864,37 @@ function init(ctx) {
       return;   // keep listening; the timeout ends it if nothing better arrives
     }
 
+    // Was there ever any audio behind this? The recognizer will happily round
+    // near-silence to its nearest phrase, and that is how the assistant ended
+    // up running a command with nobody speaking to it.
+    //
+    // Only applied once the level stream has proven it works: with no samples
+    // at all this must NOT block, or a broken meter would silence the whole
+    // assistant. Missing evidence blocks nothing here; it simply skips the gate.
+    if (levelSamples >= MIN_LEVEL_SAMPLES && peakLevel < MIN_PEAK_LEVEL) {
+      logger.log('Voice result discarded: no speech-level audio behind it', 'INFO',
+        { text, confidence, peakLevel, levelSamples });
+      return;
+    }
+
+    // Training captures whatever was heard and runs nothing. Checked before the
+    // alternates window so a training prompt answers immediately.
+    if (training) { captureTraining(text, confidence); return; }
+
+    // Alternates arrive immediately after RESULT. Give them a beat to land, then
+    // decide — the whole set has to be in hand before a rescue makes sense.
+    pendingAlternates = [];
+    clearTimeout(alternateTimer);
+    alternateTimer = setTimeout(() => {
+      const alts = pendingAlternates;
+      pendingAlternates = null;
+      finishResult(text, confidence, alts || []);
+    }, 60);
+    return;
+  }
+
+  // The second half of onResult, once any alternates are in.
+  function finishResult(text, confidence, alts) {
     if (state === V.VOICE_STATES.CONFIRMING) {
       const answer = V.matchConfirmation(text);
       if (answer === 'yes') { runPendingConfirm(); return; }
@@ -625,20 +903,68 @@ function init(ctx) {
     }
 
     if (state !== V.VOICE_STATES.LISTENING) return;
-    handleUtterance(text);
+
+    // Only rescue an outright miss. A top result that already matches a command
+    // — or parses as a chain — always wins, so this can turn a miss into a hit
+    // but can never change an answer that was already working.
+    let chosenText = text;
+    let chosenConfidence = confidence;
+    const top = V.matchIntent(text, vocabulary, grammar);
+    const topChains = settings.chaining && V.matchChain(text, vocabulary, grammar).chained;
+    if (top.status === 'unknown' && !topChains) {
+      const better = chooseFromAlternates(alts, text, confidence);
+      if (better) {
+        chosenText = better.text;
+        chosenConfidence = better.confidence;
+      }
+    }
+    handleUtterance(chosenText, { confidence: chosenConfidence, viaWake: false });
   }
 
   // Shared by speech and the typed fallback, so both take exactly the same path.
-  function handleUtterance(text) {
+  function handleUtterance(text, origin) {
+    // Declared up front because the history recorder and the risk guard BOTH
+    // read them, and the recorder runs first. They used to be declared beside
+    // the risk guard, which put the earlier read inside the temporal dead zone —
+    // every unrecognised utterance threw a ReferenceError instead of answering.
+    const o = origin || {};
+    // Typed input reports full confidence: it was unambiguously intended, so the
+    // guard that exists for what the microphone heard does not apply to it.
+    const conf = Number.isFinite(Number(o.confidence)) ? Number(o.confidence) : 1;
+
     // Several commands in one breath, when every part resolves on its own.
     if (settings.chaining) {
       const chain = V.matchChain(text, vocabulary, grammar);
       if (chain.chained) { runChain(text, chain.steps); return; }
     }
-    const match = V.matchIntent(text, vocabulary, grammar);
+    let match = V.matchIntent(text, vocabulary, grammar);
+
+    // "Turn it up" is not a command — it is a reference to whatever the user was
+    // just doing. Resolve it against the last subject they acted on, but only
+    // when the matcher has nothing better: a real match always wins, and with no
+    // antecedent this returns '' and the utterance stays unknown rather than
+    // guessing which volume to change.
+    if (match.status === 'unknown' || match.status === 'ambiguous') {
+      const resolved = V.resolvePronoun(text, pronounSubject);
+      if (resolved) {
+        const cmd = V.COMMANDS.find((c) => c.id === resolved.commandId);
+        if (cmd) {
+          match = {
+            status: 'matched', commandId: cmd.id, command: cmd,
+            params: resolved.params || {}, phrase: text, score: 1, confirm: !!cmd.confirm
+          };
+        }
+      }
+    }
 
     if (match.status === 'unknown') {
-      setState(V.VOICE_EVENTS.REJECTED, { transcript: text, message: 'I don’t know that one yet' });
+      recordHistory({ transcript: text, commandId: '', outcome: 'unknown', confidence: conf, viaWake: !!o.viaWake });
+      const answer = responder.respondUnknown(text);
+      setState(V.VOICE_EVENTS.REJECTED, {
+        transcript: text,
+        message: answer.speech,
+        detail: answer.detail
+      });
       return;
     }
     if (match.status === 'missing-slot') {
@@ -656,7 +982,45 @@ function init(ctx) {
       return;
     }
 
-    if (match.confirm) {
+    // Risky and not near-certain: ask instead of doing. Typed input reports a
+    // confidence of 1 because it was unambiguously intended — the guard exists
+    // for what the microphone heard, not for what the user typed.
+    const riskConfirm = V.needsRiskConfirm(match.command, conf, {
+      // Free dictation fires on any speech in the room, so a command reached
+      // that way deserves the same suspicion as one from the wake path.
+      viaWake: !!o.viaWake || !!o.viaFreeform,
+      confirmRisky: settings.confirmRisky
+    });
+
+    recordHistory({
+      transcript: text,
+      commandId: match.commandId,
+      outcome: (match.confirm || riskConfirm) ? 'confirming' : 'matched',
+      confidence: conf,
+      viaWake: !!o.viaWake
+    });
+
+    // Also to the log file, not just the in-memory panel. A command that ran on
+    // a mishearing previously left NO trace anywhere — "I said discord and it
+    // opened Steam" was unfalsifiable after the fact, and the in-memory history
+    // dies with the process. The heard text plus the resolved target is what
+    // makes that class of report diagnosable.
+    logger.log('Voice matched', 'INFO', {
+      heard: text,
+      commandId: match.commandId,
+      target: match.params && (match.params.appLabel || match.params.widgetLabel ||
+              match.params.anyWidgetLabel || match.params.playlistLabel) || undefined,
+      confidence: conf,
+      score: typeof match.score === 'number' ? Math.round(match.score * 100) / 100 : undefined,
+      ambiguous: match.ambiguousSlot || undefined,
+      willConfirm: (match.confirm || riskConfirm) || undefined
+    });
+
+    if (match.confirm || riskConfirm) {
+      if (riskConfirm && !match.confirm) {
+        logger.log('Risky command held for confirmation', 'INFO',
+          { commandId: match.commandId, confidence: conf, viaWake: !!o.viaWake });
+      }
       pendingConfirm = { commandId: match.commandId, params: match.params, command: match.command };
       setState(V.VOICE_EVENTS.HEARD, { transcript: text });
       setState(V.VOICE_EVENTS.NEEDS_CONFIRM, {
@@ -745,11 +1109,34 @@ function init(ctx) {
 
   // ── Execution ─────────────────────────────────────────────────────────
   // Two commands are about the assistant itself and never leave this process.
-  function execute(commandId, params, command, transcript) {
+  function execute(commandId, params, command, transcript, opts) {
     if (commandId === 'assistant.cancel') { setState(V.VOICE_EVENTS.DISMISS); return; }
     if (commandId === 'assistant.quiet') {
-      hostSend('SHUTUP');
+      stopSpeaking();
       setState(V.VOICE_EVENTS.EXECUTED, { transcript: 'Quiet' });
+      return;
+    }
+    if (commandId === 'assistant.undo') {
+      if (!lastExecuted) {
+        setState(V.VOICE_EVENTS.FAILED, { message: 'There is nothing to undo yet' });
+        return;
+      }
+      const back = V.inverseOf(lastExecuted.commandId, lastExecuted.params);
+      if (!back) {
+        // Naming it matters: "I can't undo that" leaves the user wondering
+        // which "that" — the query they just made, or the action before it.
+        // Better to say so than to run a second, differently-wrong action.
+        setState(V.VOICE_EVENTS.FAILED, {
+          message: `I can’t undo ${lastExecuted.command ? lastExecuted.command.title.toLowerCase() : 'that'}`,
+          detail: 'Only reversible commands can be undone'
+        });
+        return;
+      }
+      const inverseCommand = V.COMMANDS.find((c) => c.id === back.commandId);
+      lastExecuted = null;
+      // isUndo: the reversal must not become the next thing "undo" undoes, or
+      // saying it twice just toggles the setting back and forth forever.
+      execute(back.commandId, back.params, inverseCommand, '', { isUndo: true });
       return;
     }
     if (commandId === 'assistant.repeat') {
@@ -765,6 +1152,12 @@ function init(ctx) {
     // Remember it so "do that again" has something to repeat. Deliberately not
     // the meta commands above — repeating a repeat is a loop.
     lastIntent = { commandId, params, command };
+    // Every real command is recorded, including ones with no inverse. Recording
+    // only reversible commands let "undo that" step over the thing the user
+    // actually meant and reverse something from further back: after "what time
+    // is it", undo restarted the music. Now the un-undoable command is what
+    // undo sees, and it can say so.
+    if (!(opts && opts.isUndo)) lastExecuted = { commandId, params, command };
     if (commandId === 'assistant.help') {
       setState(V.VOICE_EVENTS.EXECUTED, {
         label: 'What you can say',
@@ -802,6 +1195,25 @@ function init(ctx) {
     }
   }
 
+  // ── Ducking ────────────────────────────────────────────────────────────
+  // A spoken reply competing with music at full volume is not audible, which
+  // makes voiceFeedback pointless exactly when it is most useful. The previous
+  // level is remembered rather than assumed, so restoring cannot invent one.
+  let duckedFrom = null;
+  function duckMusic(on) {
+    const main = getMainWindow();
+    if (!main || main.isDestroyed()) return;
+    try {
+      if (on) {
+        if (duckedFrom !== null) return;         // already ducked
+        main.webContents.send('voice:duck', { duck: true });
+      } else {
+        main.webContents.send('voice:duck', { duck: false });
+        duckedFrom = null;
+      }
+    } catch (e) { /* window going away */ }
+  }
+
   let lastSpokenExtra = null;
   // The last real command, for "do that again".
   let lastIntent = null;
@@ -819,32 +1231,65 @@ function init(ctx) {
     // The overlay may already have been dismissed by the user.
     if (state === V.VOICE_STATES.HIDDEN) return { ok: true };
 
-    const reply = (payload && payload.message)
-      ? String(payload.message).slice(0, 200)
-      : V.replyFor(entry.command, entry.params);
+    // The responder turns the executor's raw result into something a person
+    // would say, and splits it: `speech` is spoken, headline/detail/meta are
+    // shown. An executor that returned rich `answer` data wins outright.
+    const answer = responder.respond(entry.command, entry.params, payload || {});
+    const reply = String(answer.speech || '').slice(0, 240);
+
+    // Remember what this command established as "it" for the next utterance,
+    // WITH its slot: "turn it off" after "open the weather widget" has to reach
+    // that widget, and re-deriving it later is not possible.
+    const subjectKind = V.pronounSubjectOf(entry.command && entry.command.id);
+    if (subjectKind) pronounSubject = { kind: subjectKind, params: entry.params || {} };
 
     if (!payload || !payload.ok) {
-      setState(V.VOICE_EVENTS.FAILED, { message: reply || 'That didn’t work' });
+      setState(V.VOICE_EVENTS.FAILED, {
+        message: reply || 'That didn’t work',
+        detail: answer.detail || ''
+      });
       return { ok: true };
     }
 
+    // Everything the overlay needs to draw the answer card, plus the follow-ups
+    // worth offering. Chips dispatch by command id through the existing
+    // 'choose' path, so no new IPC surface is needed for them.
+    const card = {
+      headline: answer.headline || '',
+      detail: answer.detail || '',
+      meta: answer.meta || [],
+      art: answer.art || '',
+      suggestions: V.suggestionsFor(entry.command && entry.command.id)
+    };
+
     if (settings.voiceFeedback && reply) {
-      lastSpokenExtra = { transcript: reply };
-      setState(V.VOICE_EVENTS.SPEAK, { transcript: reply });
-      hostSend('SPEAK ' + reply.replace(/[\r\n]+/g, ' '));
+      // Duck the music so the reply is audible over it. Restored on SPEAK-DONE.
+      duckMusic(true);
+      lastSpokenExtra = { transcript: reply, ...card };
+      setState(V.VOICE_EVENTS.SPEAK, { transcript: reply, ...card });
+      // Only the SPOKEN copy is rewritten. The card keeps "35°C" and "CPU",
+      // which are right to look at and wrong to read aloud.
+      // speakReply prefers the WinRT voices and falls back to the host's SAPI
+      // one, so losing the helper costs quality but never speech itself.
+      speakReply(forSpeech(reply).replace(/[\r\n]+/g, ' '));
       // If the synthesizer never answers, don't hang in SPEAKING.
       clearTimeout(settleTimer);
       settleTimer = setTimeout(() => {
         if (state === V.VOICE_STATES.SPEAKING) setState(V.VOICE_EVENTS.SPOKEN, lastSpokenExtra);
       }, 8000);
     } else {
-      setState(V.VOICE_EVENTS.EXECUTED, { transcript: reply });
+      setState(V.VOICE_EVENTS.EXECUTED, { transcript: reply, ...card });
     }
     return { ok: true };
   }
 
   // ── Activation ────────────────────────────────────────────────────────
   function armListenTimeout() {
+    // A fresh listen is a fresh measurement.
+    peakLevel = 0;
+    levelSamples = 0;
+    clearTimeout(alternateTimer);
+    pendingAlternates = null;
     clearTimeout(listenTimer);
     // Slightly longer than the host's own safety net so the host's TIMEOUT wins
     // in the normal case and this only fires if the host went silent.
@@ -981,6 +1426,10 @@ function init(ctx) {
       // Warm the host now so the first activation doesn't wait ~1s for
       // System.Speech to load and the grammar to compile.
       ensureHost().catch((e) => logger.warn('Voice host warm-up failed', e));
+      // Build the overlay window up front too. It was created lazily on first
+      // activation, which put window creation and page load — about 150ms — in
+      // front of the very first popup. It stays hidden and costs nothing.
+      ensureOverlay();
       logger.success('Voice assistant enabled', { hotkey: settings.hotkey, activation: settings.activation });
     } else {
       cancel();
@@ -1117,7 +1566,70 @@ function init(ctx) {
 
   ipcMain.handle('voice:activate', () => { activate(); return true; });
   ipcMain.handle('voice:cancel', () => { cancel(); return true; });
+  // Resolves the prompt currently being read, with what the recognizer made of
+  // it. Never dispatches — see the `training` note above.
+  function captureTraining(text, confidence) {
+    const t = training;
+    if (!t) return;
+    training = null;
+    clearTimeout(t.timer);
+    const match = V.matchIntent(text, vocabulary, grammar);
+    setHostMode('off');
+    t.resolve({
+      heard: text,
+      confidence: Number.isFinite(confidence) ? confidence : 0,
+      peak: peakLevel,
+      matchedId: match.status === 'matched' ? match.commandId : ''
+    });
+  }
+
+  ipcMain.handle('voice:train-prompts', () => V.TRAINING_PROMPTS.slice());
+
+  // Listens for one spoken prompt and reports what was heard. Resolves with an
+  // empty `heard` on timeout, which analyzeTraining counts as skipped rather
+  // than as a mistake — silence is not evidence of a bad recognizer.
+  ipcMain.handle('voice:train-listen', async (_e, timeoutMs) => {
+    if (!enabled || !isWindows) return { heard: '', confidence: 0, peak: 0, matchedId: '' };
+    try { await ensureHost(); } catch (e) { return { heard: '', confidence: 0, peak: 0, matchedId: '' }; }
+    if (training) { clearTimeout(training.timer); training.resolve({ heard: '', confidence: 0, peak: 0, matchedId: '' }); training = null; }
+
+    const ms = Math.max(2000, Math.min(15000, Number(timeoutMs) || 7000));
+    return new Promise((resolve) => {
+      training = {
+        resolve,
+        timer: setTimeout(() => {
+          training = null;
+          setHostMode('off');
+          resolve({ heard: '', confidence: 0, peak: 0, matchedId: '' });
+        }, ms)
+      };
+      peakLevel = 0;
+      levelSamples = 0;
+      setHostMode('command', ms);
+    });
+  });
+
+  ipcMain.handle('voice:train-cancel', () => {
+    if (training) { clearTimeout(training.timer); training.resolve({ heard: '', confidence: 0, peak: 0, matchedId: '' }); training = null; }
+    setHostMode('off');
+    return true;
+  });
+
+  // Turns a finished run into applicable changes. Analysis is pure and lives in
+  // voiceCommands so it can be tested without any of this.
+  ipcMain.handle('voice:train-analyze', (_e, samples) => V.analyzeTraining(samples, vocabulary));
+
   ipcMain.handle('voice:execute-result', (_e, payload) => onExecuteResult(payload));
+
+  // Recent utterances and how often each command is used. Read-only, and
+  // deliberately not persisted.
+  ipcMain.handle('voice:get-history', () => ({
+    history: history.slice(0, 20),
+    top: [...usageCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([commandId, count]) => ({ commandId, count }))
+  }));
 
   // Lets the renderer drive the assistant by text — the accessibility path and
   // the panel's "try a command" field both use it.
@@ -1153,6 +1665,19 @@ function init(ctx) {
     if (!fromOverlay(e)) return;
     if (answer === 'yes') runPendingConfirm();
     else cancel();
+  });
+  // Barge-in. The microphone deliberately stays shut during SPEAKING — the mic
+  // ownership rules in setHostMode()/reconcileMic() are the one thing in this
+  // module that must not be worked around, and arming the recognizer here would
+  // put wake and command mode back in contention for the device. So the
+  // interrupt is an explicit gesture instead: click the orb (or press the
+  // hotkey) and the synthesizer stops mid-sentence.
+  ipcMain.on('voice:overlay-shutup', (e) => {
+    if (!fromOverlay(e)) return;
+    if (state !== V.VOICE_STATES.SPEAKING) return;
+    stopSpeaking();
+    duckMusic(false);
+    setState(V.VOICE_EVENTS.SPOKEN, lastSpokenExtra);
   });
   ipcMain.on('voice:overlay-choose', (e, commandId) => {
     if (!fromOverlay(e)) return;
@@ -1195,6 +1720,7 @@ function init(ctx) {
     resumeTriggers: () => { triggersSuspended = false; registerHotkey(); reconcileMic(); },
     teardown: () => {
       tearingDown = true;
+      if (speaker) { speaker.stop(); speaker = null; }
       clearTimeout(listenTimer);
       clearTimeout(settleTimer);
       clearTimeout(revealTimer);

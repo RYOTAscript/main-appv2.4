@@ -2,7 +2,11 @@ const { app, BrowserWindow, ipcMain, globalShortcut, safeStorage } = require('el
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { safeFetch } = require('./httpClient');
+// Content fetchers use the Electron-`net` transport so they honour the OS
+// certificate store — otherwise a TLS-inspecting proxy/antivirus breaks Spotify
+// entirely (see main/netClient.js). Security-sensitive paths keep Node-https.
+const { netFetch: safeFetch } = require('./netClient');
+const { classifySpotifyConnectivity } = require('./spotify.connectivity');
 
 const SPOTIFY_REDIRECT_URI_CUSTOM = 'main-launcher://spotify-callback';
 
@@ -184,7 +188,15 @@ function init(ctx) {
         }
       }
     } catch (e) {
-      logger.error('Spotify token refresh failed', e);
+      // A refresh that fails purely because the network/TLS path is blocked is the
+      // same expected environmental condition handled in spotifyApiRequest — don't
+      // error-flood the log on every retry; the API path already emits the single
+      // "retrying quietly" warning. Genuine refresh faults still surface as errors.
+      if (classifySpotifyConnectivity(e)) {
+        logger.debug('Spotify token refresh failed (connectivity) — will retry quietly', { error: e.code || e.message });
+      } else {
+        logger.error('Spotify token refresh failed', e);
+      }
     }
     return false;
   }
@@ -227,20 +239,13 @@ function init(ctx) {
     return null;
   }
 
-  // Network-level failures (PC offline, DNS down, firewall blocking while
-  // gaming) are an EXPECTED condition for an always-on app, but they were
-  // logged as a full ERROR with stack trace on every poll — dozens of
-  // identical entries per session. Log one warning when connectivity drops
-  // and one line when it returns; genuine non-network exceptions stay errors.
+  // Connectivity failures — the PC being offline, DNS down, a firewall blocking
+  // while gaming, or a TLS-inspecting proxy/antivirus whose root CA we don't trust
+  // (see spotify.connectivity.js) — are an EXPECTED condition for an always-on
+  // app, but they were logged as a full ERROR with stack trace on every 2.5s poll,
+  // dozens of identical entries per session. Log one warning when connectivity
+  // drops and one line when it returns; genuine faults still stay errors.
   let spotifyNetworkDown = false;
-  const SPOTIFY_NETWORK_CODES = new Set(['ENOTFOUND', 'EACCES', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET']);
-  function isSpotifyNetworkError(e) {
-    if (!e) return false;
-    if (SPOTIFY_NETWORK_CODES.has(e.code)) return true;
-    if (Array.isArray(e.errors) && e.errors.some((inner) => inner && SPOTIFY_NETWORK_CODES.has(inner.code))) return true;
-    if (e.cause && e.cause !== e) return isSpotifyNetworkError(e.cause);
-    return /ENOTFOUND|ECONN|ETIMEDOUT|EACCES|network|fetch failed/i.test(e.message || '');
-  }
 
   async function spotifyApiRequest(endpoint, method = 'GET', body = null, retryCount = 0) {
     logger.debug('Spotify API request', { endpoint, method, retryCount });
@@ -321,10 +326,14 @@ function init(ctx) {
         return { _noContent: true };
       }
     } catch (e) {
-      if (isSpotifyNetworkError(e)) {
+      const kind = classifySpotifyConnectivity(e);
+      if (kind) {
         if (!spotifyNetworkDown) {
           spotifyNetworkDown = true;
-          logger.warn('Spotify unreachable (offline or network blocked) — retrying quietly until it returns', { endpoint, error: e.code || e.message });
+          const msg = kind === 'tls'
+            ? 'Spotify HTTPS blocked — the certificate is being re-signed by a proxy or antivirus that this app does not trust; retrying quietly until it clears'
+            : 'Spotify unreachable (offline or network blocked) — retrying quietly until it returns';
+          logger.warn(msg, { endpoint, error: e.code || e.message });
         }
       } else {
         logger.error('Spotify API request failed with exception', e, { endpoint, method });

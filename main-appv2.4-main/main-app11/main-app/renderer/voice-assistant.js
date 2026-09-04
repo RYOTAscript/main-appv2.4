@@ -82,9 +82,28 @@
             // Bluetooth devices, audio sessions and playlists are refreshed
             // asynchronously (see refreshVoiceLiveVocabulary) because each costs a
             // real round-trip; the last snapshot is used here.
+            // Installed apps join the pinned ones. Pinned tiles were added
+            // first and win any name clash: a tile the user chose to pin is a
+            // stronger signal about what they mean than a Start Menu entry that
+            // happens to share its name.
+            for (const a of voiceLiveVocab.installed) {
+                const key = String(a.name).toLowerCase();
+                if (seen.has(key)) continue;
+                seen.add(key);
+                // { id, name } — buildVocabularyList reads `name`, not `label`,
+                // and silently drops an entry with the wrong key.
+                apps.push({ id: a.id, name: a.name });
+            }
+
+            // The user's own wordings, learned by the training flow. Sent raw —
+            // main validates every one against the registry before it can reach
+            // a grammar, so a corrupt or hostile file cannot shadow a command.
+            let aliases = {};
+            try { aliases = JSON.parse(localStorage.getItem('voiceAliases') || '{}'); } catch (e) { aliases = {}; }
+
             return {
                 accent: voiceAccent(),
-                apps, widgets, allWidgets, macros, routines,
+                apps, widgets, allWidgets, macros, routines, aliases,
                 devices: voiceLiveVocab.devices,
                 sessions: voiceLiveVocab.sessions,
                 playlists: voiceLiveVocab.playlists
@@ -112,11 +131,11 @@
         // while the app runs and each costs a real round-trip, so they are polled
         // on demand rather than rebuilt inline. Only widgets that are switched on
         // are asked — a disabled widget's IPC would just fail.
-        let voiceLiveVocab = { devices: [], sessions: [], playlists: [] };
+        let voiceLiveVocab = { devices: [], sessions: [], playlists: [], installed: [] };
 
         async function refreshVoiceLiveVocabulary() {
             if (!isVoiceAssistantEnabled()) return;
-            const next = { devices: [], sessions: [], playlists: [] };
+            const next = { devices: [], sessions: [], playlists: [], installed: [] };
             try {
                 if (isMiniWidgetEnabled('bluetooth') && window.electronAPI?.bluetoothList) {
                     const res = await window.electronAPI.bluetoothList();
@@ -141,6 +160,20 @@
                     }
                 }
             } catch (e) { /* Spotify may simply not be connected */ }
+
+
+            try {
+                // Everything installed, from the Start Menu. Without this the
+                // assistant could only launch apps the user had PINNED — every
+                // other program was not a word it knew, so "open OBS" was
+                // inaudible rather than misheard.
+                if (window.electronAPI?.appIndexList) {
+                    const list = await window.electronAPI.appIndexList();
+                    for (const a of list || []) {
+                        if (a && a.id && a.label) next.installed.push({ id: a.id, name: a.label });
+                    }
+                }
+            } catch (e) { /* pinned tiles still work on their own */ }
 
             const changed = JSON.stringify(next) !== JSON.stringify(voiceLiveVocab);
             voiceLiveVocab = next;
@@ -398,7 +431,18 @@
                 const track = data.track;
                 if (!track || !track.name) return { ok: false, message: 'Nothing is playing' };
                 // main/spotify.js already joins the artist list into a string.
-                return { ok: true, message: track.artist ? `${track.name} — ${track.artist}` : track.name };
+                // Spoken as a sentence, shown as the track — asking "what is
+                // playing" wants the title big, not a dash-joined line of grey.
+                return {
+                    ok: true,
+                    answer: {
+                        speech: track.artist ? `${track.name}, by ${track.artist}` : track.name,
+                        headline: track.name,
+                        detail: track.artist || '',
+                        meta: track.album && track.album !== track.name ? [track.album] : [],
+                        art: track.image || ''
+                    }
+                };
             },
 
             // ── System audio & microphone ──
@@ -546,15 +590,88 @@
                 // Same unit preference the clock/weather widget uses.
                 const unit = localStorage.getItem('weatherUnit') || 'C';
                 const temp = Math.round(unit === 'F' ? data.temp_F : data.temp_C);
-                const city = data.city ? ` in ${data.city}` : '';
-                const condition = data.condition ? `, ${data.condition}` : '';
-                return { ok: true, message: `${temp}°${unit}${city}${condition}` };
+                const feels = data.feelsLike_C !== undefined || data.feelsLike_F !== undefined
+                    ? Math.round(unit === 'F' ? data.feelsLike_F : data.feelsLike_C) : null;
+                const cond = data.condition ? String(data.condition) : '';
+                // Spoken as a sentence, shown as a value — the same string cannot
+                // do both well. "twenty-one degrees and clear in London" is what a
+                // person says; "21°" is what a person wants to look at.
+                const spokenCity = data.city ? ` in ${data.city}` : '';
+                const spokenCond = cond ? ` and ${cond.toLowerCase()}` : '';
+                return {
+                    ok: true,
+                    answer: {
+                        speech: `It's ${temp} degrees${spokenCond}${spokenCity}`,
+                        headline: `${temp}°${unit}`,
+                        detail: [cond, data.city].filter(Boolean).join(' · '),
+                        meta: [feels !== null && feels !== temp ? `Feels ${feels}°` : ''].filter(Boolean)
+                    }
+                };
+            },
+            'system.battery': async () => {
+                if (!window.electronAPI?.getSystemExtra) return { ok: false, message: 'Battery info isn’t available' };
+                const x = await window.electronAPI.getSystemExtra();
+                // A desktop has no battery, and that is an answer rather than a
+                // failure — saying "couldn't read it" would be simply wrong.
+                if (!x || !x.battery) return { ok: false, message: 'This machine doesn’t have a battery' };
+                const b = x.battery;
+                const pct = Math.round(b.percent);
+                const state = b.charging ? 'charging' : 'on battery';
+                const left = !b.charging && b.minutesLeft
+                    ? `${Math.floor(b.minutesLeft / 60)}h ${b.minutesLeft % 60}m left` : '';
+                return {
+                    ok: true,
+                    answer: {
+                        speech: `Battery is at ${pct} percent and ${state}`,
+                        headline: pct + '%',
+                        detail: b.charging ? 'Charging' : 'On battery',
+                        meta: [left].filter(Boolean)
+                    }
+                };
+            },
+            'system.disk': async () => {
+                if (!window.electronAPI?.getSystemExtra) return { ok: false, message: 'Disk info isn’t available' };
+                const x = await window.electronAPI.getSystemExtra();
+                if (!x || !x.disk) return { ok: false, message: 'Couldn’t read your disk' };
+                const free = x.disk.freeGb;
+                const total = x.disk.totalGb;
+                const pct = total ? Math.round((free / total) * 100) : 0;
+                // Below a tenth free is worth saying out loud rather than making
+                // the user work it out from two numbers.
+                const tight = pct <= 10;
+                return {
+                    ok: true,
+                    answer: {
+                        speech: tight
+                            ? `Only ${free} gigabytes free — that is getting tight`
+                            : `${free} gigabytes free of ${total}`,
+                        headline: free + ' GB',
+                        detail: tight ? 'Running low · C:' : 'Free on C:',
+                        meta: [pct + '% free', total + ' GB total']
+                    }
+                };
             },
             'system.stats': async () => {
                 if (!window.electronAPI?.getSystemStats) return { ok: false, message: 'System stats aren’t available' };
                 const stats = await window.electronAPI.getSystemStats();
                 if (!stats) return { ok: false, message: 'Couldn’t read system stats' };
-                return { ok: true, message: `CPU ${Math.round(stats.cpu)}% · RAM ${Math.round(stats.ram)}%` };
+                const cpu = Math.round(stats.cpu);
+                const ram = Math.round(stats.ram);
+                // A verdict is more useful than two numbers: the point of asking
+                // "how is my PC doing" is the judgement, not the telemetry.
+                const worst = Math.max(cpu, ram);
+                const verdict = worst < 50 ? 'Running comfortably'
+                    : worst < 80 ? 'Working but fine'
+                    : 'Under real load';
+                return {
+                    ok: true,
+                    answer: {
+                        speech: `${verdict} — CPU at ${cpu} percent, memory at ${ram}`,
+                        headline: `${cpu}%`,
+                        detail: `${verdict} · CPU`,
+                        meta: [`RAM ${ram}%`]
+                    }
+                };
             },
 
             // ── Productivity ──
@@ -753,7 +870,19 @@
                 const left = timerRemaining(st);
                 if (!st || !left || left <= 0) return { ok: false, message: 'No timer running' };
                 const fmt = typeof formatTimerClock === 'function' ? formatTimerClock(left) : Math.round(left / 1000) + 's';
-                return { ok: true, message: `${fmt} left` };
+                const mins = Math.round(left / 60000);
+                const ends = new Date(Date.now() + left);
+                return {
+                    ok: true,
+                    answer: {
+                        speech: mins >= 1
+                            ? `${mins} minute${mins === 1 ? '' : 's'} left`
+                            : `${Math.round(left / 1000)} seconds left`,
+                        headline: fmt,
+                        detail: 'Ends at ' + ends.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+                        meta: []
+                    }
+                };
             },
             'notes.new': async () => {
                 if (typeof notesAddNote !== 'function') return { ok: false, message: 'Quick Notes isn’t available' };
@@ -799,7 +928,32 @@
             // ── Information ──
             'system.time': () => {
                 const now = new Date();
-                return { ok: true, message: now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) };
+                const clock = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                const h = now.getHours();
+                const mins = now.getMinutes();
+                // Follow the machine's own clock convention: reading "nine in the
+                // evening" to someone whose clock says 21:00 is the same class of
+                // mistake as answering in the wrong temperature unit.
+                const uses24 = !/[ap]\.?m\.?/i.test(clock);
+                let spoken;
+                if (uses24) {
+                    spoken = mins === 0 ? `It's ${h} hundred hours` : `It's ${h} ${mins < 10 ? 'oh ' + mins : mins}`;
+                } else {
+                    const h12 = h % 12 === 0 ? 12 : h % 12;
+                    const part = h < 12 ? 'in the morning' : h < 18 ? 'in the afternoon' : 'in the evening';
+                    spoken = mins === 0
+                        ? `It's ${h12} o'clock ${part}`
+                        : `It's ${h12} ${mins < 10 ? 'oh ' + mins : mins} ${part}`;
+                }
+                return {
+                    ok: true,
+                    answer: {
+                        speech: spoken,
+                        headline: clock,
+                        detail: now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }),
+                        meta: []
+                    }
+                };
             },
             'weather.forecast': async () => {
                 if (!window.electronAPI?.getWeather) return { ok: false, message: 'Weather isn’t available' };
@@ -809,7 +963,16 @@
                 const unit = localStorage.getItem('weatherUnit') || 'C';
                 const hi = Math.round(unit === 'F' ? day.maxtemp_F : day.maxtemp_C);
                 const lo = Math.round(unit === 'F' ? day.mintemp_F : day.mintemp_C);
-                return { ok: true, message: `${hi}° / ${lo}°${day.condition ? ' · ' + day.condition : ''}` };
+                const cond = day.condition ? String(day.condition) : '';
+                return {
+                    ok: true,
+                    answer: {
+                        speech: `Tomorrow, a high of ${hi} and a low of ${lo}${cond ? ', ' + cond.toLowerCase() : ''}`,
+                        headline: `${hi}° / ${lo}°`,
+                        detail: cond || 'Tomorrow',
+                        meta: [`High ${hi}°`, `Low ${lo}°`]
+                    }
+                };
             },
 
             // ── Routines ──
@@ -867,10 +1030,64 @@
                     await window.electronAPI.voiceExecuteResult({
                         requestId: payload.requestId,
                         ok: !!result.ok,
-                        message: result.message || null
+                        message: result.message || null,
+                        // The rich answer an executor may return (a temperature,
+                        // a track, a time). Whitelisted field by field: this
+                        // crosses an IPC boundary, and the overlay renders it.
+                        answer: result.answer ? {
+                            speech: String(result.answer.speech || '').slice(0, 240),
+                            headline: String(result.answer.headline || '').slice(0, 60),
+                            detail: String(result.answer.detail || '').slice(0, 90),
+                            meta: Array.isArray(result.answer.meta)
+                                ? result.answer.meta.slice(0, 4).map((m) => String(m).slice(0, 24))
+                                : [],
+                            // Only an http(s) URL can ever be art. The overlay
+                            // re-checks this too — a src attribute is not a
+                            // place to trust a value that came from an API.
+                            art: /^https?:\/\//i.test(String(result.answer.art || ''))
+                                ? String(result.answer.art).slice(0, 400) : ''
+                        } : null,
+                        // Routines report how much of themselves actually ran, so
+                        // the reply can't claim success for a half-failed run.
+                        ran: typeof result.ran === 'number' ? result.ran : null,
+                        failed: typeof result.failed === 'number' ? result.failed : null
                     });
                 } catch (e) {
                     console.error('Voice result could not be returned', e);
+                }
+            });
+        }
+
+        // ── Ducking ──────────────────────────────────────────────────────
+        // Drop the music while the assistant is talking, then put it back.
+        // The previous level is READ, never assumed: restoring to a guessed
+        // number would quietly overwrite whatever the user had set.
+        let duckRestoreTo = null;
+        if (window.electronAPI?.onVoiceDuck) {
+            window.electronAPI.onVoiceDuck(async (payload) => {
+                try {
+                    if (!window.electronAPI?.spotifyGetCurrentTrack || !window.electronAPI?.spotifySetVolume) return;
+                    if (payload && payload.duck) {
+                        if (duckRestoreTo !== null) return;      // already ducked
+                        const data = await window.electronAPI.spotifyGetCurrentTrack();
+                        // The payload from main/spotify.js is flat: volume_percent
+                        // is top level, `device` is the device NAME (a string),
+                        // and the flag is is_playing.
+                        const current = data && typeof data.volume_percent === 'number'
+                            ? data.volume_percent : null;
+                        // Nothing playing, or no readable level: leave it alone
+                        // entirely rather than setting a volume we cannot undo.
+                        if (current === null || !data.is_playing) return;
+                        duckRestoreTo = current;
+                        await window.electronAPI.spotifySetVolume(Math.max(0, Math.round(current * 0.35)));
+                    } else if (duckRestoreTo !== null) {
+                        const back = duckRestoreTo;
+                        duckRestoreTo = null;
+                        await window.electronAPI.spotifySetVolume(back);
+                    }
+                } catch (e) {
+                    // Never let ducking break the reply it was meant to support.
+                    duckRestoreTo = null;
                 }
             });
         }
@@ -982,6 +1199,233 @@
                 head.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
                 const chev = head.querySelector('.voice-sec-chev');
                 if (chev) chev.style.transform = nowOpen ? 'rotate(90deg)' : 'rotate(0deg)';
+            }
+        }
+
+        // ── Training ─────────────────────────────────────────────────────
+        // A prompt-at-a-time flow. Everything is rebuilt from `voiceTrainState`
+        // so the panel can be closed and reopened mid-run without losing it.
+        let voiceTrainState = { running: false, prompts: [], index: 0, samples: [], result: null };
+
+        function voiceTrainRender() {
+            const box = document.getElementById('voice-train-body');
+            if (!box) return;                     // panel closed — nothing to draw
+            box.textContent = '';
+            const st = voiceTrainState;
+
+            const btn = (label, fn, primary) => {
+                const b = document.createElement('button');
+                b.className = 'w-full text-[11px] py-1.5 rounded-lg no-drag border ' + (primary
+                    ? 'bg-white/90 text-neutral-900 border-white/20 hover:bg-white'
+                    : 'bg-neutral-800/50 text-neutral-300 border-neutral-700/50 hover:bg-neutral-700/50');
+                b.textContent = label;
+                b.addEventListener('click', fn);
+                return b;
+            };
+
+            if (st.result) {
+                const r = st.result;
+                const head = document.createElement('div');
+                head.className = 'text-[11px] text-neutral-200 mb-1';
+                head.textContent = `Heard ${r.heardCount} of ${r.total} · ${r.accuracy}% matched first time`;
+                box.appendChild(head);
+
+                const mic = document.createElement('div');
+                mic.className = 'text-[10px] mb-2 ' + (r.lowMic ? 'text-amber-400' : 'text-neutral-500');
+                mic.textContent = r.lowMic
+                    ? `Microphone peak ${r.peakMedian} — very quiet. This is the main limit on accuracy; a headset will beat any setting.`
+                    : `Microphone peak ${r.peakMedian} — healthy.`;
+                box.appendChild(mic);
+
+                for (const m of r.misheard.slice(0, 6)) {
+                    const row = document.createElement('div');
+                    row.className = 'text-[10px] text-neutral-400 px-2 py-1 rounded bg-neutral-800/40 mb-1';
+                    row.textContent = `“${m.said}” → heard “${m.heard}”`;
+                    box.appendChild(row);
+                }
+
+                const n = Object.values(r.aliases || {}).reduce((a, l) => a + l.length, 0);
+                const summary = document.createElement('p');
+                summary.className = 'text-[10px] text-neutral-500 my-1.5 leading-relaxed';
+                summary.textContent = n
+                    ? `Applying will teach Main ${n} extra wording${n === 1 ? '' : 's'}` +
+                      (r.confidence !== null ? ` and set your confidence threshold to ${Math.round(r.confidence * 100)}%.` : '.')
+                    : (r.confidence !== null
+                        ? `Nothing was misheard. Applying will set your confidence threshold to ${Math.round(r.confidence * 100)}%.`
+                        : 'Nothing to apply — try again somewhere quieter.');
+                box.appendChild(summary);
+
+                if (n || r.confidence !== null) box.appendChild(btn('Apply', voiceTrainApply, true));
+                box.appendChild(btn('Start again', voiceTrainStart));
+                return;
+            }
+
+            if (!st.running) {
+                box.appendChild(btn('Start training', voiceTrainStart, true));
+                return;
+            }
+
+            const prompt = st.prompts[st.index];
+            const prog = document.createElement('div');
+            prog.className = 'text-[10px] text-neutral-500 mb-1';
+            prog.textContent = `Phrase ${st.index + 1} of ${st.prompts.length}`;
+            box.appendChild(prog);
+
+            const say = document.createElement('div');
+            say.className = 'text-[15px] text-white font-medium mb-2';
+            say.textContent = '“' + (prompt ? prompt.say : '') + '”';
+            box.appendChild(say);
+
+            const status = document.createElement('div');
+            status.id = 'voice-train-status';
+            status.className = 'text-[11px] text-neutral-400 mb-2 min-h-[16px]';
+            status.textContent = st.listening ? 'Listening…' : 'Ready';
+            box.appendChild(status);
+
+            if (!st.listening) box.appendChild(btn('Speak now', voiceTrainStep, true));
+            box.appendChild(btn('Stop', voiceTrainStop));
+        }
+
+        async function voiceTrainStart() {
+            if (!window.electronAPI?.voiceTrainPrompts) return;
+            const prompts = await window.electronAPI.voiceTrainPrompts();
+            voiceTrainState = { running: true, prompts: prompts || [], index: 0, samples: [], result: null, listening: false };
+            voiceTrainRender();
+        }
+
+        async function voiceTrainStep() {
+            const st = voiceTrainState;
+            const prompt = st.prompts[st.index];
+            if (!prompt || !window.electronAPI?.voiceTrainListen) return;
+            st.listening = true;
+            voiceTrainRender();
+
+            const r = await window.electronAPI.voiceTrainListen(7000);
+            st.listening = false;
+            st.samples.push({
+                commandId: prompt.commandId, said: prompt.say,
+                heard: r.heard, confidence: r.confidence, peak: r.peak, matchedId: r.matchedId
+            });
+
+            const status = document.getElementById('voice-train-status');
+            if (status) {
+                status.textContent = !r.heard ? 'Did not hear that'
+                    : r.matchedId === prompt.commandId ? 'Got it'
+                    : 'Heard “' + r.heard + '”';
+            }
+            st.index++;
+            if (st.index >= st.prompts.length) {
+                st.running = false;
+                st.result = await window.electronAPI.voiceTrainAnalyze(st.samples);
+            }
+            // A beat so the outcome of the last phrase is readable.
+            setTimeout(voiceTrainRender, st.result ? 700 : 500);
+        }
+
+        async function voiceTrainStop() {
+            try { await window.electronAPI?.voiceTrainCancel?.(); } catch (e) { /* already idle */ }
+            voiceTrainState = { running: false, prompts: [], index: 0, samples: [], result: null };
+            voiceTrainRender();
+        }
+
+        async function voiceTrainApply() {
+            const r = voiceTrainState.result;
+            if (!r) return;
+            // Aliases live with the user's own data, alongside routines.
+            if (r.aliases && Object.keys(r.aliases).length) {
+                let existing = {};
+                try { existing = JSON.parse(localStorage.getItem('voiceAliases') || '{}'); } catch (e) { /* corrupt */ }
+                for (const [id, list] of Object.entries(r.aliases)) {
+                    const have = new Set(existing[id] || []);
+                    for (const phrase of list) have.add(phrase);
+                    existing[id] = [...have];
+                }
+                localStorage.setItem('voiceAliases', JSON.stringify(existing));
+                // Rebuild the grammar so the new wordings are hearable immediately.
+                if (typeof pushVoiceVocabulary === 'function') pushVoiceVocabulary(true);
+            }
+            if (r.confidence !== null && window.electronAPI?.voiceSettingsSet) {
+                await window.electronAPI.voiceSettingsSet({ confidence: r.confidence });
+            }
+            voiceTrainState.result = null;
+            voiceTrainState.applied = true;
+            const box = document.getElementById('voice-train-body');
+            if (box) {
+                box.textContent = '';
+                const done = document.createElement('p');
+                done.className = 'text-[11px] text-emerald-400';
+                done.textContent = 'Applied. Try the phrases that were misheard again.';
+                box.appendChild(done);
+            }
+        }
+
+        // Opens Windows' own speech settings, where "Train your computer to
+        // better understand you" lives.
+        //
+        // Goes through a dedicated main handler that takes no argument. Not
+        // open-external — that refuses non-web URLs by design — and not the voice
+        // module, which is barred from spawning processes. `ms-settings:speech`
+        // was also simply the wrong page: it is modern voice typing, not the
+        // trainer for the SAPI recognizer this assistant uses.
+        async function voiceOpenWindowsTraining() {
+            if (!window.electronAPI?.openSpeechTraining) return;
+            const ok = await window.electronAPI.openSpeechTraining();
+            if (!ok && typeof showToast === 'function') {
+                showToast('Windows speech training is not available on this PC');
+            }
+        }
+
+        // Renders the recognition log. Panels must no-op when their div is
+        // absent — it only exists while the detail view is open.
+        async function voiceRefreshHistory() {
+            const box = document.getElementById('voice-history');
+            if (!box) return;
+            if (!window.electronAPI?.voiceGetHistory) { box.textContent = 'Not available'; return; }
+            let data = null;
+            try { data = await window.electronAPI.voiceGetHistory(); } catch (e) { /* main is busy */ }
+            const rows = (data && Array.isArray(data.history)) ? data.history : [];
+            box.textContent = '';
+            if (!rows.length) {
+                const p = document.createElement('p');
+                p.className = 'text-[11px] text-neutral-600';
+                p.textContent = 'Nothing yet — say something to the assistant, then refresh.';
+                box.appendChild(p);
+                return;
+            }
+            for (const r of rows) {
+                const row = document.createElement('div');
+                row.className = 'flex items-center gap-2 text-[10px] px-2 py-1 rounded bg-neutral-800/40 border border-neutral-700/40';
+
+                const peak = Number(r.peak) || 0;
+                const lvl = document.createElement('span');
+                // The single most diagnostic number on the row.
+                lvl.className = 'font-mono w-7 shrink-0 ' + (peak < 15 ? 'text-amber-400' : 'text-neutral-500');
+                lvl.textContent = String(peak);
+                lvl.title = peak < 15 ? 'Very quiet — the microphone is likely the limiting factor' : 'Peak input level';
+                row.appendChild(lvl);
+
+                const said = document.createElement('span');
+                said.className = 'flex-1 truncate text-neutral-200';
+                said.textContent = r.transcript || '(nothing)';
+                row.appendChild(said);
+
+                const tag = document.createElement('span');
+                const ok = r.outcome === 'matched' || r.outcome === 'freeform';
+                tag.className = 'shrink-0 ' + (ok ? 'text-emerald-400' : r.outcome === 'unknown' ? 'text-rose-400' : 'text-neutral-500');
+                tag.textContent = r.outcome === 'matched' ? (r.commandId || 'matched')
+                    : r.outcome === 'freeform' ? (r.commandId || 'dictation')
+                    : r.outcome === 'heard-only' ? 'heard, no match'
+                    : r.outcome;
+                row.appendChild(tag);
+
+                if (r.viaFree) {
+                    const f = document.createElement('span');
+                    f.className = 'shrink-0 text-[9px] text-sky-400/70';
+                    f.textContent = 'dict';
+                    f.title = 'Understood through free dictation rather than the command grammar';
+                    row.appendChild(f);
+                }
+                box.appendChild(row);
             }
         }
 
@@ -1305,8 +1749,42 @@
                         'Scales the whole panel. The window grows with it, so a larger panel is never clipped.')}
                 </div>`)}
 
+                ${voiceSection('training', 'Train your voice',
+                    'Read a few phrases so Main learns how you say them',
+                    `<div class="space-y-2">
+                    <p class="text-[11px] text-neutral-500 leading-relaxed">
+                        Read eight short phrases aloud. Main learns the wordings <em>you</em> actually
+                        produce, sets a confidence threshold from your own voice, and measures your
+                        microphone. Nothing is recorded &mdash; only what the recognizer made of each phrase.
+                    </p>
+                    <div id="voice-train-body"></div>
+                    <div class="pt-1 border-t border-neutral-700/40">
+                        <p class="text-[10px] text-neutral-600 leading-relaxed mb-1.5">
+                            Windows owns the acoustic profile &mdash; how your voice <em>sounds</em>. Its own
+                            trainer is the only thing that can adapt it, and it is the single biggest
+                            accuracy gain available.
+                        </p>
+                        <button class="w-full text-[11px] py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-300 hover:bg-neutral-700/50 no-drag"
+                            onclick="voiceOpenWindowsTraining()">Open Windows voice training</button>
+                    </div>
+                </div>`)}
+
+                ${voiceSection('heard', 'What it heard',
+                    'Recent utterances, and how loud they were',
+                    `<div class="space-y-2">
+                    <p class="text-[11px] text-neutral-500 leading-relaxed">
+                        Every utterance, what it matched, and the peak microphone level.
+                        A low peak (under ~15) means the microphone is the problem, not the wording —
+                        a headset will beat a built-in array every time.
+                    </p>
+                    <button class="w-full text-[11px] py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-300 hover:bg-neutral-700/50 no-drag"
+                        onclick="voiceRefreshHistory()">Refresh</button>
+                    <div id="voice-history" class="space-y-1 max-h-44 overflow-y-auto"></div>
+                </div>`)}
+
                 ${voiceSection('behaviour', 'Behaviour',
                     [s.voiceFeedback ? 'Speaks' : 'Silent', s.chaining !== false ? 'Chaining' : null,
+                     s.confirmRisky === false ? 'No safety prompt' : null,
                      'Strictness ' + Math.round((s.confidence !== undefined ? s.confidence : 0.6) * 100) + '%']
                         .filter(Boolean).join(' · '),
                     `<div class="space-y-2.5">
@@ -1324,6 +1802,8 @@
                     ${voiceSliderRow('Speed', 'speechRate', -5, 5, 1, s.speechRate || 0, 'plain')}` : ''}
                     ${voiceToggleRow('Chain commands in one breath', 'chaining', s.chaining !== false,
                         'e.g. "pause the music and optimize my pc" — up to three at once.')}
+                    ${voiceToggleRow('Ask before risky commands', 'confirmRisky', s.confirmRisky !== false,
+                        'Speech recognition always returns its closest match, so background noise can land on a real command. This asks first for anything that closes programs, clears something, or changes system settings.')}
                     ${voiceToggleRow('Show what it heard', 'showTranscript', s.showTranscript !== false)}
                     ${voiceToggleRow('Click the orb to listen again', 'clickActivate', s.clickActivate !== false)}
                     ${voiceToggleRow('Reduced motion', 'reducedMotion', !!s.reducedMotion,

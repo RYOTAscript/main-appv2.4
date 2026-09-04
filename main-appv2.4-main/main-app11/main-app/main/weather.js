@@ -1,5 +1,9 @@
 const { ipcMain } = require('electron');
-const { safeFetch } = require('./httpClient');
+const fs = require('fs');
+const path = require('path');
+// Uses the Electron-`net` transport so weather/geocoding honour the OS
+// certificate store (works behind a TLS-inspecting proxy/AV). See main/netClient.js.
+const { netFetch: safeFetch } = require('./netClient');
 
 // Every provider used here asks callers to identify themselves — the OSM
 // Nominatim usage policy requires it outright, and wttr.in and BigDataCloud both
@@ -104,7 +108,7 @@ function buildForecast(weatherDays) {
 }
 
 function init(ctx) {
-  const { logger, APP_VERSION } = ctx;
+  const { logger, APP_VERSION, userDataPath } = ctx;
 
   // Short-lived cache keyed by the requested location ('auto' for geolocation,
   // or a normalized city name). Fresh hits skip the network entirely; stale
@@ -113,88 +117,155 @@ function init(ctx) {
   const CACHE_TTL_MS = 5 * 60 * 1000;
   const weatherCache = new Map();
 
+  // Persist the last good reading to disk so the widget paints INSTANTLY on the
+  // next launch. The in-memory cache is empty on a cold start, which otherwise
+  // forces every launch to block on a round-trip to wttr.in (a notoriously
+  // variable free service) before the widget can show anything — that shows up
+  // as "weather takes too long to load". With a persisted reading the handler can
+  // serve the last value at once and revalidate in the background.
+  const WEATHER_CACHE_PATH = userDataPath ? path.join(userDataPath, 'weather-cache.json') : null;
+
+  function loadWeatherCache() {
+    if (!WEATHER_CACHE_PATH) return;
+    try {
+      if (!fs.existsSync(WEATHER_CACHE_PATH)) return;
+      const raw = JSON.parse(fs.readFileSync(WEATHER_CACHE_PATH, 'utf8'));
+      if (raw && typeof raw === 'object') {
+        for (const [key, entry] of Object.entries(raw)) {
+          if (entry && entry.data && typeof entry.fetchedAt === 'number') {
+            weatherCache.set(key, { data: entry.data, fetchedAt: entry.fetchedAt });
+          }
+        }
+      }
+    } catch (e) {
+      logger.debug('Weather cache load failed', { error: e.message });
+    }
+  }
+
+  function saveWeatherCache() {
+    if (!WEATHER_CACHE_PATH) return;
+    try {
+      const obj = {};
+      for (const [key, entry] of weatherCache) obj[key] = entry;
+      fs.writeFileSync(WEATHER_CACHE_PATH, JSON.stringify(obj), 'utf8');
+    } catch (e) {
+      logger.debug('Weather cache save failed', { error: e.message });
+    }
+  }
+
+  loadWeatherCache();
+
+  // Locations currently being refreshed in the background, so overlapping polls
+  // don't fire duplicate wttr.in requests for the same place.
+  const refreshingKeys = new Set();
+
+  // One network fetch → parsed reading, cached (memory + disk). `timeoutMs` bounds
+  // wttr.in, which has no per-request timeout of its own; httpClient's blanket 20s
+  // socket timeout is a last-resort fallback, not a UX budget.
+  async function fetchWeatherFresh(cacheKey, requestedCity, timeoutMs) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const url = requestedCity
+      ? `https://wttr.in/${encodeURIComponent(requestedCity)}?format=j1`
+      : 'https://wttr.in?format=j1';
+    let response;
+    try {
+      response = await safeFetch(url, {
+        headers: { 'User-Agent': userAgent(APP_VERSION) },
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    const data = await response.json();
+    const current = data.current_condition[0];
+
+    const astronomy = data?.weather?.[0]?.astronomy?.[0] || {};
+    const sunrise = astronomy.sunrise || null;
+    const sunset = astronomy.sunset || null;
+
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const sunsetMinutes = parseHMToMinutes(sunset);
+
+    // Consider "turning dark" to be within 30 minutes before/after sunset
+    const isTurningDark = (typeof sunsetMinutes === 'number') && (nowMinutes >= (sunsetMinutes - 30));
+
+    const nearestArea = data?.nearest_area?.[0];
+    const suburbFallback = nearestArea?.areaName?.[0]?.value || 'Unknown';
+
+    let city;
+    if (requestedCity) {
+      // A manual override already names the place; trust wttr.in's resolved
+      // area label (nicer casing/spelling) and skip reverse-geocoding.
+      city = nearestArea?.areaName?.[0]?.value || requestedCity;
+    } else {
+      const lat = nearestArea?.latitude;
+      const lon = nearestArea?.longitude;
+      city = suburbFallback;
+      if (lat && lon) {
+        city = await resolveCityFromCoordinates(lat, lon, suburbFallback, APP_VERSION);
+      }
+    }
+
+    const result = {
+      temp_C: current.temp_C,
+      temp_F: current.temp_F,
+      feelsLike_C: current.FeelsLikeC,
+      feelsLike_F: current.FeelsLikeF,
+      condition: current.weatherDesc[0].value,
+      humidity: current.humidity,
+      wind: current.windspeedKmph,
+      icon: current.weatherCode,
+      sunrise,
+      sunset,
+      isTurningDark,
+      city,
+      forecast: buildForecast(data.weather),
+      cached: false,
+      fetchedAt: Date.now()
+    };
+    weatherCache.set(cacheKey, { data: result, fetchedAt: result.fetchedAt });
+    saveWeatherCache();
+    return result;
+  }
+
+  // Non-blocking revalidation: the widget already has (stale) data to show, so a
+  // failure here is a no-op the user never sees. A generous timeout since nothing
+  // is waiting on it.
+  function refreshInBackground(cacheKey, requestedCity) {
+    if (refreshingKeys.has(cacheKey)) return;
+    refreshingKeys.add(cacheKey);
+    fetchWeatherFresh(cacheKey, requestedCity, 15000)
+      .catch((e) => logger.debug('Weather background refresh failed', { error: e.code || e.message }))
+      .finally(() => refreshingKeys.delete(cacheKey));
+  }
+
   ipcMain.handle('get-weather', async (_event, opts) => {
     const requestedCity = (opts && typeof opts.city === 'string') ? opts.city.trim() : '';
     const cacheKey = requestedCity ? requestedCity.toLowerCase() : 'auto';
     const cached = weatherCache.get(cacheKey);
-    if (cached && (Date.now() - cached.fetchedAt) < CACHE_TTL_MS) {
+    const now = Date.now();
+
+    // Fresh — serve from cache, no network.
+    if (cached && (now - cached.fetchedAt) < CACHE_TTL_MS) {
       return { ...cached.data, cached: true };
     }
 
+    // Stale but present (including a reading restored from disk on launch): show
+    // it instantly and revalidate in the background, so the widget never blocks on
+    // a slow wttr.in. The next poll or panel open picks up the refreshed reading.
+    if (cached) {
+      refreshInBackground(cacheKey, requestedCity);
+      return { ...cached.data, cached: true, stale: true };
+    }
+
+    // Cold cache with nothing to show — this one has to wait, but on a bounded
+    // budget so the widget can't hang.
     try {
-      // wttr.in has no per-request timeout of its own; httpClient's blanket 20s
-      // socket timeout is a last-resort fallback, not a real UX budget — an
-      // always-visible widget stuck "loading" for 20s reads as broken. Match
-      // the geocoding fallbacks' own explicit AbortController timeout instead.
-      const WEATHER_TIMEOUT_MS = 6000;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), WEATHER_TIMEOUT_MS);
-      const url = requestedCity
-        ? `https://wttr.in/${encodeURIComponent(requestedCity)}?format=j1`
-        : 'https://wttr.in?format=j1';
-      let response;
-      try {
-        response = await safeFetch(url, {
-          headers: { 'User-Agent': userAgent(APP_VERSION) },
-          signal: controller.signal
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-      const data = await response.json();
-      const current = data.current_condition[0];
-
-      const astronomy = data?.weather?.[0]?.astronomy?.[0] || {};
-      const sunrise = astronomy.sunrise || null;
-      const sunset = astronomy.sunset || null;
-
-      const now = new Date();
-      const nowMinutes = now.getHours() * 60 + now.getMinutes();
-      const sunsetMinutes = parseHMToMinutes(sunset);
-
-      // Consider "turning dark" to be within 30 minutes before/after sunset
-      const isTurningDark = (typeof sunsetMinutes === 'number') && (nowMinutes >= (sunsetMinutes - 30));
-
-      const nearestArea = data?.nearest_area?.[0];
-      const suburbFallback = nearestArea?.areaName?.[0]?.value || 'Unknown';
-
-      let city;
-      if (requestedCity) {
-        // A manual override already names the place; trust wttr.in's resolved
-        // area label (nicer casing/spelling) and skip reverse-geocoding.
-        city = nearestArea?.areaName?.[0]?.value || requestedCity;
-      } else {
-        const lat = nearestArea?.latitude;
-        const lon = nearestArea?.longitude;
-        city = suburbFallback;
-        if (lat && lon) {
-          city = await resolveCityFromCoordinates(lat, lon, suburbFallback, APP_VERSION);
-        }
-      }
-
-      const result = {
-        temp_C: current.temp_C,
-        temp_F: current.temp_F,
-        feelsLike_C: current.FeelsLikeC,
-        feelsLike_F: current.FeelsLikeF,
-        condition: current.weatherDesc[0].value,
-        humidity: current.humidity,
-        wind: current.windspeedKmph,
-        icon: current.weatherCode,
-        sunrise,
-        sunset,
-        isTurningDark,
-        city,
-        forecast: buildForecast(data.weather),
-        cached: false,
-        fetchedAt: Date.now()
-      };
-      weatherCache.set(cacheKey, { data: result, fetchedAt: result.fetchedAt });
-      return result;
+      return await fetchWeatherFresh(cacheKey, requestedCity, 6000);
     } catch (e) {
-      logger.error('Weather fetch failed', e);
-      // Serve the last good reading (if any) rather than blanking the widget.
-      if (cached) return { ...cached.data, cached: true, stale: true };
+      logger.warn('Weather fetch failed (no cached reading to fall back on)', { error: e.code || e.message });
       return null;
     }
   });

@@ -357,6 +357,69 @@ AST — no LLM). Useful facts it surfaced, worth knowing before refactoring:
   send `LISTEN`/`STOP` from anywhere else, or wake and command mode will fight
   over the device. The wake word is **off by default** because turning it on
   keeps the microphone open while idle.
+- **Voice answering layer.** `main/voiceResponses.js` (pure, no imports) turns a
+  command result into what the assistant *says* and what the overlay *shows* —
+  they are deliberately different: "what's the weather" speaks a sentence and
+  displays a large `21°`. Phrase pools ROTATE rather than picking randomly, so
+  replies vary, never repeat back-to-back, and stay deterministic for tests. An
+  executor may return a rich `answer: { speech, headline, detail, meta[] }`,
+  which wins over the pools; it is whitelisted field-by-field when it crosses
+  IPC in `renderer/voice-assistant.js` and rendered as the overlay's answer card.
+- **Never rewrite an utterance before matching it.** A synonym table collapsing
+  "lower" → "turn" looks like a recognition win and silently breaks commands:
+  "lower the volume" is ALREADY a template, and the rewrite produces "turn the
+  volume", matching neither it nor "turn the volume down". Same trap for filler
+  stripping — "like" is not a filler, it is how you favourite a track. Only
+  `INNER_FILLERS` is stripped, and a test asserts that list stays disjoint from
+  every word the registry uses. Add new wordings to a command's `phrases`.
+- **A slot's unit belongs to the value, not the template.** `"{minutes} minutes"`
+  forces every duration to end in that word, so "half an hour" compiles into the
+  grammar as "half an hour minutes". The unit lives in the slot entry's `spoken`
+  instead, which lets numbers and idioms share one template. Remember recognition
+  runs on a CLOSED grammar: a phrasing `matchIntent` can parse is still unhearable
+  unless it is also compiled in as a choice.
+- **A hidden BrowserWindow is throttled, and that breaks readiness handshakes.**
+  Chromium stops `requestAnimationFrame` and clamps `setTimeout` in a hidden or
+  occluded window. The voice overlay is hidden whenever it is idle, so the
+  `painted` signal it sends before being shown never arrived, and every popup
+  waited out the 400ms reveal fallback instead (measured 428ms; ~20ms after the
+  fix). `backgroundThrottling: false` in its `webPreferences` is what makes it
+  work; a timer racing the rAF is NOT enough on its own, because the timer is
+  throttled too. The same throttle is what freezes an entrance animation
+  mid-flight. Any new always-on-top HUD window needs the same flag.
+- **Two speech processes, deliberately.** `main/voiceHostScript.js` owns the
+  microphone and recognition; `main/voiceSpeaker.js` is a SEPARATE PowerShell
+  helper that speaks through WinRT `Windows.Media.SpeechSynthesis`. SAPI5 (which
+  System.Speech uses) can only see the older "Desktop" voices; WinRT reaches the
+  OneCore ones (David/Mark/Zira, and Aria/Jenny where installed). They are split
+  so a failure in the nicer-voice path can never take down the microphone — if
+  the speaker does not report READY within 6s, speech falls back to the host's
+  SAPI voice and recognition is untouched.
+- **A closed grammar makes unheard phrasings INAUDIBLE, not misheard.** That is
+  the real reason the assistant "doesn't understand me". Three layers now
+  address it: ~380 phrasings in the registry, an n-best re-rank of the engine's
+  alternates against the real command list, and a `DictationGrammar` catch-all
+  (`freeform` setting) sitting beneath the command grammar. Note
+  `DictationGrammar` throws on `Priority` — dominance is asserted from the other
+  side by raising `commandGrammar.Priority`.
+- **The recognizer cannot say "that was not a command".** A closed grammar only
+  returns which of its ~800 phrases the audio sat nearest, so room noise is not
+  rejected, it is ROUNDED — during testing this opened Settings with nobody
+  speaking. Three defences, all in `main/voiceCommands.js` + `voiceAssistant.js`:
+  risky commands (`RISKY_COMMANDS`) need 0.92 confidence or they confirm; the
+  always-listening wake path adds a penalty on top; and a result whose peak
+  audio level never rose is discarded (skipped entirely until 3 level samples
+  prove the meter works — a broken meter must silence nothing). `main/
+  voiceEngines.js` records this as an ENGINE property (`canRejectOutOfGrammar`),
+  so anything that exists because of the closed grammar branches on the engine
+  rather than on the OS.
+- **`runCmd(cmd, timeoutMs)` takes a command STRING; `runFile(file, argv, ms)`
+  takes an argv array.** Both resolve `{ ok, stdout, stderr, code }`, never a
+  bare string. Passing an array to runCmd silently runs the bare command and
+  the caller sees an empty result, not an error.
+- **PowerShell built from an array must join with newlines, not `'; '`.** A
+  semicolon straight after `[ordered]@{` closes the hash literal and the whole
+  script fails to parse.
 - **Voice command catalogue.** `main/voiceCommands.js` holds ~90 commands; every
   one MUST have an executor in `renderer/voice-assistant.js` (or be one of the
   four assistant-meta commands handled in `main/voiceAssistant.js`) — a test

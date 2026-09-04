@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('voiceOverlay', {
   cancel: () => ipcRenderer.send('voice:overlay-cancel'),
   listen: () => ipcRenderer.send('voice:overlay-listen'),
   choose: (commandId) => ipcRenderer.send('voice:overlay-choose', commandId),
+  // Interrupt the spoken reply. Takes no argument: it can only ever mean "stop".
+  shutup: () => ipcRenderer.send('voice:overlay-shutup'),
   confirm: (answer) => ipcRenderer.send('voice:overlay-confirm', answer),
   submitText: (text) => ipcRenderer.send('voice:overlay-text', text),
   // The overlay window is click-through so it never blocks a game; it asks main
