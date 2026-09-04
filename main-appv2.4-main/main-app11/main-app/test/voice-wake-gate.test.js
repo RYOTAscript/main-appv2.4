@@ -26,11 +26,13 @@ test('the host measures audio levels in wake mode as well as command mode', () =
 });
 
 test('the wake gate reads the rolling window, never the session peak', () => {
-  const gate = assistant.match(/const recent = recentPeak\(\);\n\s*if \([^)]*\)/);
-  assert.ok(gate, 'wake gate not found');
-  assert.ok(/levelWindow\.length >= MIN_LEVEL_SAMPLES/.test(gate[0]),
+  const at = assistant.indexOf('const recent = recentPeak();');
+  assert.ok(at !== -1, 'wake gate not found');
+  const gate = assistant.slice(at, assistant.indexOf('return;', at));
+  assert.ok(/levelWindow\.length >= MIN_LEVEL_SAMPLES/.test(gate),
     'sample count must come from the window too, or a stale count re-arms the gate');
-  assert.ok(!/peakLevel/.test(gate[0]), 'wake gate must not consult the session peak');
+  assert.ok(!/peakLevel/.test(gate), 'the wake gate must not consult the session peak');
+  assert.ok(/recent < wakeFloor/.test(gate), 'and it compares against the learned floor');
 });
 
 test('the window is emptied wherever the session peak is', () => {

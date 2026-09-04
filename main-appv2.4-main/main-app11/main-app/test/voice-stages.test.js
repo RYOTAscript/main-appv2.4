@@ -19,14 +19,23 @@ const statsSrc = fs.readFileSync(here('main', 'systemStats.js'), 'utf8');
 
 // ── Stage 3: rich answers ────────────────────────────────────────────────────
 
-test('album art is allowed by the overlay CSP, and only over http(s)', () => {
-  // main.html already permits https: for exactly these images; the overlay now
-  // mirrors that rather than inventing a looser policy.
+test('album art is allowed by the overlay CSP, and only as an image', () => {
   assert.match(overlaySrc, /img-src 'self' file: data: blob: https:;/);
   // A src attribute is not a place to trust a value that arrived from an API,
-  // so it is re-checked at the point of use as well as on the way in.
-  assert.match(overlaySrc, /\/\^https\?:\\\/\\\/\/i\.test\(rawArt\)/);
-  assert.match(rendererSrc, /\/\^https\?:\\\/\\\/\/i\.test\(String\(result\.answer\.art/);
+  // so it is re-checked at the point of use as well as on the way in. Both
+  // checks accept exactly two shapes: a remote http(s) cover, and a base64
+  // image the main window handed over as pixels — the latter because the
+  // overlay cannot reuse the main window's cached copy and its own request
+  // fails outright behind a TLS-inspecting proxy.
+  for (const src of [overlaySrc, rendererSrc]) {
+    assert.ok(src.includes('data:image') && src.includes(';base64,'),
+      'a base64 cover must be accepted');
+    assert.ok(/jpeg\|png\|webp/.test(src), 'and restricted to real image types');
+    assert.ok(src.includes('https?:'), 'and a remote cover still is');
+  }
+  // Nothing wider: a bare data: URI or a javascript: URL must not qualify.
+  assert.ok(overlaySrc.includes('ART_OK.test(rawArt)'),
+    'the overlay must validate through the shared pattern, not ad hoc');
 });
 
 test('battery and disk do not run on the once-a-second stats path', () => {

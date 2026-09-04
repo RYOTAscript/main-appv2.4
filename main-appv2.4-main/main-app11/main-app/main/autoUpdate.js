@@ -53,6 +53,20 @@ function broadcast() {
   }
 }
 
+// The percentage to show, from whichever of the event's fields actually
+// arrived. Returns the last known value rather than 0 when nothing usable is
+// present, so a single odd tick cannot make the bar jump backwards.
+function progressPercent(p) {
+  const pct = Number(p?.percent);
+  if (Number.isFinite(pct) && pct > 0) return Math.max(0, Math.min(100, Math.round(pct)));
+  const transferred = Number(p?.transferred);
+  const total = Number(p?.total);
+  if (Number.isFinite(transferred) && Number.isFinite(total) && total > 0) {
+    return Math.max(0, Math.min(100, Math.round((transferred / total) * 100)));
+  }
+  return state.progress || 0;
+}
+
 function setState(patch) {
   state = { ...state, ...patch };
   broadcast();
@@ -78,7 +92,7 @@ function registerIpc() {
   ipcMain.handle('updates:install', () => {
     if (state.status !== 'downloaded' || !autoUpdater) return { ok: false };
     // Give the renderer a beat to show its "restarting…" state before we quit.
-    setTimeout(() => { try { autoUpdater.quitAndInstall(); } catch (e) { log?.warn?.('[autoUpdate] quitAndInstall failed', e); } }, 250);
+    setTimeout(() => { try { autoUpdater.quitAndInstall(true, true); } catch (e) { log?.warn?.('[autoUpdate] quitAndInstall failed', e); } }, 250);
     return { ok: true };
   });
 }
@@ -115,6 +129,15 @@ function initAutoUpdate(logger) {
   try {
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
+    // Why the differential downloader is off.
+    // With a .blockmap published beside the installer, electron-updater tries to
+    // rebuild the new file from the blocks of the old one. It works, but it
+    // reports almost no `download-progress` while doing it — which is why the
+    // bar sat at 0% for the whole download and then jumped straight to done.
+    // For a 130MB Electron app the saving is small anyway (the asar changes
+    // wholesale between builds), and an honest progress bar is worth more than
+    // a few MB: a bar stuck at zero is indistinguishable from a broken update.
+    autoUpdater.disableDifferentialDownload = true;
 
     // Allow the feed URL to be overridden at runtime (e.g. once the site moves
     // off the beta domain) without rebuilding.
@@ -173,7 +196,11 @@ function initAutoUpdate(logger) {
     autoUpdater.on('download-progress', (p) =>
       setState({
         status: 'downloading',
-        progress: Math.max(0, Math.min(100, Math.round(p?.percent || 0))),
+        // Percent from the event when it gives one, otherwise derived from the
+        // byte counts. Never trust a single field to be present: `percent` is
+        // absent on some transfer paths, and a missing field must degrade to a
+        // real number rather than silently pinning the bar to zero.
+        progress: progressPercent(p),
         // Carried through so the UI can show how much of what, how fast, and
         // how much longer — a bare percentage on a 130MB download tells the
         // user almost nothing about whether it is worth waiting for.
@@ -191,7 +218,11 @@ function initAutoUpdate(logger) {
         'Click here to restart and install, or it will apply next time you quit.',
         () => {
           // Same path the Settings button uses, so there is one way to install.
-          try { autoUpdater.quitAndInstall(false, true); }
+          // isSilent: the NSIS wizard has nothing left to ask on an update —
+          // install path, shortcuts and licence were all settled the first time.
+          // Showing it again puts a grey Windows dialog in front of someone who
+          // already chose to install here.
+          try { autoUpdater.quitAndInstall(true, true); }
           catch (e) { logger?.warn?.('[autoUpdate] install from notification failed', e?.message || e); }
         }
       );

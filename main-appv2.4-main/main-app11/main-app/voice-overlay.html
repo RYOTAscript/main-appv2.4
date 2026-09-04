@@ -1646,7 +1646,13 @@
         // Album art. Only http(s) is accepted: the CSP would block anything else
         // anyway, and refusing here keeps a hostile value from ever reaching src.
         const rawArt = typeof payload.art === 'string' ? payload.art : '';
-        const art = hasAnswer && /^https?:\/\//i.test(rawArt) ? rawArt : '';
+        // http(s) for a cover the overlay must fetch itself, and a base64 image
+        // for one the main window handed over as pixels — which is the path that
+        // actually works here, since the overlay cannot reuse the main window's
+        // cached copy and its own request dies against the proxy. Any other
+        // scheme (javascript:, a bare file path) is refused outright.
+        const ART_OK = /^(https?:\/\/|data:image\/(?:jpeg|png|webp);base64,)/i;
+        const art = hasAnswer && ART_OK.test(rawArt) ? rawArt : '';
         // Art is best-effort. The overlay is a separate top-level page, and
         // Chromium partitions its network cache per site, so it cannot reuse an
         // image the main window already fetched — it makes its own request. On a

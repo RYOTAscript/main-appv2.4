@@ -386,6 +386,33 @@
         // ── The command table ────────────────────────────────────────────────
         // One arm per registry command in main/voiceCommands.js. Anything missing
         // here is reported honestly rather than silently succeeding.
+        // ── The cover, taken from the screen rather than the network ──
+        // The overlay is its own top-level page, and Chromium partitions the
+        // network cache per site — so it cannot reuse a cover the main window has
+        // already fetched, it has to request it again. Behind a TLS-inspecting
+        // proxy that second request simply fails, and the answer card renders
+        // coverless while the identical image sits on screen a few pixels away.
+        //
+        // So hand it the pixels instead of a URL. The widget's <img> is already
+        // decoded; a 128px JPEG of it costs a few KB and touches the network not
+        // at all. A cross-origin image taints the canvas and toDataURL throws —
+        // which is precisely the signal to fall back to the URL and let the
+        // overlay try for itself.
+        function coverDataUri() {
+            try {
+                const img = document.getElementById('spotify-album-cover');
+                if (!img || !img.complete || !img.naturalWidth) return '';
+                const size = 128;
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                canvas.getContext('2d').drawImage(img, 0, 0, size, size);
+                return canvas.toDataURL('image/jpeg', 0.85);
+            } catch (e) {
+                return '';   // tainted canvas, or no cover on screen
+            }
+        }
+
         const VOICE_EXECUTORS = {
             // ── Spotify ──
             'spotify.play': async () => {
@@ -440,7 +467,7 @@
                         headline: track.name,
                         detail: track.artist || '',
                         meta: track.album && track.album !== track.name ? [track.album] : [],
-                        art: track.image || ''
+                        art: coverDataUri() || track.image || ''
                     }
                 };
             },
@@ -1044,8 +1071,11 @@
                             // Only an http(s) URL can ever be art. The overlay
                             // re-checks this too — a src attribute is not a
                             // place to trust a value that came from an API.
-                            art: /^https?:\/\//i.test(String(result.answer.art || ''))
-                                ? String(result.answer.art).slice(0, 400) : ''
+                            art: /^(https?:\/\/|data:image\/(?:jpeg|png|webp);base64,)/i.test(String(result.answer.art || ''))
+                                // A data: URI carries the whole image, so the cap
+                                // is an image budget rather than a URL length. The
+                                // 128px JPEG above lands far under it.
+                                ? String(result.answer.art).slice(0, 200000) : ''
                         } : null,
                         // Routines report how much of themselves actually ran, so
                         // the reply can't claim success for a half-failed run.

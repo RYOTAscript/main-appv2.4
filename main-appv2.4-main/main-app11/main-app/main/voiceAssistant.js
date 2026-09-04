@@ -139,6 +139,15 @@ function init(ctx) {
   // word stayed deaf until the next spoken command.
   const LEVEL_WINDOW_MS = 1500;
   let levelWindow = [];
+  // The idle room level, learned continuously while waking. A FIXED wake floor
+  // cannot work: System.Speech's AudioLevel is not calibrated to anything, so
+  // what counts as "a real voice" is a property of the microphone, not of speech.
+  // On this machine a spoken command peaks at 5-6 and a fixed floor of 18 was
+  // simply unreachable — every wake was discarded as silence. What separates
+  // speech from silence is not an absolute number, it is the distance above
+  // whatever the room is currently doing.
+  const WAKE_LEVEL_MARGIN = 3;
+  let noiseFloor = 0;
   // The last command actually executed, so "undo that" has something to reverse.
   // Separate from lastIntent (which drives "do that again") because a repeat and
   // an undo must never chase each other.
@@ -723,6 +732,11 @@ function init(ctx) {
         // it is idle and hidden — it must not push frames at a window nobody is
         // looking at.
         if (V.isMicOpenState(state)) sendOverlay('voice:overlay-level', lvl);
+        else {
+          // Idle: this is the room, not a command. Track it downward fast and
+          // upward slowly, so a passing noise raises the bar only briefly.
+          noiseFloor = lvl < noiseFloor ? lvl : noiseFloor * 0.99 + lvl * 0.01;
+        }
         return;
       }
       case 'AUDIO':
@@ -806,9 +820,10 @@ function init(ctx) {
     // have ended minutes ago. As everywhere else here, too few samples to judge
     // means the gate stands down rather than silencing anything.
     const recent = recentPeak();
-    if (levelWindow.length >= MIN_LEVEL_SAMPLES && recent < WAKE_MIN_PEAK_LEVEL) {
+    const wakeFloor = Math.min(WAKE_MIN_PEAK_LEVEL, Math.max(noiseFloor + WAKE_LEVEL_MARGIN, MIN_PEAK_LEVEL + 1));
+    if (levelWindow.length >= MIN_LEVEL_SAMPLES && recent < wakeFloor) {
       logger.log('Wake ignored: no speech-level audio behind it', 'INFO',
-        { heard: text, peak: recent, floor: WAKE_MIN_PEAK_LEVEL });
+        { heard: text, peak: recent, floor: Number(wakeFloor.toFixed(1)), noiseFloor: Number(noiseFloor.toFixed(1)) });
       return;
     }
     const parsed = V.stripWakePhrase(text);
@@ -918,8 +933,14 @@ function init(ctx) {
     // Length-aware confidence gate. A closed grammar always returns its nearest
     // phrase, so short utterances (which room noise can fit) need far more
     // confidence than long ones. See voiceCommands.confidenceFloor.
-    if (!V.meetsConfidence(text, confidence, settings.confidence)) {
-      logger.log('Voice result below confidence floor', 'INFO', { text, confidence });
+    // Matched first, because what the floor should be depends on what was
+    // matched: a slot command's confidence is divided across every name the slot
+    // holds, so it is not comparable to a fixed phrase's. See confidenceFloorFor.
+    const preview = V.matchIntent(text, vocabulary, grammar);
+    const floor = V.confidenceFloorFor(text, settings.confidence, preview);
+    if (!(Number(confidence) >= floor)) {
+      logger.log('Voice result below confidence floor', 'INFO',
+        { text, confidence, floor, matched: preview && preview.commandId || '' });
       return;   // keep listening; the timeout ends it if nothing better arrives
     }
 
@@ -1048,7 +1069,8 @@ function init(ctx) {
       // Free dictation fires on any speech in the room, so a command reached
       // that way deserves the same suspicion as one from the wake path.
       viaWake: !!o.viaWake || !!o.viaFreeform,
-      confirmRisky: settings.confirmRisky
+      confirmRisky: settings.confirmRisky,
+      exactSlot: !!match.exactSlot
     });
 
     recordHistory({

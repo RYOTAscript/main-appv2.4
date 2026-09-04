@@ -37,11 +37,26 @@ function __uEta(transferred, total, bps) {
     const mins = Math.round(secs / 60);
     return mins + (mins === 1 ? ' min left' : ' mins left');
 }
+// The badge's pill comes from .account-badge, which hardcodes a green border
+// and fill. Recolouring only the text left "Downloading" sitting in blue inside
+// a green pill — a state saying two different things at once. Border, fill and
+// text all move together.
+function __uTint(hex, alpha) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+    if (!m) return '';
+    const n = parseInt(m[1], 16);
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
+}
+
 function __uBadge(text, color) {
     const el = document.getElementById('updates-badge');
     if (!el) return;
     el.textContent = text;
     el.style.color = color || '';
+    // Empty string restores the stylesheet's own value, so an unknown colour
+    // degrades to the default pill rather than to no pill at all.
+    el.style.borderColor = __uTint(color, 0.3);
+    el.style.background = __uTint(color, 0.1);
 }
 
 function renderUpdatesState(s) {

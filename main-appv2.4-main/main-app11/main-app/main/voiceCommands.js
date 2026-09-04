@@ -2002,7 +2002,12 @@ function matchIntent(transcript, vocabulary, compiled) {
         // A near-tie between two vocabulary entries is confirmed rather than
         // guessed. Launching the wrong program is not a small mistake, and the
         // codebase's rule everywhere else is that refusing beats guessing.
-        ambiguous: !!hit.ambiguous
+        ambiguous: !!hit.ambiguous,
+        // The name was matched character-for-character against the real
+        // vocabulary, with nothing else close. That is independent evidence
+        // about the one thing the risk gate is protecting — WHICH target was
+        // chosen — and it is evidence recognizer confidence does not contain.
+        exact: hit.score === 1 && !hit.ambiguous
       };
       if (!bestSlot || cand.score > bestSlot.score) bestSlot = cand;
     }
@@ -2034,7 +2039,8 @@ function matchIntent(transcript, vocabulary, compiled) {
       // The recognizer can be perfectly confident about the words and still
       // leave the matcher choosing between two similar app names.
       confirm: !!bestSlot.cmd.confirm || !!bestSlot.ambiguous,
-      ambiguousSlot: !!bestSlot.ambiguous
+      ambiguousSlot: !!bestSlot.ambiguous,
+      exactSlot: !!bestSlot.exact
     };
   }
 
@@ -2114,6 +2120,25 @@ function confidenceFloor(text, baseThreshold) {
   return Math.max(base, SHORT_PHRASE_FLOORS[words] || 0);
 }
 
+// A command whose target came out of a live vocabulary slot gets a much lower
+// floor. This is not a relaxation of standards, it is a correction of what the
+// number means: recognizer confidence is spread across everything the slot could
+// have been, so a fifty-app launch slot reports 0.3-0.6 for a phrase it heard
+// perfectly, while a fixed phrase with no alternatives reports 0.8. Judging both
+// against one floor silently deleted every app launch this user attempted --
+// "start discord" 0.449, "open word" 0.582, "run steam" 0.522, all correct, all
+// dropped. What actually protects a slot command is the evidence the floor
+// cannot see: the name has to resolve against the real vocabulary, a near-tie
+// between two names confirms rather than guesses, and anything risky needs
+// RISK_CONFIDENCE or an exact name.
+const SLOT_CONFIDENCE_FLOOR = 0.3;
+
+function confidenceFloorFor(text, baseThreshold, match) {
+  const base = confidenceFloor(text, baseThreshold);
+  if (!match || match.status !== 'matched' || !match.command || !match.command.slot) return base;
+  return Math.min(base, SLOT_CONFIDENCE_FLOOR);
+}
+
 // True when a recognizer result is trustworthy enough to act on.
 function meetsConfidence(text, confidence, baseThreshold) {
   const c = Number(confidence);
@@ -2186,7 +2211,15 @@ function needsRiskConfirm(command, confidence, opts) {
   // explicitly; anything that cannot say how sure it is gets confirmed.
   if (!Number.isFinite(c)) return true;
   const bar = RISK_CONFIDENCE + (o.viaWake ? PASSIVE_PENALTY : 0);
-  return c < bar;
+  if (c >= bar) return false;
+  // Below the bar, but the target name was heard exactly and nothing else came
+  // close. The danger this gate exists for is acting on the WRONG target, and an
+  // exact, uncontested resolution against the live vocabulary rules that out --
+  // it is why "open discord" launching Steam was possible and why it no longer
+  // is. Never applied to a passive wake, where nobody asked for anything, and
+  // never to a registry `confirm: true`, which returned above.
+  if (o.exactSlot && !o.viaWake) return false;
+  return true;
 }
 
 // ── Undo ─────────────────────────────────────────────────────────────────────
@@ -2379,6 +2412,8 @@ module.exports = {
   DURATION_IDIOMS,
   phoneticKey,
   soundsLike,
+  confidenceFloorFor,
+  SLOT_CONFIDENCE_FLOOR,
   VOCAB_AMBIGUITY_DELTA,
   contractedVariants,
   CONTRACTION_VARIANTS,

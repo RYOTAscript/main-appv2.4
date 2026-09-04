@@ -657,13 +657,19 @@ test('waking requires a real voice, not merely more than silence', () => {
   // that bar: the cost of a missed wake is repeating yourself, the cost of a
   // false wake is the overlay opening by itself.
   const cmdFloor = Number(assistantSrc.match(/const MIN_PEAK_LEVEL = (\d+);/)[1]);
-  const wakeFloor = Number(assistantSrc.match(/const WAKE_MIN_PEAK_LEVEL = (\d+);/)[1]);
-  assert.ok(wakeFloor >= cmdFloor * 4,
-    `an unsolicited wake (${wakeFloor}) must clear far more than a deliberate command (${cmdFloor})`);
+  const wakeCap = Number(assistantSrc.match(/const WAKE_MIN_PEAK_LEVEL = (\d+);/)[1]);
+  assert.ok(wakeCap >= cmdFloor * 4,
+    `the wake ceiling (${wakeCap}) must sit far above a deliberate command (${cmdFloor})`);
+  // But the bar actually applied is learned, not fixed. AudioLevel is not
+  // calibrated to anything, so "a real voice" is a property of the microphone:
+  // on a mic whose speech peaks at 5, a fixed 18 rejects every wake there is.
+  assert.match(assistantSrc, /noiseFloor \+ WAKE_LEVEL_MARGIN/);
+  assert.ok(/Math\.min\(WAKE_MIN_PEAK_LEVEL, Math\.max\(/.test(assistantSrc),
+    'the learned floor must stay bounded by the fixed ceiling and the command floor');
   // Measured over a rolling window rather than the session peak: waking has no
   // session, so a session maximum belongs to whatever happened last and stops
   // updating the moment the overlay closes.
-  assert.match(assistantSrc, /recent < WAKE_MIN_PEAK_LEVEL/);
+  assert.match(assistantSrc, /recent < wakeFloor/);
   assert.match(assistantSrc, /function recentPeak\(\)/);
 });
 
@@ -724,10 +730,30 @@ test('an update is announced once, and only twice in total', () => {
 test('the ready notification installs through the same path as the button', () => {
   const src = fs.readFileSync(here('main', 'autoUpdate.js'), 'utf8');
   assert.match(src, /n\.on\('click', onClick\)/);
-  assert.match(src, /autoUpdater\.quitAndInstall\(false, true\)/);
+  // isSilent=true: an update has nothing left to ask, so it installs without
+  // putting the NSIS wizard in front of someone who already chose to install.
+  assert.match(src, /autoUpdater\.quitAndInstall\(true, true\)/);
+  assert.ok(!/quitAndInstall\(false/.test(src), 'no path may still raise the wizard');
 });
 
 test('a failed notification never affects the update itself', () => {
   const src = fs.readFileSync(here('main', 'autoUpdate.js'), 'utf8');
   assert.match(src, /catch \(e\) \{[\s\S]{0,200}?notification failed/);
+});
+
+// ── The progress bar that sat at 0% ──────────────────────────────────────────
+
+test('progress never depends on a single field being present', () => {
+  const src = fs.readFileSync(here('main', 'autoUpdate.js'), 'utf8');
+  // A blockmap-driven differential download barely reports progress, so the bar
+  // stayed at zero for the whole transfer and then jumped to done — which looks
+  // exactly like a broken update.
+  assert.match(src, /disableDifferentialDownload = true/);
+  assert.match(src, /function progressPercent\(p\)/);
+  // Derived from bytes when percent is missing, and holding the last known
+  // value rather than snapping to zero when neither is usable.
+  assert.match(src, /transferred \/ total/);
+  assert.match(src, /return state\.progress \|\| 0;/);
+  assert.ok(!/Math\.round\(p\?\.percent \|\| 0\)/.test(src),
+    'the old percent-or-zero read must be gone');
 });
