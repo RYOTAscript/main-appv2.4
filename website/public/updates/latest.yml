@@ -1,8 +1,8 @@
-version: 4.3.0
+version: 4.3.1
 files:
-  - url: https://github.com/RYOTAscript/main-appv2.4/releases/download/v4.3.0/main-Setup-4.3.0.exe
-    sha512: wlYRv0OtZJ5NJdHnhRCJtEcH2SlleBcds8my5iQyQakJoJIezvEcb6a3IfKIqSXBoYnyvVSo/63Qge9SCVfa9g==
-    size: 131079358
-path: https://github.com/RYOTAscript/main-appv2.4/releases/download/v4.3.0/main-Setup-4.3.0.exe
-sha512: wlYRv0OtZJ5NJdHnhRCJtEcH2SlleBcds8my5iQyQakJoJIezvEcb6a3IfKIqSXBoYnyvVSo/63Qge9SCVfa9g==
-releaseDate: '2026-11-11T07:58:02.921Z'
+  - url: https://github.com/RYOTAscript/main-appv2.4/releases/download/v4.3.1/main-Setup-4.3.1.exe
+    sha512: l2S2lEi6rluQVNnnsRT8AP0RUlpTzrkZtR8OkCfMG+7881r29TPooKvN0Z2u0f31AzccQpUPUclzgvosFJ7LuQ==
+    size: 131079494
+path: https://github.com/RYOTAscript/main-appv2.4/releases/download/v4.3.1/main-Setup-4.3.1.exe
+sha512: l2S2lEi6rluQVNnnsRT8AP0RUlpTzrkZtR8OkCfMG+7881r29TPooKvN0Z2u0f31AzccQpUPUclzgvosFJ7LuQ==
+releaseDate: '2026-11-11T08:27:22.226Z'
