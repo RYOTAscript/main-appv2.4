@@ -5,6 +5,17 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [4.3.1] — 2026-11-11
+
+### Changed
+
+- **Phone Remote:** the phone shows which device Spotify is playing on with the
+  right icon (phone, computer or speaker). The phone page itself (live on the
+  website) gained a sideways full-screen view, a quieter lyric glow and a fix
+  for a dark strip along the bottom of the iPhone home-screen app.
+
+---
+
 ## [4.3.0] — 2026-11-11
 
 ### Added
