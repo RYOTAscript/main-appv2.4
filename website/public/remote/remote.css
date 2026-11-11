@@ -1,11 +1,17 @@
 /* main Phone Remote — the two looks of the launcher's player, sized for a phone.
-   Glass: the blurred album wash and frosted controls of the launcher.
-   White: paper, ink type, a clear vinyl sliding out of the sleeve; orange only
-   marks the playhead and liked songs. remote.js puts .look-glass/.look-white
-   (and .is-playing/.is-paused) on <body>. No inline styles: the page's CSP
-   allows only this file. Sideways, body.is-stage switches the player to the
-   full-screen stage, and body.is-turned turns it with CSS for a phone that
-   is held sideways with rotation lock on. */
+   Glass: the blurred album wash and Liquid Glass controls (iOS 27's refined
+   material: a darker rim and brighter specular highlights). White: paper, ink
+   type, a clear vinyl sliding out of the sleeve; orange only marks the
+   playhead and liked songs. remote.js puts .look-glass/.look-white (and
+   .is-playing/.is-paused) on <body>. No inline styles: the page's CSP allows
+   only this file. Sideways, body.is-stage switches the player to the
+   full-screen stage, and body.is-turned turns it with CSS for a phone held
+   sideways with rotation lock on.
+
+   Motion follows iOS: springs, not curves. The three below are real damped
+   springs sampled into linear() (response / damping as in SwiftUI): --spring
+   for most moves (1% overshoot), --bouncy for symbol effects (8%), --smooth
+   for big content moves like the lyric scroll (none). */
 
 :root {
     --safe-t: env(safe-area-inset-top, 0px);
@@ -14,66 +20,84 @@
     --safe-r: env(safe-area-inset-right, 0px);
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
     --mono: ui-monospace, "SF Mono", "Segoe UI Mono", monospace;
+    /* response 0.42, damping 0.82 — 0.57 s */
+    --spring: linear(0, 0.0392, 0.1326, 0.2522, 0.3789, 0.5008, 0.6109, 0.7059, 0.7849, 0.8484, 0.8979, 0.9354, 0.9628, 0.9821, 0.9951, 1.0034, 1.0082, 1.0105, 1.0111, 1.0107, 1.0097, 1.0083, 1.0069, 1.0056, 1.0043, 1.0033, 1.0024, 1.0017, 1);
+    /* response 0.45, damping 0.62 — 0.73 s */
+    --bouncy: linear(0, 0.0567, 0.1923, 0.3638, 0.5402, 0.7009, 0.8348, 0.9375, 1.0095, 1.0543, 1.0771, 1.0835, 1.0788, 1.0675, 1.0531, 1.0384, 1.025, 1.0138, 1.0052, 0.9992, 0.9955, 0.9936, 0.993, 0.9934, 0.9944, 0.9956, 0.9968, 0.9979, 1);
+    /* response 0.55, damping 0.96 — 0.68 s */
+    --smooth: linear(0, 0.0427, 0.1396, 0.2583, 0.3794, 0.4924, 0.5924, 0.6777, 0.7484, 0.8058, 0.8517, 0.8878, 0.9159, 0.9375, 0.9539, 0.9663, 0.9756, 0.9824, 0.9875, 0.9912, 0.9938, 0.9957, 0.9971, 0.998, 1);
     --ease: cubic-bezier(0.22, 1, 0.36, 1);
-    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 body.look-glass {
-    --bg: #05060A;
+    --page: #05060A;
     --ink: #FFFFFF;
     --ink-2: rgba(255, 255, 255, 0.62);
     --ink-3: rgba(255, 255, 255, 0.5);
     --track: rgba(255, 255, 255, 0.2);
-    --fill: #FFFFFF;
-    --knob: #FFFFFF;
+    --fill: rgba(255, 255, 255, 0.92);
     --chip: rgba(255, 255, 255, 0.1);
-    --chip-ring: rgba(255, 255, 255, 0.16);
     --heart-on: #FFFFFF;
     --seg-on-bg: rgba(255, 255, 255, 0.92);
     --seg-on-ink: #0A0A0C;
+    --glass-bg: rgba(255, 255, 255, 0.09);
+    --glass-bg-press: rgba(255, 255, 255, 0.18);
+    --glass-rim: rgba(255, 255, 255, 0.24);
+    --glass-hi: rgba(255, 255, 255, 0.55);
+    --glass-edge: rgba(0, 0, 0, 0.4);
+    --glass-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.6);
+    --sheen: rgba(255, 255, 255, 0.2);
     color-scheme: dark;
 }
 
 body.look-white {
-    --bg: #F2F2EF;
+    --page: #E9E9E4;
     --ink: #111111;
     --ink-2: #5F5F5B;
     --ink-3: #8A8A85;
     --track: rgba(0, 0, 0, 0.12);
     --fill: #111111;
-    --knob: #FF6A13;
     --chip: #FFFFFF;
-    --chip-ring: rgba(0, 0, 0, 0.1);
     --heart-on: #FF6A13;
     --seg-on-bg: #111111;
     --seg-on-ink: #FFFFFF;
+    --glass-bg: rgba(255, 255, 255, 0.6);
+    --glass-bg-press: rgba(255, 255, 255, 0.85);
+    --glass-rim: rgba(255, 255, 255, 0.95);
+    --glass-hi: #FFFFFF;
+    --glass-edge: rgba(0, 0, 0, 0.12);
+    --glass-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.3);
+    --sheen: rgba(255, 255, 255, 0.7);
     color-scheme: light;
 }
 
 * { box-sizing: border-box; }
 
-html,
-body {
+/* The page is laid out at the real screen size (--app-w/--app-h, from
+   sizeViewport in remote.js) and nothing in it is position: fixed. A home-
+   screen app on iPhone can be told its viewport is a status bar shorter than
+   the screen, and fixed layers then stop short, leaving a dark strip along the
+   bottom; ordinary layers reach it. --band is that shortfall, kept clear of
+   controls; the backdrop fades into the page colour across it, so if iOS
+   draws its own colour there it meets the page without a seam. */
+html {
+    height: var(--app-h, 100%);
     margin: 0;
-    height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
+    background: #05060A;
 }
 
-/* Whatever the body doesn't cover is the page's own colour, never a strip. */
-html { background: #05060A; }
-html:has(body.look-white) { background: #F2F2EF; }
+html:has(body.look-white) { background: #E9E9E4; }
 
-/* --app-w / --app-h are the real screen size (sizeViewport in remote.js): a
-   home-screen app on iPhone can be told its viewport is a status bar shorter
-   than the screen, which left a dark strip along the bottom. */
 body {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: var(--app-w, 100%);
+    position: relative;
+    width: 100%;
     height: var(--app-h, 100%);
-    background: var(--bg);
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background: var(--page);
     color: var(--ink);
     font-family: var(--font);
     -webkit-font-smoothing: antialiased;
@@ -92,7 +116,7 @@ button {
 
 button:focus-visible,
 .seek:focus-visible,
-input:focus-visible {
+.vol:focus-visible {
     outline: 2px solid currentColor;
     outline-offset: 3px;
 }
@@ -105,13 +129,46 @@ input:focus-visible {
     text-overflow: ellipsis;
 }
 
+/* ── Liquid Glass ─────────────────────────────────────────────────────────
+   Frosted, saturated, a hairline rim, a specular highlight along the top and
+   a darker outer edge. Pressing one swells it and lights it up; letting go
+   springs it back. */
+.glass {
+    position: relative;
+    isolation: isolate;
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(22px) saturate(1.9);
+    backdrop-filter: blur(22px) saturate(1.9);
+    box-shadow:
+        inset 0 0 0 0.5px var(--glass-rim),
+        inset 0 1.5px 1px -1px var(--glass-hi),
+        inset 0 -1px 1.5px -1px rgba(0, 0, 0, 0.28),
+        0 0 0 0.5px var(--glass-edge),
+        var(--glass-shadow);
+    transition: transform 0.57s var(--bouncy), background-color 0.3s ease;
+}
+
+.glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: radial-gradient(130% 95% at 20% 0%, var(--sheen), transparent 55%);
+    pointer-events: none;
+}
+
+.glass:active {
+    transform: scale(1.08);
+    background-color: var(--glass-bg-press);
+    transition-duration: 0.14s, 0.1s;
+    transition-timing-function: ease-out;
+}
+
 /* ── Backdrop ─────────────────────────────────────────────────────────────── */
 .backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: max(var(--app-w, 100vw), 100vw);
-    height: calc(max(var(--app-h, 100lvh), 100lvh) + var(--safe-b));
+    position: absolute;
+    inset: 0;
     overflow: hidden;
     pointer-events: none;
 }
@@ -126,7 +183,7 @@ input:focus-visible {
     filter: blur(70px) saturate(1.7) brightness(0.5);
     transform: scale(1.1);
     opacity: 0;
-    transition: opacity 1s var(--ease);
+    transition: opacity 1.2s var(--ease);
 }
 
 .backdrop-art.is-on { opacity: 1; }
@@ -135,6 +192,16 @@ input:focus-visible {
     position: absolute;
     inset: 0;
     background: linear-gradient(180deg, rgba(4, 5, 10, 0.5) 0%, rgba(4, 5, 10, 0.2) 30%, rgba(4, 5, 10, 0.35) 62%, rgba(4, 5, 10, 0.8) 100%);
+}
+
+.backdrop::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--band, 0px) + 70px);
+    background: linear-gradient(to bottom, transparent, var(--page) calc(100% - var(--band, 0px)));
 }
 
 body.look-white .backdrop-art,
@@ -146,13 +213,13 @@ body.look-white .backdrop {
 
 /* ── Pairing screen ───────────────────────────────────────────────────────── */
 .pair {
-    position: relative;
-    height: 100%;
+    position: absolute;
+    inset: 0;
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 14px;
-    padding: calc(var(--safe-t) + 24px) 28px calc(var(--safe-b) + 24px);
+    padding: calc(var(--safe-t) + 24px) 28px calc(max(var(--safe-b), var(--band, 0px)) + 24px);
 }
 
 .pair-mark { color: var(--ink); margin-bottom: 8px; }
@@ -193,11 +260,12 @@ body.look-white .backdrop {
 
 /* ── Player ───────────────────────────────────────────────────────────────── */
 .player {
-    position: relative;
-    height: 100%;
+    position: absolute;
+    inset: 0;
     display: flex;
     flex-direction: column;
-    padding: calc(var(--safe-t) + 8px) 20px calc(var(--safe-b) + 12px);
+    padding: calc(var(--safe-t) + 8px) 20px calc(max(var(--safe-b), var(--band, 0px)) + 12px);
+    view-transition-name: player;
 }
 
 .topbar {
@@ -208,8 +276,13 @@ body.look-white .backdrop {
     min-height: 40px;
 }
 
+#stage-btn { grid-column: 1; }
+#menu-btn { grid-column: 3; }
+.stage-tools { display: none; }
+
 .context {
     grid-column: 2;
+    grid-row: 1;
     min-width: 0;
     text-align: center;
 }
@@ -238,10 +311,6 @@ body.look-white .backdrop {
     color: var(--ink-2);
 }
 
-#stage-btn { grid-column: 1; }
-#menu-btn { grid-column: 3; }
-.stage-tools { display: none; }
-
 .sq {
     width: 36px;
     height: 36px;
@@ -250,15 +319,9 @@ body.look-white .backdrop {
     justify-content: center;
     padding: 0;
     border: 0;
-    border-radius: 12px;
-    background: var(--chip);
-    box-shadow: inset 0 0 0 1px var(--chip-ring);
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
+    border-radius: 13px;
     cursor: pointer;
 }
-
-body.look-white .sq { box-shadow: inset 0 0 0 1px var(--chip-ring), 0 6px 16px -10px rgba(0, 0, 0, 0.35); }
 
 /* The connection pill: only there while something isn't right. */
 .conn {
@@ -269,24 +332,21 @@ body.look-white .sq { box-shadow: inset 0 0 0 1px var(--chip-ring), 0 6px 16px -
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 12px;
+    padding: 7px 13px;
     border-radius: 99px;
     font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
     color: var(--ink);
-    background: var(--chip);
-    box-shadow: inset 0 0 0 1px var(--chip-ring), 0 8px 20px -10px rgba(0, 0, 0, 0.5);
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
     transform: translateX(-50%);
-    animation: conn-in 0.3s var(--ease);
+    animation: conn-in 0.57s var(--bouncy);
 }
 
-@keyframes conn-in { from { opacity: 0; transform: translateX(-50%) translateY(-6px); } }
+@keyframes conn-in { from { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(0.85); } }
 
-.conn::before {
+.conn::after {
     content: "";
+    order: -1;
     width: 7px;
     height: 7px;
     border-radius: 50%;
@@ -294,7 +354,7 @@ body.look-white .sq { box-shadow: inset 0 0 0 1px var(--chip-ring), 0 6px 16px -
     animation: pulse 1.2s ease-in-out infinite;
 }
 
-.conn.is-down::before { background: #F87171; animation: none; }
+.conn.is-down::after { background: #F87171; animation: none; }
 
 @keyframes pulse { 50% { opacity: 0.35; } }
 
@@ -319,7 +379,7 @@ body.look-white .sq { box-shadow: inset 0 0 0 1px var(--chip-ring), 0 6px 16px -
     border-radius: 13px;
     overflow: hidden;
     background: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.6), 0 0 0 0.5px rgba(255, 255, 255, 0.14);
 }
 
 .cover {
@@ -328,7 +388,7 @@ body.look-white .sq { box-shadow: inset 0 0 0 1px var(--chip-ring), 0 6px 16px -
     object-fit: cover;
     display: block;
     opacity: 0;
-    transition: opacity 0.4s var(--ease);
+    transition: opacity 0.45s ease;
 }
 
 .cover.is-on { opacity: 1; }
@@ -398,6 +458,7 @@ body.is-paused .vinyl { animation-play-state: paused; }
 body.look-white .title { letter-spacing: -0.02em; }
 body.look-white .artist { font-weight: 500; }
 
+/* Plain icon buttons: they dip when pressed and spring back. */
 .icon {
     position: relative;
     display: flex;
@@ -407,10 +468,14 @@ body.look-white .artist { font-weight: 500; }
     border: 0;
     background: transparent;
     cursor: pointer;
-    transition: transform 0.2s var(--ease), color 0.2s;
+    transition: transform 0.57s var(--bouncy), color 0.25s ease;
 }
 
-.icon:active { transform: scale(0.88); }
+.icon:active {
+    transform: scale(0.84);
+    transition-duration: 0.12s, 0.25s;
+    transition-timing-function: ease-out;
+}
 
 .like {
     width: 44px;
@@ -423,36 +488,43 @@ body.look-white .artist { font-weight: 500; }
     stroke: currentColor;
     stroke-width: 2;
     stroke-linejoin: round;
+    transition: fill 0.2s ease;
 }
 
 .like.is-on { color: var(--heart-on); }
 .like.is-on path { fill: currentColor; }
-body.look-glass .like.is-on { filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.7)); }
-.like.is-popping svg { animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+body.look-glass .like.is-on { filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6)); }
 
-@keyframes pop {
-    0% { transform: scale(0.7); }
-    45% { transform: scale(1.35); }
-    100% { transform: scale(1); }
-}
-
-/* Tabs */
+/* Tabs: a glass track with a pill that slides to the chosen tab
+   (--thumb-x / --thumb-w, set by remote.js). */
 .tabs {
+    position: relative;
     margin-top: 16px;
     align-self: center;
     display: flex;
     gap: 4px;
     padding: 4px;
     border-radius: 99px;
-    background: var(--chip);
-    box-shadow: inset 0 0 0 1px var(--chip-ring);
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
 }
 
-body.look-glass .tabs { background: rgba(255, 255, 255, 0.08); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
+.tabs:active { transform: none; }
+
+.tab-thumb {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 0;
+    width: var(--thumb-w, 0px);
+    border-radius: 99px;
+    background: var(--seg-on-bg);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 4px 12px -4px rgba(0, 0, 0, 0.35);
+    transform: translateX(var(--thumb-x, 4px));
+    transition: transform 0.57s var(--spring), width 0.57s var(--spring);
+}
 
 .tab {
+    position: relative;
+    z-index: 1;
     height: 30px;
     padding: 0 18px;
     border: 0;
@@ -462,13 +534,10 @@ body.look-glass .tabs { background: rgba(255, 255, 255, 0.08); box-shadow: inset
     color: var(--ink-2);
     background: transparent;
     cursor: pointer;
-    transition: background-color 0.25s, color 0.25s;
+    transition: color 0.3s ease;
 }
 
-.tab.is-on {
-    color: var(--seg-on-ink);
-    background: var(--seg-on-bg);
-}
+.tab.is-on { color: var(--seg-on-ink); }
 
 /* Lyrics / Up next */
 .view {
@@ -477,8 +546,8 @@ body.look-glass .tabs { background: rgba(255, 255, 255, 0.08); box-shadow: inset
     min-height: 0;
     margin: 8px -20px 0;
     overflow: hidden;
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 88%, transparent 100%);
-    mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 88%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 86%, transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 86%, transparent 100%);
 }
 
 .lines {
@@ -491,24 +560,12 @@ body.look-glass .tabs { background: rgba(255, 255, 255, 0.08); box-shadow: inset
     align-items: flex-start;
     gap: 16px;
     padding: 0 26px;
-    will-change: transform;
-    transition: transform 0.6s var(--ease-out-expo);
 }
 
-.lines.is-static {
-    position: relative;
-    max-height: 100%;
-    overflow-y: auto;
-    padding-top: 40px;
-    padding-bottom: 60px;
-    transform: none !important;
-    transition: none;
-    -webkit-overflow-scrolling: touch;
-}
-
-/* The current line is the only bright one; everything else steps well back,
-   so it reads at a glance. Its glow stays faint: on three wrapped rows a
-   strong one turned into a grey cloud behind the words. */
+/* Every line moves on its own spring, the ones below the singing line a beat
+   later than the one above them, so the column ripples up like Apple Music's
+   instead of sliding as a slab. remote.js sets --ly (the scroll) on .lines
+   and --ld (the delay) on the lines near the current one. */
 .line {
     font-size: 26px;
     line-height: 1.2;
@@ -516,16 +573,24 @@ body.look-glass .tabs { background: rgba(255, 255, 255, 0.08); box-shadow: inset
     letter-spacing: -0.5px;
     color: var(--ink);
     opacity: 0.14;
+    filter: blur(1.6px);
+    transform: translateY(var(--ly, 0px)) scale(0.96);
     transform-origin: left center;
-    transition: opacity 0.55s var(--ease), transform 0.55s var(--ease-out-expo);
+    transition:
+        transform 0.78s var(--smooth) var(--ld, 0ms),
+        opacity 0.5s ease var(--ld, 0ms),
+        filter 0.5s ease var(--ld, 0ms);
     cursor: pointer;
 }
 
-.line.d1 { opacity: 0.42; }
-.line.d2 { opacity: 0.28; }
-.line.d3 { opacity: 0.18; }
-.line.is-past { opacity: 0.2; transform: scale(0.97); }
-.line.is-on { opacity: 1; transform: scale(1.02); }
+.line.d1 { opacity: 0.42; filter: none; }
+.line.d2 { opacity: 0.3; filter: blur(0.5px); }
+.line.d3 { opacity: 0.2; filter: blur(1px); }
+.line.is-past { opacity: 0.22; filter: blur(1px); }
+.line.is-on { opacity: 1; filter: none; transform: translateY(var(--ly, 0px)); }
+/* Far off screen: nothing to animate. */
+.line.is-out { visibility: hidden; transition: none; }
+.line.is-out .rest span { animation: none; }
 
 body.look-glass .line.is-on {
     text-shadow: 0 0 22px rgba(255, 255, 255, 0.2);
@@ -537,7 +602,16 @@ body.look-white .line {
     line-height: 1.12;
 }
 
-.lines.is-static .line { opacity: 0.86; transform: none; cursor: default; }
+.lines.is-static {
+    position: relative;
+    max-height: 100%;
+    overflow-y: auto;
+    padding-top: 40px;
+    padding-bottom: 60px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.lines.is-static .line { opacity: 0.86; filter: none; transform: none; transition: none; cursor: default; }
 
 .rest {
     display: inline-flex;
@@ -550,7 +624,7 @@ body.look-white .line {
     height: 11px;
     border-radius: 50%;
     background: currentColor;
-    animation: rest 1.5s ease-in-out infinite;
+    animation: rest 1.6s ease-in-out infinite;
 }
 
 .rest span:nth-child(2) { animation-delay: 0.2s; }
@@ -571,7 +645,10 @@ body.look-white .line {
     gap: 6px;
     padding: 0 30px;
     text-align: center;
+    animation: rise-in 0.57s var(--spring);
 }
+
+@keyframes rise-in { from { opacity: 0; transform: translateY(10px); } }
 
 .view-msg b {
     font-size: 20px;
@@ -620,15 +697,15 @@ body.look-white .line {
     align-items: center;
     gap: 12px;
     padding: 8px 10px;
-    border-radius: 14px;
+    border-radius: 16px;
 }
 
 .qrow.is-now {
     margin-bottom: 6px;
-    background: rgba(255, 255, 255, 0.12);
-    box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.5), 0 0 26px rgba(255, 255, 255, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.28);
-    -webkit-backdrop-filter: blur(20px) saturate(1.5);
-    backdrop-filter: blur(20px) saturate(1.5);
+    background: rgba(255, 255, 255, 0.1);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+    backdrop-filter: blur(20px) saturate(1.6);
+    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.4), inset 0 1.5px 1px -1px rgba(255, 255, 255, 0.6), 0 0 0 0.5px rgba(0, 0, 0, 0.4), 0 10px 26px -12px rgba(0, 0, 0, 0.5);
 }
 
 body.look-white .qrow.is-now {
@@ -712,59 +789,46 @@ body.is-paused .eq span { animation-play-state: paused; }
 /* Controls */
 .controls { margin-top: 10px; }
 
-.seek {
+/* The scrubber and the volume, as on iOS: a thin bar with no knob that
+   swells under a finger and stretches like rubber past either end. */
+.seek,
+.vol {
     position: relative;
-    height: 26px;
+    height: 28px;
     touch-action: none;
     cursor: pointer;
 }
 
-.seek-track,
-.seek-fill {
+.bar {
     position: absolute;
     left: 0;
-    top: 11px;
+    right: 0;
+    top: 11.5px;
     height: 5px;
     border-radius: 99px;
-}
-
-.seek-track {
-    right: 0;
+    overflow: hidden;
     background: var(--track);
+    transition: top 0.5s var(--spring), height 0.5s var(--spring), transform 0.6s var(--bouncy);
 }
 
-.seek-fill {
-    width: 100%;
+.bar-fill {
+    position: absolute;
+    inset: 0;
     background: var(--fill);
     transform: scaleX(0);
     transform-origin: left center;
 }
 
-body.look-glass .seek-fill { box-shadow: 0 0 12px rgba(255, 255, 255, 0.45); }
-body.look-white .seek-track,
-body.look-white .seek-fill { top: 12px; height: 3px; }
+body.look-glass .bar-fill { box-shadow: 0 0 12px rgba(255, 255, 255, 0.35); }
 
-.seek-knob {
-    position: absolute;
-    top: 7px;
-    left: 0;
-    width: 13px;
-    height: 13px;
-    margin-left: -6.5px;
-    border-radius: 50%;
-    background: var(--knob);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-    transition: width 0.15s, height 0.15s, margin 0.15s, top 0.15s;
+.seek.is-dragging .bar,
+.vol.is-dragging .bar {
+    top: 8px;
+    height: 12px;
+    transition: top 0.5s var(--spring), height 0.5s var(--spring), transform 0s;
 }
 
-body.look-white .seek-knob { box-shadow: 0 0 0 2.5px #F2F2EF, 0 2px 6px rgba(0, 0, 0, 0.25); }
-
-.seek.is-dragging .seek-knob {
-    top: 4px;
-    width: 19px;
-    height: 19px;
-    margin-left: -9.5px;
-}
+body.look-glass .is-dragging .bar-fill { background: #FFFFFF; }
 
 .times {
     display: flex;
@@ -773,6 +837,12 @@ body.look-white .seek-knob { box-shadow: 0 0 0 2.5px #F2F2EF, 0 2px 6px rgba(0, 
     font-size: 11px;
     color: var(--ink-3);
     font-variant-numeric: tabular-nums;
+    transition: transform 0.5s var(--spring), color 0.3s ease;
+}
+
+.seek.is-dragging + .times {
+    transform: translateY(3px);
+    color: var(--ink);
 }
 
 body.look-white .times { font-family: var(--font); font-weight: 500; color: var(--ink-2); }
@@ -804,7 +874,7 @@ body.look-white .times { font-family: var(--font); font-weight: 500; color: var(
     background: currentColor;
     opacity: 0;
     transform: scale(0);
-    transition: opacity 0.2s, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: opacity 0.2s, transform 0.57s var(--bouncy);
 }
 
 .mode.is-on::after { opacity: 1; transform: scale(1); }
@@ -828,6 +898,7 @@ body.look-white .times { font-family: var(--font); font-weight: 500; color: var(
 }
 
 .play {
+    position: relative;
     width: 72px;
     height: 72px;
     display: flex;
@@ -837,28 +908,39 @@ body.look-white .times { font-family: var(--font); font-weight: 500; color: var(
     border: 0;
     border-radius: 50%;
     cursor: pointer;
-    transition: transform 0.2s var(--ease), background-color 0.2s;
 }
 
-.play:active { transform: scale(0.93); }
-
-body.look-glass .play {
-    color: #FFFFFF;
-    background: rgba(255, 255, 255, 0.14);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
-}
+body.look-glass .play { color: #FFFFFF; }
 
 body.look-white .play {
     color: #FFFFFF;
     background: #111111;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     box-shadow: 0 14px 28px -14px rgba(0, 0, 0, 0.6);
 }
 
-.i-play { display: none; }
-body.is-paused .i-play { display: block; }
-body.is-paused .i-pause { display: none; }
+body.look-white .play::before { display: none; }
+
+/* Play and pause trade places like an SF Symbol "replace": the old one
+   shrinks away blurred, the new one springs in. */
+.play svg {
+    position: absolute;
+    transition: transform 0.57s var(--bouncy), opacity 0.22s ease, filter 0.22s ease;
+}
+
+.i-play,
+body.is-paused .i-pause {
+    opacity: 0;
+    transform: scale(0.35);
+    filter: blur(5px);
+}
+
+body.is-paused .i-play {
+    opacity: 1;
+    transform: none;
+    filter: none;
+}
 
 .volume {
     margin-top: 10px;
@@ -868,63 +950,131 @@ body.is-paused .i-pause { display: none; }
     color: var(--ink-3);
 }
 
-.volume input {
-    --vol: 50%;
-    flex: 1;
-    height: 28px;
-    margin: 0;
+.vol { flex: 1; }
+
+body.look-glass .vol .bar-fill { background: rgba(255, 255, 255, 0.85); }
+
+/* ── The ⋯ sheet ─────────────────────────────────────────────────────────── */
+.sheet-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0 8px calc(max(var(--safe-b), var(--band, 0px)) + 8px);
+    background: rgba(0, 0, 0, 0.42);
+    animation: fade 0.3s ease;
+}
+
+/* iOS 27's floating sheet: a glass card inset from the edges. */
+.sheet {
+    width: 100%;
+    max-width: 520px;
+    padding: 10px 20px 20px;
+    border-radius: 34px;
+    color: #FFFFFF;
+    background: rgba(28, 28, 32, 0.72);
+    -webkit-backdrop-filter: blur(34px) saturate(1.8);
+    backdrop-filter: blur(34px) saturate(1.8);
+    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.2), inset 0 1.5px 1px -1px rgba(255, 255, 255, 0.45), 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 24px 60px -12px rgba(0, 0, 0, 0.6);
+    animation: sheet-in 0.6s var(--spring);
+}
+
+body.look-white .sheet {
+    background: rgba(255, 255, 255, 0.86);
+    color: #111111;
+    box-shadow: inset 0 0 0 0.5px #FFFFFF, 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 24px 60px -12px rgba(0, 0, 0, 0.3);
+}
+
+.sheet-scrim.is-closing { animation: fade-out 0.28s ease forwards; }
+.sheet-scrim.is-closing .sheet { animation: sheet-out 0.28s cubic-bezier(0.4, 0, 1, 1) forwards; }
+
+@keyframes sheet-in { from { transform: translateY(calc(100% + 40px)); } }
+@keyframes sheet-out { to { transform: translateY(calc(100% + 40px)); } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; } }
+
+.sheet-grab {
+    width: 38px;
+    height: 5px;
+    margin: 0 auto 12px;
+    border-radius: 99px;
+    background: currentColor;
+    opacity: 0.25;
+}
+
+.sheet-title {
+    margin: 0 0 14px;
+    font-size: 17px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.sheet-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.seg {
+    display: flex;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 13px;
+    background: rgba(127, 127, 127, 0.16);
+}
+
+.seg-btn {
+    height: 32px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
     background: transparent;
-    -webkit-appearance: none;
-    appearance: none;
-    touch-action: none;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: background-color 0.3s ease, color 0.3s ease, opacity 0.3s ease, transform 0.5s var(--bouncy);
 }
 
-.volume input::-webkit-slider-runnable-track {
-    height: 4px;
-    border-radius: 99px;
-    background: linear-gradient(to right, var(--fill) var(--vol), var(--track) var(--vol));
+.seg-btn:active { transform: scale(0.94); transition-duration: 0.1s; }
+
+.seg-btn.is-on {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.92);
+    color: #0A0A0C;
 }
 
-body.look-glass .volume input::-webkit-slider-runnable-track {
-    background: linear-gradient(to right, rgba(255, 255, 255, 0.85) var(--vol), var(--track) var(--vol));
+body.look-white .seg-btn.is-on { background: #111111; color: #FFFFFF; }
+
+.sheet-hint {
+    margin: 16px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+    opacity: 0.7;
 }
 
-.volume input::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 14px;
-    height: 14px;
-    margin-top: -5px;
+.sheet-btn {
+    display: block;
+    width: 100%;
+    height: 50px;
+    margin-top: 12px;
     border: 0;
-    border-radius: 50%;
-    background: #FFFFFF;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-}
-
-body.look-white .volume input::-webkit-slider-thumb {
-    background: #111111;
-    box-shadow: 0 0 0 2.5px #F2F2EF;
-}
-
-.volume input::-moz-range-track {
-    height: 4px;
     border-radius: 99px;
-    background: var(--track);
+    font-size: 16px;
+    font-weight: 600;
+    background: rgba(127, 127, 127, 0.16);
+    cursor: pointer;
+    transition: transform 0.5s var(--bouncy), background-color 0.2s ease;
 }
 
-.volume input::-moz-range-progress {
-    height: 4px;
-    border-radius: 99px;
-    background: var(--fill);
-}
-
-.volume input::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    border: 0;
-    border-radius: 50%;
-    background: var(--knob);
-}
+.sheet-btn:active { transform: scale(0.97); transition-duration: 0.1s; }
+.sheet-btn.danger { color: #FF5A52; }
+.sheet-btn.is-armed { background: #FF5A52; color: #FFFFFF; }
 
 /* ── Sideways full screen ────────────────────────────────────────────────────
    Art, song and controls on the left, big lyrics on the right. .player is a
@@ -943,10 +1093,11 @@ body.is-stage .player {
     padding: var(--pad-t) var(--pad-r) var(--pad-b) var(--pad-l);
 }
 
-/* Held upright with the stage on: the whole player turns a quarter. What
-   was the status bar's side (or the home bar's) is now a side margin. */
+/* Held upright with the stage on: the whole player turns a quarter, centred
+   on the real screen. What was the status bar's side is now a side margin;
+   the side that was the bottom also keeps clear of --band. */
 body.is-turned .player {
-    position: fixed;
+    inset: auto;
     top: 50%;
     left: 50%;
     width: var(--app-h, 100vh);
@@ -957,15 +1108,15 @@ body.is-turned .player {
 body.turn-cw .player {
     --pad-t: 16px;
     --pad-b: 14px;
-    --pad-l: calc(var(--safe-t) + 8px);
-    --pad-r: max(20px, calc(var(--safe-b) + 6px));
+    --pad-l: calc(var(--safe-t) + 10px);
+    --pad-r: max(20px, calc(max(var(--safe-b), var(--band, 0px)) + 8px));
 }
 
 body.turn-ccw .player {
     --pad-t: 16px;
     --pad-b: 14px;
-    --pad-l: max(20px, calc(var(--safe-b) + 6px));
-    --pad-r: calc(var(--safe-t) + 8px);
+    --pad-l: max(20px, calc(max(var(--safe-b), var(--band, 0px)) + 8px));
+    --pad-r: calc(var(--safe-t) + 10px);
     transform: translate(-50%, -50%) rotate(-90deg);
 }
 
@@ -1015,7 +1166,7 @@ body.look-white.is-stage .art {
     height: min(44cqh, 30cqw);
 }
 
-body.is-stage .sleeve { border-radius: 14px; }
+body.is-stage .sleeve { border-radius: 16px; }
 body.look-white.is-stage .sleeve { width: 100%; height: 100%; border-radius: 4px; }
 body.look-white.is-stage .vinyl { display: none; }
 body.is-stage .titles { grid-area: titles; }
@@ -1037,112 +1188,18 @@ body.is-stage .mode { width: 40px; height: 40px; }
 body.is-stage .skip { width: 48px; height: 48px; }
 body.is-stage .play { width: 58px; height: 58px; }
 
-/* ── The ⋯ sheet ─────────────────────────────────────────────────────────── */
-.sheet-scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 10;
-    display: flex;
-    align-items: flex-end;
-    background: rgba(0, 0, 0, 0.45);
-    animation: fade 0.25s var(--ease);
+/* Turning on the button: the player swings round on a spring while the
+   backdrop stays put (a view transition on .player, see applyStage). */
+::view-transition-group(player) {
+    animation-duration: 0.62s;
+    animation-timing-function: var(--spring);
 }
 
-.sheet {
-    width: 100%;
-    padding: 10px 20px calc(var(--safe-b) + 18px);
-    border-radius: 24px 24px 0 0;
-    background: rgba(24, 24, 28, 0.92);
-    color: #FFFFFF;
-    -webkit-backdrop-filter: blur(30px) saturate(1.4);
-    backdrop-filter: blur(30px) saturate(1.4);
-    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.4);
-    animation: rise 0.35s var(--ease-out-expo);
+::view-transition-old(player),
+::view-transition-new(player) {
+    animation-duration: 0.36s;
+    animation-timing-function: ease;
 }
-
-body.look-white .sheet {
-    background: rgba(255, 255, 255, 0.96);
-    color: #111111;
-}
-
-.sheet-grab {
-    width: 38px;
-    height: 5px;
-    margin: 0 auto 12px;
-    border-radius: 99px;
-    background: currentColor;
-    opacity: 0.25;
-}
-
-.sheet-title {
-    margin: 0 0 14px;
-    font-size: 17px;
-    font-weight: 700;
-    text-align: center;
-}
-
-.sheet-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    font-size: 15px;
-    font-weight: 600;
-}
-
-.seg {
-    display: flex;
-    gap: 3px;
-    padding: 3px;
-    border-radius: 12px;
-    background: rgba(127, 127, 127, 0.16);
-}
-
-.seg-btn {
-    height: 32px;
-    padding: 0 12px;
-    border: 0;
-    border-radius: 9px;
-    font-size: 13px;
-    font-weight: 600;
-    background: transparent;
-    cursor: pointer;
-    opacity: 0.7;
-}
-
-.seg-btn.is-on {
-    opacity: 1;
-    background: rgba(255, 255, 255, 0.92);
-    color: #0A0A0C;
-}
-
-body.look-white .seg-btn.is-on { background: #111111; color: #FFFFFF; }
-
-.sheet-hint {
-    margin: 16px 0 0;
-    font-size: 13px;
-    line-height: 1.5;
-    opacity: 0.7;
-}
-
-.sheet-btn {
-    display: block;
-    width: 100%;
-    height: 50px;
-    margin-top: 12px;
-    border: 0;
-    border-radius: 14px;
-    font-size: 16px;
-    font-weight: 600;
-    background: rgba(127, 127, 127, 0.16);
-    cursor: pointer;
-}
-
-.sheet-btn.danger { color: #FF5A52; }
-.sheet-btn.is-armed { background: #FF5A52; color: #FFFFFF; }
-
-@keyframes fade { from { opacity: 0; } }
-@keyframes rise { from { transform: translateY(100%); } }
 
 @media (prefers-reduced-motion: reduce) {
     *,
@@ -1151,5 +1208,6 @@ body.look-white .seg-btn.is-on { background: #111111; color: #FFFFFF; }
         animation-duration: 0.001ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.001ms !important;
+        transition-delay: 0s !important;
     }
 }

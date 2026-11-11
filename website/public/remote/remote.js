@@ -10,8 +10,13 @@
 //
 // Sideways: turning the phone shows the full-screen stage (big art + controls
 // beside big lyrics). The button in the top bar shows it too, turned with CSS,
-// for a phone with rotation lock on — then the seek bar's touch maths has to
-// be turned with it (pointerFraction).
+// for a phone with rotation lock on — then the sliders' touch maths has to be
+// turned with it (pointerFraction).
+//
+// Motion is iOS's: springs live in remote.css (--spring, --bouncy, --smooth);
+// the few one-off effects here (a skip nudging, a symbol bouncing, a new song
+// rising in) use the same curves through WAAPI, and all of it stands down
+// for "Reduce Motion".
 (() => {
     'use strict';
 
@@ -27,6 +32,11 @@
     // A phone held sideways (a tablet or a desktop window keeps the tall layout).
     const LANDSCAPE = window.matchMedia('(orientation: landscape) and (max-height: 600px)');
     const PORTRAIT = window.matchMedia('(orientation: portrait)');
+    const CALM = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const SPRING = 'linear(0, 0.0392, 0.1326, 0.2522, 0.3789, 0.5008, 0.6109, 0.7059, 0.7849, 0.8484, 0.8979, 0.9354, 0.9628, 0.9821, 0.9951, 1.0034, 1.0082, 1.0105, 1.0111, 1.0107, 1.0097, 1.0083, 1.0069, 1.0056, 1.0043, 1.0033, 1.0024, 1.0017, 1)';
+    const BOUNCY = 'linear(0, 0.0567, 0.1923, 0.3638, 0.5402, 0.7009, 0.8348, 0.9375, 1.0095, 1.0543, 1.0771, 1.0835, 1.0788, 1.0675, 1.0531, 1.0384, 1.025, 1.0138, 1.0052, 0.9992, 0.9955, 0.9936, 0.993, 0.9934, 0.9944, 0.9956, 0.9968, 0.9979, 1)';
+    const LYRIC_STAGGER_MS = 46;     // each line below the singing one moves this much later
+    const LYRIC_WINDOW = 12;         // lines further away than this are hidden and still
 
     const $ = (id) => document.getElementById(id);
     const ui = {
@@ -36,7 +46,8 @@
         tabLyrics: $('tab-lyrics'), tabQueue: $('tab-queue'),
         lyricsView: $('lyrics-view'), lines: $('lines'), lyricsMsg: $('lyrics-msg'),
         queueView: $('queue-view'), queue: $('queue'), queueSub: $('queue-sub'),
-        seek: $('seek'), seekFill: $('seek-fill'), seekKnob: $('seek-knob'),
+        seek: $('seek'), seekFill: $('seek-fill'), seekBar: $('seek-bar'),
+        volumeFill: $('volume-fill'), volumeBar: $('volume-bar'), tabThumb: $('tab-thumb'),
         elapsed: $('elapsed'), remain: $('remain'),
         shuffle: $('shuffle'), prev: $('prev'), play: $('play'), next: $('next'), repeat: $('repeat'),
         volume: $('volume'), device: $('device'),
@@ -63,7 +74,15 @@
         turn: 'cw',                 // which way a forced stage is turned: cw | ccw
         stageClass: '',             // what applyStage last put on <body>
         wakeLock: null,
+        volume: 50, volDragging: false,
+        sheetTimer: null,
     };
+
+    // A one-off spring on an element, unless the phone asks for less motion.
+    function motion(el, frames, options) {
+        if (!el || CALM.matches || typeof el.animate !== 'function') return null;
+        return el.animate(frames, Object.assign({ duration: 570, easing: SPRING }, options));
+    }
 
     // ── Pairing ─────────────────────────────────────────────────────────────
 
@@ -212,10 +231,16 @@
             else s[field] = hold.value;
         }
         const trackChanged = !app.state || trackId(app.state) !== trackId(s);
+        const firstState = !app.state;
         app.state = s;
         app.stateAt = now;
         if (app.conn !== 'live') setConn('live');
         render();
+        // A new song rises into place, as the Now Playing card does on iOS.
+        if (trackChanged && !firstState) {
+            motion(ui.title, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }]);
+            motion(ui.artist, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { delay: 50, fill: 'backwards' });
+        }
         if (trackChanged && app.tab === 'queue') send('queue');
     }
 
@@ -267,7 +292,8 @@
         ui.artist.textContent = track ? track.artist + album : (s && !s.connected ? 'Connect it in main on your PC' : 'Play something on your PC');
         ui.device.textContent = s && s.device ? s.device : 'your PC';
         const kind = deviceKind(s);
-        for (const [name, icon] of Object.entries(ui.devIcons)) icon.hidden = name !== kind;
+        // An <svg> has no .hidden property (that is HTML-only): set the attribute.
+        for (const [name, icon] of Object.entries(ui.devIcons)) icon.toggleAttribute('hidden', name !== kind);
         setArt(track ? track.image : '');
 
         const liked = !!(s && s.liked);
@@ -285,10 +311,7 @@
         ui.repeat.setAttribute('aria-label', { off: 'Repeat: off', context: 'Repeat: all', track: 'Repeat: this song' }[repeat]);
         ui.play.setAttribute('aria-label', s && s.playing ? 'Pause' : 'Play');
 
-        if (s && Number.isFinite(s.volume) && !app.holds.volume && document.activeElement !== ui.volume) {
-            ui.volume.value = String(s.volume);
-        }
-        ui.volume.style.setProperty('--vol', `${ui.volume.value}%`);
+        if (s && Number.isFinite(s.volume) && !app.holds.volume && !app.volDragging) showVolume(s.volume);
 
         renderLyrics();
         tickOnce();
@@ -310,7 +333,10 @@
 
     function setArt(url) {
         if (url === app.art) return;
+        const hadArt = !!app.art;
         app.art = url;
+        // The new sleeve settles in with a little give.
+        if (url && hadArt) motion(ui.cover.parentElement, [{ transform: 'scale(0.9)' }, { transform: 'none' }], { duration: 730, easing: BOUNCY });
         for (const img of [ui.cover, ui.label]) {
             img.classList.remove('is-on');
             if (url) {
@@ -388,9 +414,14 @@
         app.lineIdx = -2;
     }
 
+    // Apple Music's ripple: a step to the next line lets each line below the
+    // singing one leave a beat after the one above it; a jump (a seek, a new
+    // song, a layout change) moves everything at once.
     function setLine(idx) {
         if (idx === app.lineIdx || !app.lineEls.length) return;
+        const step = app.lineIdx >= -1 && idx - app.lineIdx === 1;
         app.lineIdx = idx;
+        const at = Math.max(0, idx);
         app.lineEls.forEach((el, i) => {
             const d = i - idx;
             el.classList.toggle('is-on', d === 0);
@@ -398,11 +429,14 @@
             el.classList.toggle('d1', d === 1);
             el.classList.toggle('d2', d === 2);
             el.classList.toggle('d3', d === 3);
+            el.classList.toggle('is-out', Math.abs(i - at) > LYRIC_WINDOW);
+            const delay = step && d >= 0 && d <= 8 ? d * LYRIC_STAGGER_MS : 0;
+            el.style.setProperty('--ld', `${delay}ms`);
         });
-        const target = app.lineEls[Math.max(0, idx)];
+        const target = app.lineEls[at];
         if (!target) return;
         const y = ui.lyricsView.clientHeight * 0.42 - (target.offsetTop + target.offsetHeight / 2);
-        ui.lines.style.transform = `translate3d(0, ${Math.round(y)}px, 0)`;
+        ui.lines.style.setProperty('--ly', `${Math.round(y)}px`);
     }
 
     // ── The clock: progress bar, times, the current lyric line ──────────────
@@ -413,7 +447,6 @@
         const pos = app.seeking != null ? app.seeking : position();
         const frac = dur ? Math.min(1, pos / dur) : 0;
         ui.seekFill.style.transform = `scaleX(${frac})`;
-        ui.seekKnob.style.left = `${(frac * 100).toFixed(3)}%`;
         const second = Math.floor(pos / 1000);
         if (second !== app.lastSecond || app.seeking != null) {
             app.lastSecond = second;
@@ -490,11 +523,22 @@
         const rows = [];
         if (s && s.track) rows.push(queueRow(s.track, true));
         if (q && q.ok) q.items.forEach((item) => rows.push(queueRow(item, false)));
+        const fresh = !ui.queue.childElementCount;
         ui.queue.replaceChildren(...rows);
+        // The list arrives as a cascade the first time it fills.
+        if (fresh) rows.slice(0, 10).forEach((row, i) => motion(row, [{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none' }], { delay: i * 35, fill: 'backwards' }));
         ui.queueSub.textContent = !q ? 'Loading…'
             : !q.ok ? 'Play something on your PC to see what’s next'
                 : q.items.length ? `${q.items.length} song${q.items.length === 1 ? '' : 's'} after this one`
                     : 'Nothing queued after this song';
+    }
+
+    // The segmented control's pill slides to the chosen tab.
+    function placeThumb() {
+        const on = app.tab === 'queue' ? ui.tabQueue : ui.tabLyrics;
+        if (!on.offsetWidth) return;
+        ui.tabThumb.style.setProperty('--thumb-x', `${on.offsetLeft}px`);
+        ui.tabThumb.style.setProperty('--thumb-w', `${on.offsetWidth}px`);
     }
 
     function setTab(tab) {
@@ -502,6 +546,7 @@
         const queue = tab === 'queue';
         ui.tabLyrics.classList.toggle('is-on', !queue);
         ui.tabQueue.classList.toggle('is-on', queue);
+        placeThumb();
         ui.tabLyrics.setAttribute('aria-selected', String(!queue));
         ui.tabQueue.setAttribute('aria-selected', String(queue));
         ui.lyricsView.hidden = queue;
@@ -558,6 +603,24 @@
         return pointerFraction(ui.seek, ev) * ((app.state && app.state.durationMs) || 0);
     }
 
+    // Dragged past either end, a bar stretches a little that way, like rubber,
+    // and springs back when let go (the CSS transition on .bar).
+    function rubberBand(el, bar, ev) {
+        const r = el.getBoundingClientRect();
+        const turned = document.body.classList.contains('is-turned');
+        const along = turned ? r.height : r.width;
+        if (!along) return;
+        let raw;
+        if (turned && app.turn === 'cw') raw = (ev.clientY - r.top) / along;
+        else if (turned) raw = (r.bottom - ev.clientY) / along;
+        else raw = (ev.clientX - r.left) / along;
+        const over = raw < 0 ? -raw : raw > 1 ? raw - 1 : 0;
+        if (!over) { bar.style.transform = ''; return; }
+        const stretch = 1 + Math.min(0.06, over * 0.25);
+        bar.style.transformOrigin = raw < 0 ? 'right center' : 'left center';
+        bar.style.transform = `scaleX(${stretch})`;
+    }
+
     function wireSeek() {
         ui.seek.addEventListener('pointerdown', (ev) => {
             if (!app.state || !app.state.track) return;
@@ -570,6 +633,7 @@
         ui.seek.addEventListener('pointermove', (ev) => {
             if (app.seeking == null) return;
             app.seeking = seekFromPointer(ev);
+            rubberBand(ui.seek, ui.seekBar, ev);
             tickOnce();
         });
         const end = (ev, commit) => {
@@ -577,6 +641,7 @@
             const ms = ev && commit ? seekFromPointer(ev) : app.seeking;
             app.seeking = null;
             ui.seek.classList.remove('is-dragging');
+            ui.seekBar.style.transform = '';
             if (commit) seekTo(ms);
             scheduleTick();
         };
@@ -592,12 +657,18 @@
 
     function wireControls() {
         ui.play.addEventListener('click', togglePlay);
-        ui.prev.addEventListener('click', () => send('previous'));
-        ui.next.addEventListener('click', () => send('next'));
+        // The skip glyphs nudge the way they point, then spring back.
+        const nudge = (btn, dx) => motion(btn.firstElementChild, [
+            { transform: 'translateX(0)' }, { transform: `translateX(${dx}px)`, offset: 0.3 }, { transform: 'translateX(0)' },
+        ], { duration: 520, easing: 'ease-out' });
+        const bounce = (btn) => motion(btn.firstElementChild, [{ transform: 'scale(0.7)' }, { transform: 'none' }], { duration: 730, easing: BOUNCY });
+        ui.prev.addEventListener('click', () => { nudge(ui.prev, -7); send('previous'); });
+        ui.next.addEventListener('click', () => { nudge(ui.next, 7); send('next'); });
         ui.shuffle.addEventListener('click', () => {
             if (!app.state) return;
             hold('shuffle', !app.state.shuffle);
             render();
+            bounce(ui.shuffle);
             send('shuffle', app.state.shuffle);
         });
         ui.repeat.addEventListener('click', () => {
@@ -606,6 +677,7 @@
             const next = order[(order.indexOf(app.state.repeat) + 1) % order.length];
             hold('repeat', next);
             render();
+            bounce(ui.repeat);
             send('repeat', next);
         });
         ui.like.addEventListener('click', () => {
@@ -613,21 +685,14 @@
             if (!s || !s.track || !s.track.id) return;
             const liked = !s.liked;
             hold('liked', liked);
-            if (liked) {
-                ui.like.classList.remove('is-popping');
-                void ui.like.offsetWidth;
-                ui.like.classList.add('is-popping');
-            }
+            // The heart bounces as an SF Symbol does when it fills.
+            motion(ui.like.firstElementChild, liked
+                ? [{ transform: 'scale(0.6)' }, { transform: 'scale(1.25)', offset: 0.45 }, { transform: 'none' }]
+                : [{ transform: 'scale(0.85)' }, { transform: 'none' }], { duration: 730, easing: liked ? 'ease-out' : BOUNCY });
             render();
             send('like', liked);
         });
-        ui.volume.addEventListener('input', () => {
-            const v = Number(ui.volume.value);
-            ui.volume.style.setProperty('--vol', `${v}%`);
-            hold('volume', v);
-            clearTimeout(app.volumeTimer);
-            app.volumeTimer = setTimeout(() => send('volume', v), VOLUME_DEBOUNCE_MS);
-        });
+        wireVolume();
         ui.tabLyrics.addEventListener('click', () => setTab('lyrics'));
         ui.tabQueue.addEventListener('click', () => setTab('queue'));
         wireSeek();
@@ -635,7 +700,53 @@
 
     // ── The ⋯ sheet ─────────────────────────────────────────────────────────
 
+    // ── Volume ──────────────────────────────────────────────────────────────
+    // The same knob-less bar as the scrubber.
+
+    function showVolume(v) {
+        app.volume = Math.max(0, Math.min(100, Math.round(v)));
+        ui.volumeFill.style.transform = `scaleX(${app.volume / 100})`;
+        ui.volume.setAttribute('aria-valuenow', String(app.volume));
+    }
+
+    function setVolume(v) {
+        showVolume(v);
+        hold('volume', app.volume);
+        clearTimeout(app.volumeTimer);
+        const value = app.volume;
+        app.volumeTimer = setTimeout(() => send('volume', value), VOLUME_DEBOUNCE_MS);
+    }
+
+    function wireVolume() {
+        const fromPointer = (ev) => pointerFraction(ui.volume, ev) * 100;
+        ui.volume.addEventListener('pointerdown', (ev) => {
+            ui.volume.setPointerCapture(ev.pointerId);
+            ui.volume.classList.add('is-dragging');
+            app.volDragging = true;
+            setVolume(fromPointer(ev));
+        });
+        ui.volume.addEventListener('pointermove', (ev) => {
+            if (!app.volDragging) return;
+            setVolume(fromPointer(ev));
+            rubberBand(ui.volume, ui.volumeBar, ev);
+        });
+        const end = () => {
+            if (!app.volDragging) return;
+            app.volDragging = false;
+            ui.volume.classList.remove('is-dragging');
+            ui.volumeBar.style.transform = '';
+        };
+        ui.volume.addEventListener('pointerup', end);
+        ui.volume.addEventListener('pointercancel', end);
+        ui.volume.addEventListener('keydown', (ev) => {
+            if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') { ev.preventDefault(); setVolume(app.volume + 5); }
+            if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') { ev.preventDefault(); setVolume(app.volume - 5); }
+        });
+    }
+
     function openSheet() {
+        clearTimeout(app.sheetTimer);
+        ui.sheet.classList.remove('is-closing');
         const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
         ui.installHint.hidden = standalone;
         app.unpairArmed = false;
@@ -644,8 +755,15 @@
         ui.sheet.hidden = false;
     }
 
+    // It slides back down before it goes.
     function closeSheet() {
-        ui.sheet.hidden = true;
+        if (ui.sheet.hidden || ui.sheet.classList.contains('is-closing')) return;
+        if (CALM.matches) { ui.sheet.hidden = true; return; }
+        ui.sheet.classList.add('is-closing');
+        app.sheetTimer = setTimeout(() => {
+            ui.sheet.hidden = true;
+            ui.sheet.classList.remove('is-closing');
+        }, 280);
     }
 
     function wireSheet() {
@@ -685,12 +803,45 @@
         document.body.classList.toggle('turn-cw', turned && app.turn === 'cw');
         document.body.classList.toggle('turn-ccw', turned && app.turn === 'ccw');
         if (on) {
-            closeSheet();
+            ui.sheet.hidden = true;
             if (app.tab !== 'lyrics') setTab('lyrics');
         }
         keepAwake(on);
         app.lineIdx = -2;
-        requestAnimationFrame(() => { app.lineIdx = -2; tickOnce(); });
+        requestAnimationFrame(() => { app.lineIdx = -2; tickOnce(); placeThumb(); });
+    }
+
+    // The button's own turn: the player swings round on a spring (a view
+    // transition on .player; the backdrop stays put). Where the browser can
+    // also go full screen it does, which is what hides the clock and battery —
+    // an iPhone only lets a web page do that by really turning the phone.
+    function turnStage(forced) {
+        const change = () => { app.stageForced = forced; applyStage(); };
+        if (forced) enterFullscreen();
+        else exitFullscreen();
+        if (document.startViewTransition && !CALM.matches) document.startViewTransition(change);
+        else change();
+    }
+
+    function enterFullscreen() {
+        const el = document.documentElement;
+        const go = el.requestFullscreen || el.webkitRequestFullscreen;
+        const allowed = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+        if (!go || !allowed) return;
+        try {
+            const p = go.call(el);
+            if (p && p.catch) p.catch(() => {});
+        } catch (e) { /* not here */ }
+    }
+
+    function exitFullscreen() {
+        const active = document.fullscreenElement || document.webkitFullscreenElement;
+        const leave = document.exitFullscreen || document.webkitExitFullscreen;
+        if (!active || !leave) return;
+        try {
+            const p = leave.call(document);
+            if (p && p.catch) p.catch(() => {});
+        } catch (e) { /* already out */ }
     }
 
     // A lyrics screen on a table shouldn't go dark mid-song.
@@ -709,13 +860,23 @@
     }
 
     function wireStage() {
-        ui.stageBtn.addEventListener('click', () => { app.stageForced = true; applyStage(); });
-        ui.stageExit.addEventListener('click', () => { app.stageForced = false; applyStage(); });
+        ui.stageBtn.addEventListener('click', () => turnStage(true));
+        ui.stageExit.addEventListener('click', () => turnStage(false));
         ui.stageFlip.addEventListener('click', () => {
-            app.turn = app.turn === 'cw' ? 'ccw' : 'cw';
-            storage((st) => st.setItem(TURN_KEY, app.turn));
-            applyStage();
+            const flip = () => {
+                app.turn = app.turn === 'cw' ? 'ccw' : 'cw';
+                storage((st) => st.setItem(TURN_KEY, app.turn));
+                applyStage();
+            };
+            if (document.startViewTransition && !CALM.matches) document.startViewTransition(flip);
+            else flip();
         });
+        // Leaving the browser's full screen (a swipe) leaves the stage too.
+        const fsChange = () => {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement && app.stageForced) turnStage(false);
+        };
+        document.addEventListener('fullscreenchange', fsChange);
+        document.addEventListener('webkitfullscreenchange', fsChange);
         const change = () => { sizeViewport(); applyStage(); };
         LANDSCAPE.addEventListener('change', change);
         PORTRAIT.addEventListener('change', change);
@@ -739,6 +900,8 @@
         const root = document.documentElement.style;
         root.setProperty('--app-w', `${w}px`);
         root.setProperty('--app-h', `${h}px`);
+        // How far short of the screen the browser's own viewport stops.
+        root.setProperty('--band', `${Math.max(0, h - window.innerHeight)}px`);
     }
 
     // ── Boot ────────────────────────────────────────────────────────────────
@@ -775,6 +938,13 @@
         wireSheet();
         wireStage();
         applyStage();
+        showVolume(app.volume);
+        // iOS only shows :active (the press springs) with a touch listener about.
+        document.addEventListener('touchstart', () => {}, { passive: true });
+        // The page is exactly one screen; never let it drift.
+        window.addEventListener('scroll', () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, { passive: true });
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeThumb);
+        requestAnimationFrame(placeThumb);
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) { scheduleTick(); keepAwake(false); return; }
             wake();
@@ -794,7 +964,7 @@
                 start();
             }
         });
-        window.addEventListener('resize', () => { sizeViewport(); applyStage(); app.lineIdx = -2; tickOnce(); });
+        window.addEventListener('resize', () => { sizeViewport(); applyStage(); placeThumb(); app.lineIdx = -2; tickOnce(); });
         start();
     }
 

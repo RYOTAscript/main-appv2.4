@@ -365,10 +365,18 @@ provisions license keys.
   sideways it switches to a full-screen stage (`body.is-stage`: art + controls
   beside big lyrics); the top-bar button shows the stage on an UPRIGHT phone
   (rotation lock on) by turning `.player` a quarter with CSS (`body.is-turned`),
-  so the seek bar's touch maths swaps axes (`pointerFraction`). An iPhone
-  home-screen app can report a viewport a status bar shorter than the screen,
-  which left a dark strip at the bottom: `sizeViewport()` sizes the body from
-  the screen instead (`--app-w`/`--app-h`).
+  so the sliders' touch maths swaps axes (`pointerFraction`), and the turn
+  itself plays as a view transition on `.player`. An iPhone web page cannot
+  hide the status bar (only really turning the phone does); the button asks
+  for the Fullscreen API where the browser has it. An iPhone home-screen app
+  can be given a viewport a status bar shorter than the screen, and
+  `position: fixed` layers then stop short, leaving a dark strip at the
+  bottom: nothing on the page is fixed, it is sized from the screen
+  (`--app-w`/`--app-h`, `sizeViewport()`), controls keep clear of the
+  shortfall (`--band`) and the backdrop fades into the page colour across it.
+  Motion is iOS-style springs sampled into CSS `linear()` (`--spring`,
+  `--bouncy`, `--smooth`); lyric lines each move on their own spring with a
+  per-line delay (`--ld`) so the column ripples like Apple Music's.
 
 ---
 
