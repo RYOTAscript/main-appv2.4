@@ -7,6 +7,11 @@
 // pairing secret; the relay never sees the secret or anything readable). A
 // ping every 25 s keeps it open; iOS freezes a page in the background, so on
 // coming back the socket is checked and, if it went quiet, replaced.
+//
+// Sideways: turning the phone shows the full-screen stage (big art + controls
+// beside big lyrics). The button in the top bar shows it too, turned with CSS,
+// for a phone with rotation lock on — then the seek bar's touch maths has to
+// be turned with it (pointerFraction).
 (() => {
     'use strict';
 
@@ -18,11 +23,15 @@
     const STALE_MS = 70000;          // nothing heard for this long: reconnect
     const LOCAL_HOLD_MS = 1800;      // a tap's result outlives a state that hasn't caught up
     const VOLUME_DEBOUNCE_MS = 140;
+    const TURN_KEY = 'mainRemote.turn.v1';
+    // A phone held sideways (a tablet or a desktop window keeps the tall layout).
+    const LANDSCAPE = window.matchMedia('(orientation: landscape) and (max-height: 600px)');
+    const PORTRAIT = window.matchMedia('(orientation: portrait)');
 
     const $ = (id) => document.getElementById(id);
     const ui = {
         pair: $('pair-screen'), player: $('player-screen'), conn: $('conn'),
-        album: $('album'), title: $('title'), artist: $('artist'), cover: $('cover'), label: $('label'),
+        title: $('title'), artist: $('artist'), cover: $('cover'), label: $('label'),
         bgA: $('bg-a'), bgB: $('bg-b'), like: $('like'),
         tabLyrics: $('tab-lyrics'), tabQueue: $('tab-queue'),
         lyricsView: $('lyrics-view'), lines: $('lines'), lyricsMsg: $('lyrics-msg'),
@@ -31,6 +40,8 @@
         elapsed: $('elapsed'), remain: $('remain'),
         shuffle: $('shuffle'), prev: $('prev'), play: $('play'), next: $('next'), repeat: $('repeat'),
         volume: $('volume'), device: $('device'),
+        devIcons: { computer: $('dev-computer'), phone: $('dev-phone'), speaker: $('dev-speaker') },
+        stageBtn: $('stage-btn'), stageFlip: $('stage-flip'), stageExit: $('stage-exit'),
         menuBtn: $('menu-btn'), sheet: $('sheet'), unpair: $('unpair'), sheetClose: $('sheet-close'),
         installHint: $('install-hint'),
     };
@@ -48,6 +59,10 @@
         raf: 0, lastSecond: -1,
         art: '', bgFront: null,
         volumeTimer: null, unpairArmed: false,
+        stageForced: false,         // the full-screen button was pressed
+        turn: 'cw',                 // which way a forced stage is turned: cw | ccw
+        stageClass: '',             // what applyStage last put on <body>
+        wakeLock: null,
     };
 
     // ── Pairing ─────────────────────────────────────────────────────────────
@@ -247,9 +262,12 @@
         document.body.classList.toggle('is-paused', !(s && s.playing));
 
         ui.title.textContent = track ? track.name : (s && !s.connected ? 'Spotify isn’t connected' : 'Not playing');
-        ui.artist.textContent = track ? track.artist : (s && !s.connected ? 'Connect it in main on your PC' : 'Play something on your PC');
-        ui.album.textContent = track && track.album ? track.album : '—';
-        ui.device.textContent = s && s.device ? `Playing on ${s.device}` : 'Playing on your PC';
+        // A single's album is the song again: say it once.
+        const album = track && track.album && track.album !== track.name ? ` · ${track.album}` : '';
+        ui.artist.textContent = track ? track.artist + album : (s && !s.connected ? 'Connect it in main on your PC' : 'Play something on your PC');
+        ui.device.textContent = s && s.device ? s.device : 'your PC';
+        const kind = deviceKind(s);
+        for (const [name, icon] of Object.entries(ui.devIcons)) icon.hidden = name !== kind;
         setArt(track ? track.image : '');
 
         const liked = !!(s && s.liked);
@@ -275,6 +293,19 @@
         renderLyrics();
         tickOnce();
         scheduleTick();
+    }
+
+    // Which icon goes with the device Spotify is playing on. Older PCs don't
+    // send its type, so its name is the fallback.
+    function deviceKind(s) {
+        const type = (s && s.deviceType) || '';
+        if (/smartphone|tablet/.test(type)) return 'phone';
+        if (/speaker|avr|audiodongle|castaudio|tv|castvideo|stb|gameconsole|automobile/.test(type)) return 'speaker';
+        if (type) return 'computer';
+        const name = (s && s.device) || '';
+        if (/iphone|ipad|android|pixel|galaxy|phone/i.test(name)) return 'phone';
+        if (/speaker|sonos|echo|homepod|tv|chromecast/i.test(name)) return 'speaker';
+        return 'computer';
     }
 
     function setArt(url) {
@@ -510,10 +541,21 @@
         send('seek', v);
     }
 
+    // Where along the bar a finger is. On a stage turned with CSS the bar runs
+    // up or down the physical screen, so the finger's other axis is the one
+    // that counts.
+    function pointerFraction(el, ev) {
+        const r = el.getBoundingClientRect();
+        const turned = document.body.classList.contains('is-turned');
+        let frac;
+        if (turned && app.turn === 'cw') frac = r.height ? (ev.clientY - r.top) / r.height : 0;
+        else if (turned) frac = r.height ? (r.bottom - ev.clientY) / r.height : 0;
+        else frac = r.width ? (ev.clientX - r.left) / r.width : 0;
+        return Math.min(1, Math.max(0, frac));
+    }
+
     function seekFromPointer(ev) {
-        const r = ui.seek.getBoundingClientRect();
-        const frac = r.width ? Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) : 0;
-        return frac * ((app.state && app.state.durationMs) || 0);
+        return pointerFraction(ui.seek, ev) * ((app.state && app.state.durationMs) || 0);
     }
 
     function wireSeek() {
@@ -627,6 +669,78 @@
         });
     }
 
+    // ── Sideways full screen ────────────────────────────────────────────────
+
+    function applyStage() {
+        const landscape = LANDSCAPE.matches;
+        const on = app.stageForced || landscape;
+        // Only a forced stage on an upright phone needs turning with CSS; a
+        // phone that has really turned lays it out sideways by itself.
+        const turned = app.stageForced && PORTRAIT.matches;
+        const cls = on ? (turned ? `stage turned ${app.turn}` : 'stage') : '';
+        if (cls === app.stageClass) return;
+        app.stageClass = cls;
+        document.body.classList.toggle('is-stage', on);
+        document.body.classList.toggle('is-turned', turned);
+        document.body.classList.toggle('turn-cw', turned && app.turn === 'cw');
+        document.body.classList.toggle('turn-ccw', turned && app.turn === 'ccw');
+        if (on) {
+            closeSheet();
+            if (app.tab !== 'lyrics') setTab('lyrics');
+        }
+        keepAwake(on);
+        app.lineIdx = -2;
+        requestAnimationFrame(() => { app.lineIdx = -2; tickOnce(); });
+    }
+
+    // A lyrics screen on a table shouldn't go dark mid-song.
+    async function keepAwake(on) {
+        if (!on || document.hidden) {
+            const lock = app.wakeLock;
+            app.wakeLock = null;
+            if (lock) { try { await lock.release(); } catch (e) { /* already gone */ } }
+            return;
+        }
+        if (app.wakeLock || !navigator.wakeLock) return;
+        try {
+            app.wakeLock = await navigator.wakeLock.request('screen');
+            app.wakeLock.addEventListener('release', () => { app.wakeLock = null; });
+        } catch (e) { /* not allowed here: the screen just sleeps as usual */ }
+    }
+
+    function wireStage() {
+        ui.stageBtn.addEventListener('click', () => { app.stageForced = true; applyStage(); });
+        ui.stageExit.addEventListener('click', () => { app.stageForced = false; applyStage(); });
+        ui.stageFlip.addEventListener('click', () => {
+            app.turn = app.turn === 'cw' ? 'ccw' : 'cw';
+            storage((st) => st.setItem(TURN_KEY, app.turn));
+            applyStage();
+        });
+        const change = () => { sizeViewport(); applyStage(); };
+        LANDSCAPE.addEventListener('change', change);
+        PORTRAIT.addEventListener('change', change);
+    }
+
+    // The page's real size. A home-screen app on iPhone can report a viewport
+    // a status bar shorter than the screen it actually fills, which left a dark
+    // strip along the bottom; there, the screen's own size is the truth.
+    function sizeViewport() {
+        let w = window.innerWidth;
+        let h = window.innerHeight;
+        const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+        if (standalone && window.screen && window.screen.width && window.screen.height) {
+            const short = Math.min(window.screen.width, window.screen.height);
+            const long = Math.max(window.screen.width, window.screen.height);
+            const fullW = h >= w ? short : long;
+            const fullH = h >= w ? long : short;
+            if (fullH > h && fullH - h <= 120) h = fullH;
+            if (fullW > w && fullW - w <= 120) w = fullW;
+        }
+        const root = document.documentElement.style;
+        root.setProperty('--app-w', `${w}px`);
+        root.setProperty('--app-h', `${h}px`);
+    }
+
     // ── Boot ────────────────────────────────────────────────────────────────
 
     function showScreen(which) {
@@ -655,11 +769,16 @@
         if (!P) return;
         const savedLook = storage((s) => s.getItem(LOOK_KEY));
         app.look = savedLook === 'glass' || savedLook === 'white' ? savedLook : 'pc';
+        app.turn = storage((st) => st.getItem(TURN_KEY)) === 'ccw' ? 'ccw' : 'cw';
+        sizeViewport();
         wireControls();
         wireSheet();
+        wireStage();
+        applyStage();
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) { scheduleTick(); return; }
+            if (document.hidden) { scheduleTick(); keepAwake(false); return; }
             wake();
+            keepAwake(!!app.stageClass);
             tickOnce();
             scheduleTick();
         });
@@ -675,7 +794,7 @@
                 start();
             }
         });
-        window.addEventListener('resize', () => { app.lineIdx = -2; tickOnce(); });
+        window.addEventListener('resize', () => { sizeViewport(); applyStage(); app.lineIdx = -2; tickOnce(); });
         start();
     }
 

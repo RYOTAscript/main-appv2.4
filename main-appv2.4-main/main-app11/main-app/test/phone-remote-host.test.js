@@ -30,7 +30,7 @@ function fakeSpotify(overrides = {}) {
     async getCurrentTrack() {
       return {
         connected: true, is_playing: state.playing, track: state.track ? { ...state.track } : null,
-        volume_percent: state.volume, shuffle_state: state.shuffle, repeat_state: state.repeat, device: 'Desk',
+        volume_percent: state.volume, shuffle_state: state.shuffle, repeat_state: state.repeat, device: 'Desk', device_type: 'Smartphone',
       };
     },
     async control(action) { calls.push(['control', action]); return { success: true }; },
@@ -102,6 +102,10 @@ test('nothing is polled or sent until a phone is watching', async () => {
   assert.equal(state.look, 'white');
   assert.equal(state.lead, 500);
   assert.equal(state.liked, false, 'the heart is looked up once per song');
+  assert.equal(state.device, 'Desk');
+  assert.equal(P.sanitizeState(state).deviceType, 'smartphone', 'the phone gets the device type for its icon');
+  assert.equal(P.sanitizeState({ k: 'state', deviceType: '<img src=x>' }).deviceType, '', 'and nothing but a plain word');
+  assert.equal(P.sanitizeState({ k: 'state' }).deviceType, '', 'an older PC that sends none still works');
   assert.deepEqual(lyrics.map((l) => l.status), ['loading', 'ready']);
   assert.equal(lyrics[1].lines[1].text, 'City breathing slow');
 

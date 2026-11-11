@@ -238,6 +238,8 @@
             look: LOOKS.includes(s.look) ? s.look : 'glass',
             lead: Number.isFinite(s.lead) ? clampInt(s.lead, 0, 2000) : 700,
             device: text(s.device).slice(0, 80),
+            // Spotify's device type ("Computer", "Smartphone", "Speaker"…), for its icon.
+            deviceType: typeof s.deviceType === 'string' && /^[A-Za-z]{1,20}$/.test(s.deviceType) ? s.deviceType.toLowerCase() : '',
         };
     }
 

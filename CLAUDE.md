@@ -361,7 +361,14 @@ provisions license keys.
   desktop app's `renderer/remote-protocol.js` (a desktop test fails if they
   drift — copy the file over after editing it). Own CSP: `script-src 'self'`,
   no inline script or handlers, `connect-src` only `wss:` (+ loopback for a dev
-  relay). Wire data is drawn with textContent only (test-guarded).
+  relay). Wire data is drawn with textContent only (test-guarded). Held
+  sideways it switches to a full-screen stage (`body.is-stage`: art + controls
+  beside big lyrics); the top-bar button shows the stage on an UPRIGHT phone
+  (rotation lock on) by turning `.player` a quarter with CSS (`body.is-turned`),
+  so the seek bar's touch maths swaps axes (`pointerFraction`). An iPhone
+  home-screen app can report a viewport a status bar shorter than the screen,
+  which left a dark strip at the bottom: `sizeViewport()` sizes the body from
+  the screen instead (`--app-w`/`--app-h`).
 
 ---
 

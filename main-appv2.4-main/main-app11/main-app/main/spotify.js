@@ -688,6 +688,7 @@ function init(ctx) {
         progress_ms: data.progress_ms
       } : null,
       device: data.device?.name,
+      device_type: data.device?.type,
       volume_percent: data.device?.volume_percent,
       // For the optional loop & shuffle buttons (Spotify Enhanced).
       shuffle_state: !!data.shuffle_state,

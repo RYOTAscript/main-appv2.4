@@ -3,11 +3,15 @@
    White: paper, ink type, a clear vinyl sliding out of the sleeve; orange only
    marks the playhead and liked songs. remote.js puts .look-glass/.look-white
    (and .is-playing/.is-paused) on <body>. No inline styles: the page's CSP
-   allows only this file. */
+   allows only this file. Sideways, body.is-stage switches the player to the
+   full-screen stage, and body.is-turned turns it with CSS for a phone that
+   is held sideways with rotation lock on. */
 
 :root {
     --safe-t: env(safe-area-inset-top, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
     --mono: ui-monospace, "SF Mono", "Segoe UI Mono", monospace;
     --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -56,9 +60,19 @@ body {
     overscroll-behavior: none;
 }
 
+/* Whatever the body doesn't cover is the page's own colour, never a strip. */
+html { background: #05060A; }
+html:has(body.look-white) { background: #F2F2EF; }
+
+/* --app-w / --app-h are the real screen size (sizeViewport in remote.js): a
+   home-screen app on iPhone can be told its viewport is a status bar shorter
+   than the screen, which left a dark strip along the bottom. */
 body {
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    width: var(--app-w, 100%);
+    height: var(--app-h, 100%);
     background: var(--bg);
     color: var(--ink);
     font-family: var(--font);
@@ -94,7 +108,10 @@ input:focus-visible {
 /* ── Backdrop ─────────────────────────────────────────────────────────────── */
 .backdrop {
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    width: max(var(--app-w, 100vw), 100vw);
+    height: calc(max(var(--app-h, 100lvh), 100lvh) + var(--safe-b));
     overflow: hidden;
     pointer-events: none;
 }
@@ -207,14 +224,25 @@ body.look-white .backdrop {
 }
 
 .context-name {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     margin-top: 2px;
     font-size: 12.5px;
     font-weight: 600;
 }
 
+.dev-icon {
+    flex-shrink: 0;
+    color: var(--ink-2);
+}
+
+#stage-btn { grid-column: 1; }
+#menu-btn { grid-column: 3; }
+.stage-tools { display: none; }
+
 .sq {
-    grid-column: 3;
     width: 36px;
     height: 36px;
     display: flex;
@@ -478,26 +506,29 @@ body.look-glass .tabs { background: rgba(255, 255, 255, 0.08); box-shadow: inset
     -webkit-overflow-scrolling: touch;
 }
 
+/* The current line is the only bright one; everything else steps well back,
+   so it reads at a glance. Its glow stays faint: on three wrapped rows a
+   strong one turned into a grey cloud behind the words. */
 .line {
-    font-size: 27px;
+    font-size: 26px;
     line-height: 1.2;
     font-weight: 800;
     letter-spacing: -0.5px;
     color: var(--ink);
-    opacity: 0.13;
+    opacity: 0.14;
     transform-origin: left center;
-    transition: opacity 0.55s var(--ease), transform 0.55s var(--ease-out-expo), filter 0.55s;
+    transition: opacity 0.55s var(--ease), transform 0.55s var(--ease-out-expo);
     cursor: pointer;
 }
 
-.line.d1 { opacity: 0.4; }
+.line.d1 { opacity: 0.42; }
 .line.d2 { opacity: 0.28; }
 .line.d3 { opacity: 0.18; }
-.line.is-past { opacity: 0.26; filter: blur(0.8px); transform: scale(0.97); }
+.line.is-past { opacity: 0.2; transform: scale(0.97); }
 .line.is-on { opacity: 1; transform: scale(1.02); }
 
 body.look-glass .line.is-on {
-    text-shadow: 0 0 14px rgba(255, 255, 255, 0.55), 0 0 30px rgba(255, 255, 255, 0.22), 0 1px 14px rgba(0, 0, 0, 0.3);
+    text-shadow: 0 0 22px rgba(255, 255, 255, 0.2);
 }
 
 body.look-white .line {
@@ -506,8 +537,7 @@ body.look-white .line {
     line-height: 1.12;
 }
 
-body.look-white .line.is-past { filter: none; }
-.lines.is-static .line { opacity: 0.86; transform: none; filter: none; cursor: default; }
+.lines.is-static .line { opacity: 0.86; transform: none; cursor: default; }
 
 .rest {
     display: inline-flex;
@@ -896,16 +926,116 @@ body.look-white .volume input::-webkit-slider-thumb {
     background: var(--knob);
 }
 
-.device {
-    margin-top: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--ink-2);
+/* ── Sideways full screen ────────────────────────────────────────────────────
+   Art, song and controls on the left, big lyrics on the right. .player is a
+   size container, so the art and the lines scale with the screen (cqh). */
+body.is-stage .player {
+    --pad-t: 14px;
+    --pad-b: max(12px, var(--safe-b));
+    --pad-l: max(22px, var(--safe-l));
+    --pad-r: max(22px, var(--safe-r));
+    container-type: size;
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas: "now lyr" "ctl lyr";
+    column-gap: 30px;
+    padding: var(--pad-t) var(--pad-r) var(--pad-b) var(--pad-l);
 }
+
+/* Held upright with the stage on: the whole player turns a quarter. What
+   was the status bar's side (or the home bar's) is now a side margin. */
+body.is-turned .player {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: var(--app-h, 100vh);
+    height: var(--app-w, 100vw);
+    transform: translate(-50%, -50%) rotate(90deg);
+}
+
+body.turn-cw .player {
+    --pad-t: 16px;
+    --pad-b: 14px;
+    --pad-l: calc(var(--safe-t) + 8px);
+    --pad-r: max(20px, calc(var(--safe-b) + 6px));
+}
+
+body.turn-ccw .player {
+    --pad-t: 16px;
+    --pad-b: 14px;
+    --pad-l: max(20px, calc(var(--safe-b) + 6px));
+    --pad-r: calc(var(--safe-t) + 8px);
+    transform: translate(-50%, -50%) rotate(-90deg);
+}
+
+body.is-stage .topbar {
+    position: absolute;
+    top: var(--pad-t);
+    right: var(--pad-r);
+    z-index: 4;
+    display: flex;
+    gap: 8px;
+    min-height: 0;
+}
+
+body.is-stage .context,
+body.is-stage #stage-btn,
+body.is-turned #menu-btn,
+body.is-stage .tabs,
+body.is-stage #queue-view,
+body.is-stage .volume { display: none !important; }
+
+body.is-turned .stage-tools { display: flex; gap: 8px; }
+
+body.is-stage .conn {
+    top: 4px;
+    left: auto;
+    right: calc(100% + 10px);
+    transform: none;
+    animation: none;
+}
+
+body.is-stage .now {
+    grid-area: now;
+    align-self: end;
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "art art" "titles like";
+    align-items: center;
+    column-gap: 6px;
+    row-gap: 14px;
+}
+
+body.is-stage .art,
+body.look-white.is-stage .art {
+    grid-area: art;
+    width: min(44cqh, 30cqw);
+    height: min(44cqh, 30cqw);
+}
+
+body.is-stage .sleeve { border-radius: 14px; }
+body.look-white.is-stage .sleeve { width: 100%; height: 100%; border-radius: 4px; }
+body.look-white.is-stage .vinyl { display: none; }
+body.is-stage .titles { grid-area: titles; }
+body.is-stage .like { grid-area: like; }
+body.is-stage .title { font-size: 19px; }
+
+body.is-stage #lyrics-view {
+    grid-area: lyr;
+    margin: 0 calc(-1 * var(--pad-r)) 0 0;
+}
+
+body.is-stage .lines { padding: 0 calc(var(--pad-r) + 8px) 0 2px; }
+body.is-stage .line { font-size: clamp(22px, 8.6cqh, 38px); }
+body.is-stage .view-msg { align-items: flex-start; text-align: left; padding: 0 var(--pad-r) 0 2px; }
+
+body.is-stage .controls { grid-area: ctl; margin-top: 10px; }
+body.is-stage .transport { margin-top: 2px; }
+body.is-stage .mode { width: 40px; height: 40px; }
+body.is-stage .skip { width: 48px; height: 48px; }
+body.is-stage .play { width: 58px; height: 58px; }
 
 /* ── The ⋯ sheet ─────────────────────────────────────────────────────────── */
 .sheet-scrim {

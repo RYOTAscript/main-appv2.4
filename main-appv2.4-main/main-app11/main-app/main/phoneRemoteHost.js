@@ -36,7 +36,7 @@ function trackKey(track) {
 function emptySample() {
   return {
     connected: false, playing: false, progressMs: 0, at: 0, durationMs: 0,
-    track: null, volume: null, shuffle: false, repeat: 'off', device: '',
+    track: null, volume: null, shuffle: false, repeat: 'off', device: '', deviceType: '',
   };
 }
 
@@ -176,6 +176,7 @@ class RemoteHost {
       shuffle: !!(data && data.shuffle_state),
       repeat: data && REPEAT_MODES.includes(data.repeat_state) ? data.repeat_state : 'off',
       device: str(data && data.device, 80),
+      deviceType: str(data && data.device_type, 20),
     };
     for (const [field, hold] of Object.entries(this.holds)) {
       if (now >= hold.until || trackKey(s.track) !== hold.track) { delete this.holds[field]; continue; }
@@ -263,6 +264,7 @@ class RemoteHost {
       look: settings.look === 'white' ? 'white' : 'glass',
       lead: Number.isFinite(settings.lead) ? settings.lead : 700,
       device: s.device,
+      deviceType: s.deviceType,
     };
   }
 
