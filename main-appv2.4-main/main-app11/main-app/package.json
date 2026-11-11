@@ -1,6 +1,6 @@
 {
   "name": "main-app",
-  "version": "4.2.4",
+  "version": "4.3.0",
   "description": "main",
   "main": "main.js",
   "scripts": {
@@ -27,7 +27,7 @@
   "build": {
     "appId": "com.launcher.app",
     "productName": "main",
-    "copyright": "Copyright © 2026 main",
+    "copyright": "Copyright \u00a9 2026 main",
     "files": [
       "main.js",
       "main.html",
@@ -46,6 +46,14 @@
       "area-select-overlay-preload.js",
       "voice-overlay.html",
       "voice-overlay-preload.js",
+      "first-run.html",
+      "first-run-preload.js",
+      "timer-float.html",
+      "timer-float-preload.js",
+      "mini-player.html",
+      "mini-player-preload.js",
+      "phone-remote.html",
+      "phone-remote-preload.js",
       "icons/**/*",
       "node_modules/ffmpeg-static/**/*"
     ],
@@ -118,21 +126,19 @@
       "artifactName": "main-${version}-${arch}.dmg"
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "main",
       "installerIcon": "icons/main.ico",
       "uninstallerIcon": "icons/main.ico",
       "installerHeaderIcon": "icons/main.ico",
-      "installerHeader": "build/installerHeader.bmp",
-      "installerSidebar": "build/installerSidebar.bmp",
-      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
       "uninstallDisplayName": "main ${version}",
-      "license": "eula.txt",
-      "artifactName": "main-Setup-${version}.${ext}"
+      "artifactName": "main-Setup-${version}.${ext}",
+      "allowElevation": false,
+      "runAfterFinish": true
     },
     "portable": {
       "artifactName": "main-Portable-${version}.${ext}"

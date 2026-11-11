@@ -40,6 +40,9 @@
     <link rel="stylesheet" href="styles/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/backgrounds.css">
+    <link rel="stylesheet" href="styles/calendar.css">
+    <link rel="stylesheet" href="styles/timer.css">
+    <link rel="stylesheet" href="styles/player-style.css">
     <!-- Tailwind must load LAST: the old CDN injected its styles at runtime after
          all stylesheets, so utilities like `hidden` win equal-specificity ties
          against component classes in main.css (e.g. .spotify-enhanced-widget). -->
@@ -81,8 +84,12 @@
                     </div>
                 </div>
                 <div class="no-drag flex items-center gap-3 text-sm">
+                    <!-- Calendar "up next" chip; filled by renderer/calendar.js only
+                         while the Calendar widget is on and something is close. -->
+                    <button id="calendar-indicator" onclick="openCalendarFromIndicator()"
+                        class="cal-indicator hidden" title="Calendar"></button>
                     <button id="timer-indicator" onclick="openTimerFromIndicator()"
-                        class="timer-indicator hidden" title="Countdown timer"></button>
+                        class="timer-indicator hidden" title="Timers"></button>
                     <div id="weather"
                         class="flex items-center gap-2 tabular-nums font-mono text-neutral-400 text-sm mr-4 opacity-0 transition-opacity duration-500"
                         data-tooltip="Loading weather…">
@@ -229,12 +236,14 @@
                         <!-- Spotify Enhanced inline strip (Queue / Recent / Playlists),
                              squeezed into the upper-right beside the vinyl. Only shown
                              when the Spotify Enhanced mini widget is enabled. -->
-                        <div id="spotify-enhanced-widget" class="spotify-enhanced-widget hidden">
-                            <div class="spotify-ew-drag" id="spotify-ew-drag" title="Drag to move"><span></span><span></span><span></span></div>
-                            <div class="spotify-ew-tabs">
-                                <button type="button" class="spotify-ew-tab" data-ewtab="queue" onclick="spotifyEwSwitch('queue')" title="Queue"><i class="fas fa-list-ol"></i></button>
-                                <button type="button" class="spotify-ew-tab" data-ewtab="recent" onclick="spotifyEwSwitch('recent')" title="Recently played"><i class="fas fa-clock-rotate-left"></i></button>
-                                <button type="button" class="spotify-ew-tab" data-ewtab="playlists" onclick="spotifyEwSwitch('playlists')" title="Playlists"><i class="fas fa-list"></i></button>
+                        <div id="spotify-enhanced-widget" class="spotify-enhanced-widget hidden" onmouseleave="this.classList.remove('ew-open')">
+                            <!-- Collapsed-state button (compact layout only; see main.css). -->
+                            <button type="button" class="spotify-ew-peek" id="spotify-ew-peek" onclick="spotifyEwPeek()" title="Queue, recent &amp; playlists" aria-label="Show queue, recent and playlists"><i class="fas fa-list-ol"></i></button>
+                            <div class="spotify-ew-drag" id="spotify-ew-drag" title="Drag to move"><span></span></div>
+                            <div class="spotify-ew-tabs" role="tablist">
+                                <button type="button" role="tab" class="spotify-ew-tab" data-ewtab="queue" onclick="spotifyEwSwitch('queue')" title="Queue"><i class="fas fa-list-ol"></i><span class="spotify-ew-tab-label">Queue</span></button>
+                                <button type="button" role="tab" class="spotify-ew-tab" data-ewtab="recent" onclick="spotifyEwSwitch('recent')" title="Recently played"><i class="fas fa-clock-rotate-left"></i><span class="spotify-ew-tab-label">Recent</span></button>
+                                <button type="button" role="tab" class="spotify-ew-tab" data-ewtab="playlists" onclick="spotifyEwSwitch('playlists')" title="Playlists"><i class="fas fa-list"></i><span class="spotify-ew-tab-label">Playlists</span></button>
                             </div>
                             <div id="spotify-ew-content" class="spotify-ew-content"></div>
                         </div>
@@ -259,13 +268,20 @@
                             <div class="relative w-24 h-24 flex items-center justify-center spotify-disk-glow-wrapper">
                                 <canvas id="spotify-visualizer-canvas" class="spotify-visualizer-canvas"></canvas>
                                 <div id="spotify-beat-glow" class="beat-glow-halo"></div>
-                                <img id="spotify-disk" src="icons/player.png"
+                                <!-- In the White player style the disk paints the album
+                                     cover as its centre label and the cover below becomes
+                                     the sleeve (renderer/player-style.js). -->
+                                <img id="spotify-disk" src="icons/player.png" alt=""
                                     class="w-20 h-20 rounded-full object-cover vinyl-disk"
                                     style="will-change: transform;"
-                                    onerror="this.style.display='none';this.parentElement.innerHTML+='<div class=\'w-20 h-20 rounded-full bg-neutral-800 flex items-center justify-center vinyl-disk\'><i class=\'fab fa-spotify text-3xl text-neutral-600\'></i></div>';">
-                                <img id="spotify-album-cover" src="" class="spotify-album-cover" style="display: none;">
+                                    onerror="spotifyDiskImageError(this)">
+                                <img id="spotify-album-cover" src="" alt="" class="spotify-album-cover" style="display: none;">
                                 <div
                                     class="absolute -top-1 right-0 bg-black/70 backdrop-blur-sm rounded-xl px-2 py-1 max-w-[120px] border border-white/10 z-10 spotify-track-info">
+                                    <!-- Like button (Spotify Enhanced → "Like button", off by default):
+                                         pops out to the right of the title on hover. -->
+                                    <button id="spotify-like-btn" onclick="spotifyEnhancedToggleLike()"
+                                        class="hidden no-drag spotify-like-btn spotify-like-pop" title="Like" aria-label="Like this song"><i class="far fa-heart text-[10px]"></i></button>
                                     <p id="spotify-track"
                                         class="text-[9px] text-white truncate font-medium leading-tight">—</p>
                                     <p id="spotify-artist" class="text-[8px] text-neutral-400 truncate leading-tight">—
@@ -273,7 +289,11 @@
                                 </div>
                             </div>
                             <!-- Controls -->
-                            <div class="flex items-center gap-2.5 mt-1">
+                            <div id="spotify-controls" class="flex items-center gap-2.5 mt-1">
+                                <!-- Shuffle / repeat: hidden unless Spotify Enhanced → "Loop & shuffle" is on. -->
+                                <button id="spotify-shuffle-btn" onclick="spotifyToggleShuffle()"
+                                    class="hidden w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white transition-colors no-drag spotify-control-btn spotify-mode-btn"
+                                    title="Shuffle" aria-pressed="false"><i class="fas fa-shuffle text-[9px]"></i></button>
                                 <button id="spotify-prev-btn" onclick="spotifyControl('previous')"
                                     class="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white transition-colors no-drag spotify-control-btn"
                                     title=""><i class="fas fa-step-backward text-[9px]"></i></button>
@@ -283,9 +303,14 @@
                                 <button id="spotify-next-btn" onclick="spotifyControl('next')"
                                     class="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white transition-colors no-drag spotify-control-btn"
                                     title=""><i class="fas fa-step-forward text-[9px]"></i></button>
-                                <button id="spotify-like-btn" onclick="spotifyEnhancedToggleLike()"
-                                    class="hidden w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white transition-colors no-drag spotify-control-btn spotify-like-btn"
-                                    title="Like"><i class="far fa-heart text-[10px]"></i></button>
+                                <button id="spotify-repeat-btn" onclick="spotifyCycleRepeat()"
+                                    class="hidden w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white transition-colors no-drag spotify-control-btn spotify-mode-btn"
+                                    title="Repeat"><i class="fas fa-repeat text-[9px]"></i></button>
+                                <!-- Hover bars (Spotify Enhanced → "Hover bars"). Only shown in
+                                     that mode, and positioned against #spotify-active beside the
+                                     volume slider rather than in this row (see main.css). -->
+                                <button type="button" class="spotify-ew-handle no-drag" onclick="spotifyEwPeek()"
+                                    title="Queue, recent &amp; playlists" aria-label="Show queue, recent and playlists"><span></span><span></span></button>
                             </div>
                             <!-- Progress -->
                             <div class="w-full px-3 mt-1.5">
@@ -698,6 +723,44 @@
                                 <p id="spotify-auth-status" class="text-xs text-neutral-500">Not authenticated</p>
                             </div>
 
+                            <!-- Player Style (renderer/player-style.js, styles/player-style.css).
+                                 One look for the dashboard player and the full-screen lyrics. -->
+                            <div class="mt-4 pt-4 border-t border-neutral-800">
+                                <h4 class="text-xs font-medium text-neutral-400 mb-2">Player Style</h4>
+                                <div class="pstyle-picker" role="radiogroup" aria-label="Player style">
+                                    <button type="button" role="radio" class="pstyle-opt no-drag" data-player-style="glass"
+                                        onclick="setSpotifyPlayerStyle('glass')" aria-checked="true">
+                                        <span class="pstyle-preview pstyle-preview-glass" aria-hidden="true">
+                                            <span class="pstyle-line pstyle-line-1"></span>
+                                            <span class="pstyle-line pstyle-line-2"></span>
+                                            <span class="pstyle-disk"></span>
+                                            <span class="pstyle-bar"><span></span></span>
+                                        </span>
+                                        <span>
+                                            <span class="pstyle-name">Glass</span>
+                                            <span class="pstyle-sub">Dark frosted glass and a glowing vinyl</span>
+                                        </span>
+                                        <i class="fas fa-check pstyle-check" aria-hidden="true"></i>
+                                    </button>
+                                    <button type="button" role="radio" class="pstyle-opt no-drag" data-player-style="white"
+                                        onclick="setSpotifyPlayerStyle('white')" aria-checked="false">
+                                        <span class="pstyle-preview pstyle-preview-white" aria-hidden="true">
+                                            <span class="pstyle-line pstyle-line-1"></span>
+                                            <span class="pstyle-line pstyle-line-2"></span>
+                                            <span class="pstyle-disk"></span>
+                                            <span class="pstyle-sleeve"></span>
+                                            <span class="pstyle-bar"><span></span></span>
+                                        </span>
+                                        <span>
+                                            <span class="pstyle-name">White</span>
+                                            <span class="pstyle-sub">Paper white, a clear vinyl out of its sleeve</span>
+                                        </span>
+                                        <i class="fas fa-check pstyle-check" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                                <p class="text-xs text-neutral-600 mt-2 leading-relaxed">Changes the dashboard player and the full-screen lyrics together. The corner player has its own style in the Widget Library.</p>
+                            </div>
+
                             <div class="mt-4 pt-4 border-t border-neutral-800">
                                 <h4 class="text-xs font-medium text-neutral-400 mb-2">Spotify Progress Timer Display
                                 </h4>
@@ -1018,6 +1081,10 @@
         <div id="toast"
             class="hidden absolute bottom-8 left-1/2 -translate-x-1/2 glass border border-white/10 px-6 py-3 rounded-2xl text-sm z-[70] glow pointer-events-none">
         </div>
+
+        <!-- Calendar reminder cards (renderer/calendar.js). Above every modal so a
+             reminder is never hidden behind Settings or the Widget Library. -->
+        <div id="cal-alerts" class="cal-alerts no-drag" aria-live="polite"></div>
     </div>
 
     <!-- ══ Full Screen Lyrics — Apple Music "Now Playing" stage ══
@@ -1037,35 +1104,82 @@
             <div class="fsl-backdrop-vignette"></div>
         </div>
 
-        <!-- Floating exit (top-right) -->
+        <!-- Top bar: the album (left), Lyrics / Up next (centre), the look switch
+             and the exit (right). -->
+        <div class="fsl-context">
+            <span class="fsl-context-eyebrow">From the album</span>
+            <span id="fsl-context-name" class="fsl-context-name">—</span>
+        </div>
+        <div class="fsl-tabs" role="tablist" aria-label="Lyrics or Up next">
+            <button type="button" role="tab" class="fsl-tab no-drag is-on" data-fsl-tab="lyrics"
+                onclick="setFslTab('lyrics')" aria-selected="true">Lyrics</button>
+            <button type="button" role="tab" class="fsl-tab no-drag" data-fsl-tab="queue"
+                onclick="setFslTab('queue')" aria-selected="false">Up next</button>
+        </div>
+        <button class="fsl-look no-drag" onclick="toggleFslLook()"
+            title="Switch look" aria-label="Switch between the Glass and White look">
+            <i class="fas fa-circle-half-stroke"></i>
+        </button>
         <button class="fsl-exit no-drag" onclick="closeFullscreenLyrics()"
             title="Exit full screen (Esc)" aria-label="Exit full screen">
             <i class="fas fa-down-left-and-up-right-to-center"></i>
         </button>
 
         <div class="fsl-scene">
-            <!-- Left: album art + progress + track meta -->
+            <!-- Left: album art, title + like, progress, transport, volume -->
             <div class="fsl-now">
-                <div class="fsl-artwork">
-                    <div class="fsl-artwork-fallback"><i class="fab fa-spotify"></i></div>
-                    <img id="fsl-cover" class="fsl-cover" src="" alt="" aria-hidden="true"
-                        onerror="this.style.opacity='0'">
+                <div class="fsl-record">
+                    <!-- White look only: a clear vinyl sliding out of the sleeve, with the
+                         cover on its label (styles/player-style.css). -->
+                    <div class="fsl-vinyl" aria-hidden="true">
+                        <img id="fsl-vinyl-label" class="fsl-vinyl-label" src="" alt=""
+                            onerror="this.style.visibility='hidden'">
+                    </div>
+                    <div class="fsl-artwork">
+                        <div class="fsl-artwork-fallback"><i class="fab fa-spotify"></i></div>
+                        <img id="fsl-cover" class="fsl-cover" src="" alt="" aria-hidden="true"
+                            onerror="this.style.opacity='0'">
+                    </div>
+                </div>
+                <div class="fsl-nowmeta">
+                    <div class="fsl-titles">
+                        <p id="fsl-title" class="fsl-title">Not playing</p>
+                        <p id="fsl-sub" class="fsl-sub">—</p>
+                    </div>
+                    <button type="button" id="fsl-like" class="fsl-like no-drag" onclick="fslToggleLike()"
+                        title="Add to Liked Songs" aria-label="Add to Liked Songs" aria-pressed="false">
+                        <i class="far fa-heart"></i>
+                    </button>
                 </div>
                 <div class="fsl-progress">
-                    <div class="fsl-times">
-                        <span id="fsl-time-current">0:00</span>
-                        <span id="fsl-time-total">0:00</span>
-                    </div>
                     <div class="fsl-progress-bar" id="fsl-progress-bar" title="Seek"
                         onclick="fslSeekFromEvent(event)">
                         <div class="fsl-progress-fill" id="fsl-progress-fill">
                             <span class="fsl-progress-knob"></span>
                         </div>
                     </div>
+                    <div class="fsl-times">
+                        <span id="fsl-time-current">0:00</span>
+                        <span id="fsl-time-total">0:00</span>
+                    </div>
                 </div>
-                <div class="fsl-nowmeta">
-                    <p id="fsl-title" class="fsl-title">Not playing</p>
-                    <p id="fsl-sub" class="fsl-sub">—</p>
+                <div class="fsl-transport">
+                    <button type="button" id="fsl-shuffle" class="fsl-ctl fsl-mode no-drag" onclick="spotifyToggleShuffle()"
+                        title="Shuffle" aria-label="Shuffle" aria-pressed="false"><i class="fas fa-shuffle"></i></button>
+                    <button type="button" class="fsl-ctl fsl-skip no-drag" onclick="spotifyControl('previous')"
+                        title="Previous" aria-label="Previous track"><i class="fas fa-backward-step"></i></button>
+                    <button type="button" id="fsl-play" class="fsl-play no-drag" onclick="spotifyTogglePlay()"
+                        title="Play" aria-label="Play"><span class="morph-play-icon"><span class="morph-bar morph-bar-a"></span><span class="morph-bar morph-bar-b"></span></span></button>
+                    <button type="button" class="fsl-ctl fsl-skip no-drag" onclick="spotifyControl('next')"
+                        title="Next" aria-label="Next track"><i class="fas fa-forward-step"></i></button>
+                    <button type="button" id="fsl-repeat" class="fsl-ctl fsl-mode no-drag" onclick="spotifyCycleRepeat()"
+                        title="Repeat: off" aria-label="Repeat: off"><i class="fas fa-repeat"></i></button>
+                </div>
+                <div class="fsl-volume">
+                    <i class="fas fa-volume-off" aria-hidden="true"></i>
+                    <input type="range" id="fsl-volume" class="fsl-volume-slider no-drag" min="0" max="100" value="50"
+                        aria-label="Volume" oninput="fslVolumeInput(this.value)">
+                    <i class="fas fa-volume-high" aria-hidden="true"></i>
                 </div>
             </div>
 
@@ -1080,6 +1194,9 @@
                  The overlay gets .fsl-has-state to reveal this; .fsl-empty also hides
                  the left now-playing column for a clean full-width "nothing playing". -->
             <div id="fsl-state" class="fsl-state" aria-live="polite"></div>
+
+            <!-- Up next — takes the lyrics' place while that tab is on (.fsl-tab-queue). -->
+            <div id="fsl-queue" class="fsl-queue"></div>
         </div>
     </div>
 
@@ -1124,7 +1241,10 @@
     <script src="renderer/widget-library.js"></script>
     <script src="renderer/clock-weather.js"></script>
     <script src="renderer/weather-enhanced.js"></script>
+    <script src="renderer/timer-engine.js"></script>
     <script src="renderer/timer.js"></script>
+    <script src="renderer/calendar-engine.js"></script>
+    <script src="renderer/calendar.js"></script>
     <script src="renderer/notes-enhanced.js"></script>
     <script src="renderer/quick-launch.js"></script>
     <script src="renderer/game-mode.js"></script>
@@ -1132,9 +1252,13 @@
     <script src="renderer/discord-rpc.js"></script>
     <script src="renderer/beat-glow.js"></script>
     <script src="renderer/visualizer.js"></script>
+    <script src="renderer/player-style.js"></script>
     <script src="renderer/spotify-widget.js"></script>
     <script src="renderer/lyrics.js"></script>
     <script src="renderer/fullscreen-lyrics.js"></script>
+    <script src="renderer/mini-player.js"></script>
+    <script src="renderer/qr-code.js"></script>
+    <script src="renderer/phone-remote.js"></script>
     <script src="renderer/tooltip.js"></script>
 </body>
 

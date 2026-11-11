@@ -7,6 +7,9 @@ const crypto = require('crypto');
 // entirely (see main/netClient.js). Security-sensitive paths keep Node-https.
 const { netFetch: safeFetch } = require('./netClient');
 const { classifySpotifyConnectivity } = require('./spotify.connectivity');
+const { runFile } = require('./shellUtils');
+const { ensureVersionedScript } = require('./scriptCache');
+const { SPOTIFY_QUEUE_SCRIPT, SPOTIFY_QUEUE_SCRIPT_VERSION } = require('./spotifyQueueScript');
 
 const SPOTIFY_REDIRECT_URI_CUSTOM = 'main-launcher://spotify-callback';
 
@@ -291,7 +294,9 @@ function init(ctx) {
       }
       if (response.status === 404) {
         logger.debug('Spotify API returned 404 Not Found', { endpoint });
-        return { _noContent: true };
+        // _notFound lets a caller tell a missing endpoint apart from an empty 200
+        // (e.g. PUT /me/library) — both are otherwise just "no content".
+        return { _noContent: true, _notFound: true };
       }
       if (response.status === 429) {
         const retryAfter = parseInt(response.headers.get('Retry-After') || '2', 10);
@@ -633,7 +638,10 @@ function init(ctx) {
     return true;
   });
 
-  ipcMain.handle('spotify-get-current-track', async () => {
+  // Shared by the renderer's poll (IPC below) and the corner player
+  // (main/miniPlayer.js), which polls from main because a hidden launcher
+  // window throttles the renderer's timers.
+  async function getCurrentTrack() {
     logger.debug('spotify-get-current-track: Checking token');
     const tokenOk = await ensureSpotifyToken();
     if (!tokenOk) {
@@ -680,15 +688,20 @@ function init(ctx) {
         progress_ms: data.progress_ms
       } : null,
       device: data.device?.name,
-      volume_percent: data.device?.volume_percent
+      volume_percent: data.device?.volume_percent,
+      // For the optional loop & shuffle buttons (Spotify Enhanced).
+      shuffle_state: !!data.shuffle_state,
+      repeat_state: data.repeat_state || 'off'
     };
-  });
+  }
+
+  ipcMain.handle('spotify-get-current-track', () => getCurrentTrack());
 
   ipcMain.handle('spotify-sleep-timer-start', (_event, minutes) => startSleepTimer(minutes));
   ipcMain.handle('spotify-sleep-timer-cancel', () => cancelSleepTimer());
   ipcMain.handle('spotify-sleep-timer-status', () => getSleepTimerStatus());
 
-  ipcMain.handle('spotify-control', async (_event, action) => {
+  async function playerControl(action) {
     let endpoint;
     let method = 'PUT';
     switch (action) {
@@ -696,23 +709,39 @@ function init(ctx) {
       case 'pause': endpoint = '/me/player/pause'; break;
       case 'next': endpoint = '/me/player/next'; method = 'POST'; break;
       case 'previous': endpoint = '/me/player/previous'; method = 'POST'; break;
+      // Loop & shuffle. These player endpoints were untouched by Spotify's 2026
+      // migration. Repeat follows Spotify's own cycle: off → context → track.
+      case 'shuffle-on': endpoint = '/me/player/shuffle?state=true'; break;
+      case 'shuffle-off': endpoint = '/me/player/shuffle?state=false'; break;
+      case 'repeat-off': endpoint = '/me/player/repeat?state=off'; break;
+      case 'repeat-context': endpoint = '/me/player/repeat?state=context'; break;
+      case 'repeat-track': endpoint = '/me/player/repeat?state=track'; break;
       default: return { success: false, error: 'Unknown action' };
     }
     const result = await spotifyApiRequest(endpoint, method);
     // Error results come back as truthy { _error: true, ... } objects — don't
-    // let those read as success.
-    return { success: !!result && !result._error };
-  });
+    // let those read as success. Nor a 404: for player commands that means "no
+    // active device", i.e. nothing happened.
+    return { success: !!result && !result._error && !result._notFound };
+  }
 
-  ipcMain.handle('spotify-set-volume', async (_event, volume) => {
-    const result = await spotifyApiRequest(`/me/player/volume?volume_percent=${volume}`, 'PUT');
-    return { success: !!result && !result._error };
-  });
+  ipcMain.handle('spotify-control', (_event, action) => playerControl(action));
 
-  ipcMain.handle('spotify-seek', async (_event, positionMs) => {
-    const result = await spotifyApiRequest(`/me/player/seek?position_ms=${positionMs}`, 'PUT');
+  async function setVolume(volume) {
+    const pct = Math.max(0, Math.min(100, Math.round(Number(volume)) || 0));
+    const result = await spotifyApiRequest(`/me/player/volume?volume_percent=${pct}`, 'PUT');
     return { success: !!result && !result._error };
-  });
+  }
+
+  ipcMain.handle('spotify-set-volume', (_event, volume) => setVolume(volume));
+
+  async function seekTo(positionMs) {
+    const ms = Math.max(0, Math.round(Number(positionMs)) || 0);
+    const result = await spotifyApiRequest(`/me/player/seek?position_ms=${ms}`, 'PUT');
+    return { success: !!result && !result._error };
+  }
+
+  ipcMain.handle('spotify-seek', (_event, positionMs) => seekTo(positionMs));
 
   // ── Spotify Enhanced mini widget ──
   // These power the Queue Viewer, Recently Played, Playlist Shortcuts, and
@@ -725,7 +754,9 @@ function init(ctx) {
     const images = t.album?.images || t.images || [];
     return {
       id: t.id,
-      uri: t.uri,
+      // Rebuild the URI from the id if a response ever omits it, so a row can
+      // always be played.
+      uri: t.uri || (t.id ? `spotify:${t.type === 'episode' ? 'episode' : 'track'}:${t.id}` : null),
       name: t.name || '',
       artist: (t.artists || []).map((a) => a.name).join(', ') || t.show?.publisher || '',
       album: t.album?.name || t.show?.name || '',
@@ -745,7 +776,7 @@ function init(ctx) {
     return null;
   }
 
-  ipcMain.handle('spotify-get-queue', async () => {
+  async function getQueue() {
     const data = await spotifyApiRequest('/me/player/queue');
     const err = enhancedError(data);
     if (err) return err;
@@ -755,7 +786,9 @@ function init(ctx) {
       nowPlaying: simplifyTrack(data.currently_playing),
       queue: (data.queue || []).slice(0, 30).map(simplifyTrack)
     };
-  });
+  }
+
+  ipcMain.handle('spotify-get-queue', () => getQueue());
 
   ipcMain.handle('spotify-recently-played', async () => {
     const data = await spotifyApiRequest('/me/player/recently-played?limit=25');
@@ -769,7 +802,10 @@ function init(ctx) {
     for (const it of data.items || []) {
       if (!it.track || seen.has(it.track.id)) continue;
       seen.add(it.track.id);
-      items.push({ ...simplifyTrack(it.track), playedAt: it.played_at });
+      // The album/playlist it was played from, so replaying it carries on from there
+      // the way it does in Spotify, instead of stopping after the one track.
+      const contextUri = it.context && ['album', 'playlist'].includes(it.context.type) ? it.context.uri : null;
+      items.push({ ...simplifyTrack(it.track), playedAt: it.played_at, contextUri: contextUri || null });
     }
     return { ok: true, items };
   });
@@ -784,42 +820,258 @@ function init(ctx) {
       uri: p.uri,
       name: p.name || 'Untitled',
       owner: p.owner?.display_name || '',
-      total: p.tracks?.total ?? 0,
+      // Spotify's March 2026 Web API migration renamed the playlist's `tracks`
+      // object to `items`; read the new name first and fall back to the old one.
+      // null (not 0) when neither is present, so the UI hides the count rather
+      // than claiming the playlist is empty.
+      total: typeof p.items?.total === 'number' ? p.items.total
+        : typeof p.tracks?.total === 'number' ? p.tracks.total : null,
       image: p.images?.length ? p.images[p.images.length - 1].url : null
     }));
     return { ok: true, items };
   });
 
-  // Starts playback on the active device. Accepts either a plain context URI string
-  // (a playlist/album — Playlist Shortcuts) or { uris: [...] } to play specific
-  // tracks (e.g. replaying a Recently Played item).
+  // Starts playback. Accepts a plain context URI string (a playlist/album — Playlist
+  // Shortcuts), { contextUri, offsetUri } to start a track inside the album or
+  // playlist it came from (Recently Played), or { uris: [...] } for specific tracks.
+  const PLAYABLE_URI_RE = /^spotify:(track|episode):[A-Za-z0-9]+$/;
+  const CONTEXT_URI_RE = /^spotify:(playlist|album|artist|show):[A-Za-z0-9]+$/;
+
+  // PUT /me/player/play, waking the most recently used device when none is active
+  // (Spotify answers 404, which spotifyApiRequest reports as _notFound).
+  async function startPlayback(body) {
+    let result = await spotifyApiRequest('/me/player/play', 'PUT', body);
+    let deviceName = null;
+    if (result && result._notFound) {
+      const devices = await spotifyApiRequest('/me/player/devices');
+      const list = Array.isArray(devices?.devices)
+        ? devices.devices.filter((d) => d && d.id && !d.is_restricted)
+        : [];
+      const target = list.find((d) => d.is_active) || list[0];
+      if (!target) return { result, noDevice: true };
+      deviceName = target.name || null;
+      result = await spotifyApiRequest(`/me/player/play?device_id=${encodeURIComponent(target.id)}`, 'PUT', body);
+      if (result && result._notFound) return { result, noDevice: true };
+    }
+    return { result, deviceName };
+  }
+
+  // Spotify can accept a play command (204) and still not switch tracks, which is
+  // what "clicking a Recent song does nothing" looked like. So when a specific
+  // track was asked for, look at what is actually playing a moment later.
+  async function playingNow() {
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    const state = await spotifyApiRequest('/me/player');
+    if (!state || state._error || state._noContent) return null;
+    return {
+      uris: [state.item?.uri, state.item?.linked_from?.uri].filter(Boolean),
+      device: state.device || null
+    };
+  }
+
   ipcMain.handle('spotify-play-context', async (_event, payload) => {
     let body = null;
-    if (typeof payload === 'string' && payload) body = { context_uri: payload };
-    else if (payload?.contextUri) body = { context_uri: payload.contextUri };
-    else if (Array.isArray(payload?.uris) && payload.uris.length) body = { uris: payload.uris };
-    if (!body) return { ok: false };
-    const result = await spotifyApiRequest('/me/player/play', 'PUT', body);
+    let wanted = null;
+    if (typeof payload === 'string' && CONTEXT_URI_RE.test(payload)) {
+      body = { context_uri: payload };
+    } else if (payload && CONTEXT_URI_RE.test(payload.contextUri || '')) {
+      body = { context_uri: payload.contextUri };
+      if (PLAYABLE_URI_RE.test(payload.offsetUri || '')) {
+        body.offset = { uri: payload.offsetUri };
+        wanted = payload.offsetUri;
+      }
+    } else if (payload && Array.isArray(payload.uris)) {
+      const uris = payload.uris.filter((u) => typeof u === 'string' && PLAYABLE_URI_RE.test(u));
+      if (uris.length) { body = { uris }; wanted = uris[0]; }
+    }
+    if (!body) {
+      logger.warn('Spotify play: request had nothing playable', {
+        kind: typeof payload,
+        keys: payload && typeof payload === 'object' ? Object.keys(payload) : null
+      });
+      return { ok: false, needsReconnect: false, badRequest: true };
+    }
+
+    let attempt = await startPlayback(body);
+    // Starting inside the album/playlist can be refused (e.g. a playlist this app
+    // may not read in development mode) — then just play the track on its own.
+    if (body.offset && (attempt.noDevice || (attempt.result && attempt.result._error && attempt.result.status !== 401))) {
+      logger.warn('Spotify play: could not start inside its album/playlist — playing the track alone', {
+        status: attempt.result && attempt.result.status, noDevice: !!attempt.noDevice
+      });
+      body = { uris: [wanted] };
+      attempt = await startPlayback(body);
+    }
+    const { noDevice, deviceName } = attempt;
+    const result = attempt.result;
+    if (noDevice) {
+      logger.warn('Spotify play: no available device');
+      return { ok: false, needsReconnect: false, noDevice: true };
+    }
+    // A 403 on a player command is Spotify refusing it (Premium required, or the
+    // item can't be played here) — not a missing scope, so don't ask to reconnect.
+    if (result && result._error && result.status === 403) {
+      logger.warn('Spotify play: refused (403)');
+      return { ok: false, needsReconnect: false, restricted: true };
+    }
     const err = enhancedError(result);
-    if (err) return err;
+    if (err) {
+      logger.warn('Spotify play: failed', { status: result && result.status });
+      return err;
+    }
+    if (wanted) {
+      let now = await playingNow();
+      if (now && !now.uris.includes(wanted)) {
+        // Accepted but not applied. Aim at the active device explicitly with the
+        // simplest body (just the track), then check once more.
+        logger.warn('Spotify play: accepted but the track did not change — retrying on the device', {
+          wanted, playing: now.uris[0] || null, device: now.device?.name || null, deviceActive: !!now.device?.is_active
+        });
+        const deviceId = now.device?.id;
+        const retry = await spotifyApiRequest(
+          deviceId ? `/me/player/play?device_id=${encodeURIComponent(deviceId)}` : '/me/player/play',
+          'PUT', { uris: [wanted] }
+        );
+        if (playerOk(retry)) now = await playingNow();
+        if (!now || !now.uris.includes(wanted)) {
+          logger.warn('Spotify play: track still did not change', {
+            wanted, playing: now && now.uris[0] || null, retryStatus: retry && retry.status || null
+          });
+          return { ok: false, needsReconnect: false, notApplied: true };
+        }
+      }
+    }
+    logger.log('Spotify play: started', 'INFO', {
+      kind: body.offset ? 'track in context' : body.uris ? 'track' : 'context', device: deviceName || undefined
+    });
     return { ok: true };
   });
 
-  ipcMain.handle('spotify-is-saved', async (_event, trackId) => {
-    if (!trackId) return { ok: false, needsReconnect: false };
-    const data = await spotifyApiRequest(`/me/tracks/contains?ids=${encodeURIComponent(trackId)}`);
+
+  // Liked Songs. Spotify's February 2026 migration removed GET /me/tracks/contains
+  // and PUT/DELETE /me/tracks in favour of the generic /me/library endpoints, which
+  // take URIs (?uris=spotify:track:…, max 40). The removed endpoints answer 404,
+  // which spotifyApiRequest reports as "no content" — so the old check quietly read
+  // every song as not liked. Use the library endpoints, and fall back to the old
+  // ones only when the new one is genuinely missing (_notFound), for accounts the
+  // migration hasn't reached.
+  const SPOTIFY_ID_RE = /^[A-Za-z0-9]+$/;
+
+  async function isSaved(trackId) {
+    if (!trackId || !SPOTIFY_ID_RE.test(trackId)) return { ok: false, needsReconnect: false };
+    const uri = `spotify:track:${trackId}`;
+    let data = await spotifyApiRequest(`/me/library/contains?uris=${encodeURIComponent(uri)}`);
+    if (data && data._notFound) {
+      data = await spotifyApiRequest(`/me/tracks/contains?ids=${encodeURIComponent(trackId)}`);
+    }
     const err = enhancedError(data);
     if (err) return err;
-    return { ok: true, saved: Array.isArray(data) ? !!data[0] : false };
-  });
+    // Anything but the documented [true|false] array is "unknown", never "not liked".
+    if (!Array.isArray(data)) return { ok: false, needsReconnect: false };
+    return { ok: true, saved: !!data[0] };
+  }
 
-  ipcMain.handle('spotify-set-saved', async (_event, trackId, saved) => {
-    if (!trackId) return { ok: false, needsReconnect: false };
+  async function setSaved(trackId, saved) {
+    if (!trackId || !SPOTIFY_ID_RE.test(trackId)) return { ok: false, needsReconnect: false };
     const method = saved ? 'PUT' : 'DELETE';
-    const result = await spotifyApiRequest(`/me/tracks?ids=${encodeURIComponent(trackId)}`, method);
+    const uri = `spotify:track:${trackId}`;
+    let result = await spotifyApiRequest(`/me/library?uris=${encodeURIComponent(uri)}`, method);
+    if (result && result._notFound) {
+      result = await spotifyApiRequest(`/me/tracks?ids=${encodeURIComponent(trackId)}`, method);
+    }
     const err = enhancedError(result);
     if (err) return err;
+    if (result && result._notFound) return { ok: false, needsReconnect: false };
     return { ok: true, saved: !!saved };
+  }
+
+  ipcMain.handle('spotify-is-saved', (_event, trackId) => isSaved(trackId));
+  ipcMain.handle('spotify-set-saved', (_event, trackId, saved) => setSaved(trackId, saved));
+
+  function playerOk(r) {
+    return !!r && !r._error && !r._notFound;
+  }
+
+  // ── Remove from queue (Spotify Enhanced) ──
+  // Spotify's Web API can add to the queue but has no way to remove from it. The
+  // Spotify desktop app can, so on Windows this drives the app itself through UI
+  // Automation (see main/spotifyQueueScript.js): open its queue panel if closed,
+  // find the row by title (and which copy, for a song queued twice), expand its
+  // "More options" menu and invoke "Remove from queue". No mouse or keyboard input
+  // is sent. It needs the desktop app running (not closed to the tray); a minimized
+  // window is restored for the moment of the removal and then put back, because
+  // Chromium won't draw the song's menu otherwise. This replaced a mute-and-skip
+  // workaround that fought Spotify's state lag and never behaved reliably.
+  const DESKTOP_QUEUE_SCRIPT = path.join(userDataPath, 'spotify-queue-remove.ps1');
+  const DESKTOP_WARM_INTERVAL_MS = 5 * 60 * 1000;
+  let desktopQueueChain = Promise.resolve();
+  let desktopQueuePending = 0;
+  let desktopWarmedAt = 0;
+
+  // Runs the helper with a JSON payload; resolves its parsed one-line result, or null.
+  async function runDesktopQueueHelper(request) {
+    try {
+      ensureVersionedScript(DESKTOP_QUEUE_SCRIPT, SPOTIFY_QUEUE_SCRIPT_VERSION, SPOTIFY_QUEUE_SCRIPT);
+    } catch (e) {
+      logger.error('Spotify queue remove: could not write the helper script', e);
+      return null;
+    }
+    const payload = Buffer.from(JSON.stringify(request), 'utf8').toString('base64');
+    const res = await runFile('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Sta', '-ExecutionPolicy', 'Bypass',
+      '-File', DESKTOP_QUEUE_SCRIPT, '-Payload', payload
+    ], 30000);
+    const line = String(res.stdout || '').trim().split(/\r?\n/).filter(Boolean).pop();
+    try {
+      return line ? JSON.parse(line) : null;
+    } catch (e) {
+      logger.warn('Spotify queue remove: helper returned no result', { code: res.code, stderr: String(res.stderr || '').slice(0, 300) });
+      return null;
+    }
+  }
+
+  // Serialise everything that drives the app: two automations on the same menu
+  // would trip over each other.
+  function queueDesktopWork(fn) {
+    const run = desktopQueueChain.then(fn);
+    desktopQueueChain = run.catch(() => {});
+    return run;
+  }
+
+  ipcMain.handle('spotify-desktop-queue-remove', (_event, title, occurrence) => {
+    if (process.platform !== 'win32') return { ok: false, reason: 'unsupported' };
+    if (typeof title !== 'string' || !title.trim() || title.length > 300) return { ok: false, reason: 'bad-request' };
+    const occ = Number.isInteger(occurrence) && occurrence >= 0 && occurrence < 200 ? occurrence : 0;
+    if (desktopQueuePending >= 3) return { ok: false, reason: 'busy' };
+    desktopQueuePending++;
+    // Opening a song's menu hands keyboard focus to Spotify. The user clicked the
+    // remove button in the launcher, so give the launcher its focus back afterwards.
+    const launcher = getMainWindow();
+    const launcherHadFocus = !!(launcher && !launcher.isDestroyed() && launcher.isFocused());
+    return queueDesktopWork(async () => {
+      const started = Date.now();
+      const out = await runDesktopQueueHelper({ title: title.trim(), occurrence: occ });
+      if (launcherHadFocus && launcher && !launcher.isDestroyed()) launcher.focus();
+      if (!out) return { ok: false, reason: 'error' };
+      desktopWarmedAt = Date.now(); // a real run leaves the app's tree built too
+      logger.log('Spotify queue remove (desktop app)', out.ok ? 'INFO' : 'WARN', {
+        ok: !!out.ok, reason: out.reason || undefined, occurrence: occ, ms: Date.now() - started
+      });
+      return { ok: !!out.ok, reason: out.reason || null };
+    }).finally(() => { desktopQueuePending--; });
+  });
+
+  // Queue rows with a remove button just appeared in the launcher: get Spotify to
+  // build its accessibility tree now, so the first removal doesn't wait for it.
+  ipcMain.handle('spotify-desktop-queue-warm', () => {
+    if (process.platform !== 'win32') return { ok: false, reason: 'unsupported' };
+    if (Date.now() - desktopWarmedAt < DESKTOP_WARM_INTERVAL_MS) return { ok: true, reason: 'recent' };
+    desktopWarmedAt = Date.now();
+    return queueDesktopWork(async () => {
+      const out = await runDesktopQueueHelper({ warm: true });
+      if (!out || !out.ok) desktopWarmedAt = 0; // try again next time rows show
+      return { ok: !!(out && out.ok), reason: out ? out.reason || null : 'error' };
+    });
   });
 
   ipcMain.on('spotify-register-shortcuts', handleShortcutRegistration);
@@ -839,7 +1091,17 @@ function init(ctx) {
   registerSpotifyShortcutsFromConfig(SPOTIFY_SHORTCUTS);
 
   return {
-    reapplyShortcuts: () => registerSpotifyShortcutsFromConfig(registeredSpotifyShortcuts)
+    reapplyShortcuts: () => registerSpotifyShortcutsFromConfig(registeredSpotifyShortcuts),
+    // For the corner player (main/miniPlayer.js) and the Phone Remote
+    // (main/phoneRemote.js) — the same functions the renderer's IPC calls.
+    isConnected: () => !!(spotifyConfig.clientId && spotifyTokens?.access_token),
+    getCurrentTrack,
+    control: playerControl,
+    seek: seekTo,
+    setVolume,
+    isSaved,
+    setSaved,
+    getQueue
   };
 }
 

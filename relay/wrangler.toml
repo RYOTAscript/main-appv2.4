@@ -1,0 +1,19 @@
+# main Phone Remote relay. Deploy from this folder:
+#   npx wrangler@4 login     (once — opens Cloudflare in the browser to allow it)
+#   npx wrangler@4 deploy
+# The deploy prints the URL, https://main-phone-relay.<your-subdomain>.workers.dev.
+# Put that host (without https://) into RELAY_HOST in the desktop app's
+# main/phoneRemote.js. See README.md.
+name = "main-phone-relay"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+# SQLite-backed Durable Objects are the ones the Workers free plan includes.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]

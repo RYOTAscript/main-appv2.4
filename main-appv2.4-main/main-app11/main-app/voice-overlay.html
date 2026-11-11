@@ -4,13 +4,21 @@
 <meta charset="utf-8">
 <!-- Content-Security-Policy: this overlay renders only its own local markup and
      talks to the main process over IPC, so everything else is denied. script-src
-     keeps 'unsafe-inline' for this file's own inline <script> block. -->
+     keeps 'unsafe-inline' for this file's own inline <script> block.
+
+     The `https:` in img-src is for Spotify album art, the same allowance
+     main.html already makes for the same images. Nothing else remote is
+     permitted.
+
+     NOTE — do not put a comment inside the content="" attribute below. CSP has
+     no comment syntax: `/*` parses as a directive NAME, which is invalid, so
+     the parser discards everything up to the next `;` — which silently took
+     img-src with it. The whole directive vanished, default-src 'none' applied
+     instead, and album art was blocked in every build that shipped it. -->
 <meta http-equiv="Content-Security-Policy" content="
     default-src 'none';
     script-src 'self' 'unsafe-inline' file:;
     style-src 'self' 'unsafe-inline' file:;
-    /* https: is for Spotify album art, the same allowance main.html already
-       makes for the same images. Nothing else remote is permitted. */
     img-src 'self' file: data: blob: https:;
     media-src 'self' file: data: blob:;
     font-src 'self' file: data:;

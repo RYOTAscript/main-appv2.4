@@ -230,6 +230,16 @@
             if (typeof applyFullscreenLyricsEnabled === 'function') {
                 applyFullscreenLyricsEnabled(!!prefs.fullscreenLyrics);
             }
+            // Corner Player: main owns the always-on-top window and its Spotify
+            // polling — tell it whether the widget is on, and refresh its panel.
+            if (typeof applyMiniPlayerEnabled === 'function') {
+                applyMiniPlayerEnabled(!!prefs.miniPlayer);
+            }
+            // Phone Remote: main holds the relay connection — tell it whether the
+            // widget is on, and refresh its panel.
+            if (typeof applyPhoneRemoteEnabled === 'function') {
+                applyPhoneRemoteEnabled(!!prefs.phoneRemote);
+            }
             // Screen Resolution Manager is renderer-only too — (re)load the panel so
             // toggling it on immediately populates the monitor list.
             if (typeof renderScreenResolutionPanel === 'function') {
@@ -261,10 +271,19 @@
             if (typeof renderWeatherEnhancedPanel === 'function') {
                 renderWeatherEnhancedPanel();
             }
-            // Countdown Timer is renderer-only — refresh its panel and the header
-            // readout (which hides itself when the widget is disabled).
+            // Timers: tell main whether to run the alarm scheduler, the floating
+            // timer windows and the hotkeys (it owns the timers), then refresh the
+            // panel and the header readout (which hides itself when disabled).
+            if (typeof applyTimerEnabled === 'function') {
+                await applyTimerEnabled(!!prefs.timer);
+            }
             if (typeof renderTimerPanel === 'function') renderTimerPanel();
             if (typeof updateTimerIndicator === 'function') updateTimerIndicator();
+            // Calendar: tell main whether to run the reminder scheduler (it owns
+            // the data), then refresh the panel and the header "up next" chip.
+            if (typeof applyCalendarEnabled === 'function') {
+                await applyCalendarEnabled(!!prefs.calendar);
+            }
             // Quick Notes Enhanced: swap the Quick Notes card between the basic
             // textarea and the multi-note editor, and refresh its panel.
             if (typeof applyNotesEnhancedEnabled === 'function') {
@@ -764,6 +783,10 @@
                 spotifyPlaylistSort: localStorage.getItem('spotifyPlaylistSort') || 'recent',
                 spotifyEwDraggable: localStorage.getItem('spotifyEwDraggable') || '0',
                 spotifyEwPos: safeParseJSON(localStorage.getItem('spotifyEwPos'), {}),
+                spotifyEwHoverBars: localStorage.getItem('spotifyEwHoverBars') || '0',
+                spotifyShowLoopShuffle: localStorage.getItem('spotifyShowLoopShuffle') || '0',
+                spotifyLikeOnHover: localStorage.getItem('spotifyLikeOnHover') || '0',
+                spotifyPlayerStyle: localStorage.getItem('spotifyPlayerStyle') || 'glass',
                 notesEnhancedData: safeParseJSON(localStorage.getItem('notesEnhancedData'), null),
                 notesHistory: safeParseJSON(localStorage.getItem('notesHistory'), {}),
                 quickLaunchFolders: safeParseJSON(localStorage.getItem('quickLaunchFolders'), null),
@@ -853,6 +876,16 @@
                             localStorage.setItem('spotifyEwPos', JSON.stringify(data.spotifyEwPos));
                         }
                         if (typeof applySpotifyEwDraggable === 'function') applySpotifyEwDraggable();
+                        for (const key of ['spotifyEwHoverBars', 'spotifyShowLoopShuffle', 'spotifyLikeOnHover']) {
+                            if (typeof data[key] !== 'undefined') {
+                                localStorage.setItem(key, data[key] === '1' || data[key] === true ? '1' : '0');
+                            }
+                        }
+                        if (typeof applySpotifyEwHoverBars === 'function') applySpotifyEwHoverBars();
+                        if (typeof applySpotifyModesVisible === 'function') applySpotifyModesVisible();
+                        if (typeof applySpotifyLikeVisible === 'function') applySpotifyLikeVisible();
+                        // Unknown values are ignored by setSpotifyPlayerStyle itself.
+                        if (data.spotifyPlayerStyle && typeof setSpotifyPlayerStyle === 'function') setSpotifyPlayerStyle(data.spotifyPlayerStyle);
                         if (data.notesEnhancedData) localStorage.setItem('notesEnhancedData', JSON.stringify(data.notesEnhancedData));
                         if (data.notesHistory) localStorage.setItem('notesHistory', JSON.stringify(data.notesHistory));
                         if (data.quickLaunchFolders) localStorage.setItem('quickLaunchFolders', JSON.stringify(data.quickLaunchFolders));

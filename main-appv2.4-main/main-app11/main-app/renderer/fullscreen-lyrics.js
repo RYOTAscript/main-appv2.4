@@ -107,8 +107,10 @@
             overlay.classList.remove('fsl-closing', 'fsl-closing-2', 'hidden');
             overlay.classList.add('shown');
             applyFslPrefsToDom();
+            setFslTab('lyrics');       // always opens on the lyrics
             updateFslHeader();
             updateFslProgress();
+            updateFslControls(true);
 
             // Take the whole app window to true full screen so the stage fills the
             // entire monitor (the overlay is position:fixed and grows with it).
@@ -117,6 +119,9 @@
             fslOpen = true;
             fslBuiltSig = null;        // force a fresh build
             fslActiveIdx = -2;
+            fslSeenTrackId = (typeof spotifyCurrentTrack !== 'undefined' && spotifyCurrentTrack?.id) || null;
+            fslLikedFetchedFor = null;
+            fslEnsureLiked();
             // Build once the overlay is actually laid out so first-frame measurements
             // (offsetTop / stage height) used for centring are real.
             requestAnimationFrame(() => {
@@ -131,6 +136,7 @@
             const wasOpen = fslOpen;
             fslOpen = false;
             stopFslLoop();
+            clearTimeout(fslQueueTimer);
             const restoreWindow = () => {
                 if (wasOpen) { try { window.electronAPI?.lyricsSetImmersive?.(false); } catch (e) { /* non-fatal */ } }
             };
@@ -173,6 +179,8 @@
 
             const titleText = track?.name || 'Not playing';
             const subText = [track?.artist, track?.album].filter(Boolean).join('  —  ') || '';
+            const contextEl = document.getElementById('fsl-context-name');
+            if (contextEl) contextEl.textContent = track?.album || '—';
             // Use the compact player's shared marquee so long titles/artists scroll on
             // the exact same looping schedule (setMarqueeText + restartMarqueeSchedule
             // are globals from renderer/spotify-widget.js). Falls back to plain text.
@@ -209,6 +217,13 @@
                     coverEl.style.animation = 'none';
                     coverEl.removeAttribute('src'); coverEl.style.opacity = '0';
                 }
+            }
+            // The White look's record label carries the same cover. Hidden rather
+            // than left without a src, which would draw a broken-image icon.
+            const labelEl = document.getElementById('fsl-vinyl-label');
+            if (labelEl && imgChanged) {
+                if (img) { labelEl.src = img; labelEl.style.visibility = ''; }
+                else { labelEl.removeAttribute('src'); labelEl.style.visibility = 'hidden'; }
             }
             // Backdrop: cross-fade between the two stacked layers so the blurred album
             // wash dissolves into the next song's colours (source art is preloaded, so
@@ -308,6 +323,255 @@
             const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
             spotifySeek(Math.round(pct * track.duration_ms));
             updateFslProgress();
+        }
+
+        // ── Controls: transport, shuffle / repeat, like, volume ──────────────────
+        // The stage owns no playback state. Every control calls the same function
+        // the dashboard player does, and the follow-loop mirrors the result back:
+        // play state from spotifyIsPlaying, shuffle / repeat from spotifyModeState
+        // (renderer/spotify-enhanced.js, kept current by every poll whether or not
+        // its own buttons are shown), the heart from the player's like-state, and
+        // the volume from the player's slider. Each is written only when it changes.
+        let fslCtl = {};
+        let fslVolumeDragging = false;
+        let fslVolumeSrc = null;
+
+        // Runs every frame while the stage is open, so a frame where nothing
+        // changed does no DOM work at all — not even a lookup.
+        function updateFslControls(force) {
+            if (force) fslCtl = {};
+
+            const playing = typeof spotifyIsPlaying !== 'undefined' && !!spotifyIsPlaying;
+            if (fslCtl.playing !== playing) {
+                fslCtl.playing = playing;
+                const btn = document.getElementById('fsl-play');
+                if (btn) {
+                    btn.classList.toggle('is-playing', playing);
+                    btn.title = playing ? 'Pause' : 'Play';
+                    btn.setAttribute('aria-label', btn.title);
+                }
+                // Pauses the White record's spin and the Up next equaliser.
+                document.getElementById('fullscreen-lyrics')?.classList.toggle('fsl-paused', !playing);
+            }
+
+            const modes = typeof spotifyModeState !== 'undefined' ? spotifyModeState : null;
+            const shuffle = !!(modes && modes.shuffle);
+            if (fslCtl.shuffle !== shuffle) {
+                fslCtl.shuffle = shuffle;
+                const btn = document.getElementById('fsl-shuffle');
+                if (btn) {
+                    btn.classList.toggle('is-on', shuffle);
+                    btn.setAttribute('aria-pressed', shuffle ? 'true' : 'false');
+                    btn.title = shuffle ? 'Shuffle: on' : 'Shuffle: off';
+                }
+            }
+            const repeat = (modes && modes.repeat) || 'off';
+            if (fslCtl.repeat !== repeat) {
+                fslCtl.repeat = repeat;
+                const btn = document.getElementById('fsl-repeat');
+                if (btn) {
+                    btn.classList.toggle('is-on', repeat !== 'off');
+                    btn.classList.toggle('is-track', repeat === 'track');
+                    btn.title = (typeof SPOTIFY_REPEAT_TITLES !== 'undefined' && SPOTIFY_REPEAT_TITLES[repeat]) || 'Repeat';
+                    btn.setAttribute('aria-label', btn.title);
+                }
+            }
+
+            const liked = typeof spotifyEnhancedCurrentSaved !== 'undefined' && spotifyEnhancedCurrentSaved === true;
+            if (fslCtl.liked !== liked) {
+                fslCtl.liked = liked;
+                const btn = document.getElementById('fsl-like');
+                if (btn) {
+                    btn.classList.toggle('is-liked', liked);
+                    btn.setAttribute('aria-pressed', liked ? 'true' : 'false');
+                    btn.title = liked ? 'Remove from Liked Songs' : 'Add to Liked Songs';
+                    btn.setAttribute('aria-label', btn.title);
+                    const icon = btn.querySelector('i');
+                    if (icon) icon.className = `${liked ? 'fas' : 'far'} fa-heart`;
+                }
+            }
+
+            if (!fslVolumeSrc || !fslVolumeSrc.isConnected) fslVolumeSrc = document.getElementById('spotify-volume');
+            const vol = fslVolumeSrc ? Number(fslVolumeSrc.value) : 50;
+            if (fslCtl.vol !== vol && !fslVolumeDragging) {
+                fslCtl.vol = vol;
+                const slider = document.getElementById('fsl-volume');
+                if (slider) {
+                    slider.value = String(vol);
+                    slider.style.setProperty('--fsl-vol', vol + '%');
+                }
+            }
+        }
+
+        // The stage's volume drives the player's own slider, so the two never
+        // disagree and the same debounced call and poll hold-off are used.
+        function fslVolumeInput(value) {
+            const v = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+            const slider = document.getElementById('fsl-volume');
+            if (slider) slider.style.setProperty('--fsl-vol', v + '%');
+            fslCtl.vol = v;
+            const src = document.getElementById('spotify-volume');
+            if (src) src.value = String(v);
+            if (typeof spotifyVolumeSliderInput === 'function') spotifyVolumeSliderInput(v);
+        }
+
+        (function setupFslVolumeDrag() {
+            const slider = document.getElementById('fsl-volume');
+            if (!slider) return;
+            slider.addEventListener('pointerdown', () => {
+                fslVolumeDragging = true;
+                // The player's document mouseup handler then re-reads Spotify once
+                // the drag ends, exactly as after dragging its own slider.
+                if (typeof isDraggingVolume !== 'undefined') isDraggingVolume = true;
+            });
+            const end = () => { fslVolumeDragging = false; };
+            slider.addEventListener('pointerup', end);
+            slider.addEventListener('pointercancel', end);
+            slider.addEventListener('blur', end);
+        })();
+
+        // The heart shows the player's like-state, which is normally only fetched
+        // while the player's own heart is switched on (Spotify Enhanced → "Like
+        // button"). Otherwise the stage asks for it itself, once per track.
+        let fslLikedFetchedFor = null;
+
+        function fslEnsureLiked() {
+            const track = (typeof spotifyCurrentTrack !== 'undefined') ? spotifyCurrentTrack : null;
+            if (!fslOpen || !track || !track.id || fslLikedFetchedFor === track.id) return;
+            fslLikedFetchedFor = track.id;
+            const playerFetches = typeof isSpotifyEnhancedEnabled === 'function' && isSpotifyEnhancedEnabled()
+                && typeof spotifyLikeEnabled === 'function' && spotifyLikeEnabled();
+            if (!playerFetches && typeof spotifyRefreshLiked === 'function') spotifyRefreshLiked(track, true);
+        }
+
+        function fslToggleLike() {
+            if (typeof spotifyEnhancedToggleLike !== 'function') return;
+            // The pop plays only when liking from here — not when a liked song
+            // comes on, so skipping through liked songs doesn't strobe.
+            const btn = document.getElementById('fsl-like');
+            const liking = !(typeof spotifyEnhancedCurrentSaved !== 'undefined' && spotifyEnhancedCurrentSaved === true);
+            if (btn && liking) {
+                btn.classList.remove('is-popping');
+                void btn.offsetWidth;
+                btn.classList.add('is-popping');
+                setTimeout(() => btn.classList.remove('is-popping'), 500);
+            }
+            spotifyEnhancedToggleLike();
+        }
+
+        // Top-bar switch between the two looks — the same setting as Settings →
+        // Spotify → Player Style, so the dashboard player follows.
+        function toggleFslLook() {
+            if (typeof setSpotifyPlayerStyle !== 'function') return;
+            setSpotifyPlayerStyle(isWhitePlayerStyle() ? 'glass' : 'white');
+            // The looks set lyrics in different faces, so line heights change.
+            if (fslOpen) requestAnimationFrame(() => centreFslActiveLine(true));
+        }
+
+        // ── Lyrics / Up next ─────────────────────────────────────────────────────
+        // Up next takes the lyrics' place in the row. It is read from Spotify's
+        // queue when the tab opens and again shortly after each song change (the
+        // queue answer lags the change), never on a timer — the endpoint is
+        // rate-limited. Rows are built with textContent only.
+        let fslTab = 'lyrics';
+        let fslQueueTimer = null;
+        let fslQueueSeq = 0;
+        let fslSeenTrackId = null;
+        const FSL_QUEUE_ROWS = 12;
+
+        function setFslTab(tab) {
+            fslTab = tab === 'queue' ? 'queue' : 'lyrics';
+            document.getElementById('fullscreen-lyrics')?.classList.toggle('fsl-tab-queue', fslTab === 'queue');
+            document.querySelectorAll('#fullscreen-lyrics .fsl-tab').forEach(btn => {
+                const on = btn.dataset.fslTab === fslTab;
+                btn.classList.toggle('is-on', on);
+                btn.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            if (fslTab === 'queue') renderFslQueue();
+            // The lyrics were display:none, so put the active line back in place.
+            else if (fslOpen) requestAnimationFrame(() => centreFslActiveLine(true));
+        }
+
+        function scheduleFslQueueRefresh(delay) {
+            clearTimeout(fslQueueTimer);
+            fslQueueTimer = setTimeout(() => {
+                if (fslOpen && fslTab === 'queue') renderFslQueue();
+            }, delay);
+        }
+
+        function fslQueueEl(tag, cls, text) {
+            const el = document.createElement(tag);
+            if (cls) el.className = cls;
+            if (text != null) el.textContent = text;
+            return el;
+        }
+
+        function fslQueueRow(item, isNow) {
+            const row = fslQueueEl('div', isNow ? 'fsl-qrow is-now' : 'fsl-qrow');
+            const art = fslQueueEl('span', 'fsl-qart');
+            if (item.image) {
+                const img = document.createElement('img');
+                img.alt = '';
+                img.onerror = () => { img.remove(); art.appendChild(fslQueueEl('i', 'fas fa-music')); };
+                img.src = item.image;
+                art.appendChild(img);
+            } else {
+                art.appendChild(fslQueueEl('i', 'fas fa-music'));
+            }
+            const text = fslQueueEl('span', 'fsl-qtext');
+            text.append(fslQueueEl('span', 'fsl-qname', item.name || '—'), fslQueueEl('span', 'fsl-qmeta', item.artist || ''));
+            row.append(art, text);
+            if (isNow) {
+                const eq = fslQueueEl('span', 'fsl-qeq');
+                eq.setAttribute('aria-hidden', 'true');
+                eq.append(fslQueueEl('span'), fslQueueEl('span'), fslQueueEl('span'));
+                row.appendChild(eq);
+            } else if (typeof item.duration_ms === 'number' && typeof formatMsTime === 'function') {
+                row.appendChild(fslQueueEl('span', 'fsl-qdur', formatMsTime(item.duration_ms)));
+            }
+            return row;
+        }
+
+        function fslQueueMessage(icon, title, sub) {
+            const box = fslQueueEl('div', 'fsl-qmsg');
+            const badge = fslQueueEl('span', 'fsl-qmsg-badge');
+            badge.appendChild(fslQueueEl('i', `fas ${icon}`));
+            box.append(badge, fslQueueEl('p', 'fsl-qmsg-title', title));
+            if (sub) box.appendChild(fslQueueEl('p', 'fsl-qmsg-sub', sub));
+            return box;
+        }
+
+        async function renderFslQueue() {
+            const box = document.getElementById('fsl-queue');
+            if (!box) return;
+            const seq = ++fslQueueSeq;
+            if (!box.childElementCount) box.appendChild(fslQueueMessage('fa-list-ol', 'Loading what’s next…'));
+            let res = null;
+            try {
+                res = window.electronAPI?.spotifyGetQueue ? await window.electronAPI.spotifyGetQueue() : null;
+            } catch (e) { res = null; }
+            if (seq !== fslQueueSeq || !fslOpen) return;   // a newer render, or closed
+
+            const track = (typeof spotifyCurrentTrack !== 'undefined') ? spotifyCurrentTrack : null;
+            const frag = document.createDocumentFragment();
+            if (!res || res.ok !== true) {
+                frag.appendChild(res?.needsReconnect
+                    ? fslQueueMessage('fa-plug-circle-exclamation', 'Spotify needs new permissions', 'Reconnect Spotify in Settings to see what’s up next.')
+                    : fslQueueMessage('fa-headphones', 'Nothing to show yet', 'Play something in Spotify to see what’s up next.'));
+            } else {
+                const queue = (res.queue || []).filter(Boolean).slice(0, FSL_QUEUE_ROWS);
+                const head = fslQueueEl('div', 'fsl-qhead');
+                head.append(
+                    fslQueueEl('p', 'fsl-qtitle', 'Up next'),
+                    fslQueueEl('p', 'fsl-qsub', queue.length
+                        ? `${queue.length}${queue.length === FSL_QUEUE_ROWS ? '+' : ''} song${queue.length === 1 ? '' : 's'} after this one`
+                        : 'Nothing queued after this song'));
+                const list = fslQueueEl('div', 'fsl-qlist');
+                if (track) list.appendChild(fslQueueRow(track, true));
+                queue.forEach(t => list.appendChild(fslQueueRow(t, false)));
+                frag.append(head, list);
+            }
+            box.replaceChildren(frag);
         }
 
         // ── Reactive skip: instant on-click feedback ─────────────────────────────
@@ -566,6 +830,15 @@
             if (!fslOpen) { fslRafId = null; return; }
 
             updateFslProgress(); // keep the scrub bar + times live
+            updateFslControls();
+
+            // A new song: its heart state, and (on that tab) what's up next now.
+            const trackId = (typeof spotifyCurrentTrack !== 'undefined' && spotifyCurrentTrack?.id) || null;
+            if (trackId !== fslSeenTrackId) {
+                fslSeenTrackId = trackId;
+                fslEnsureLiked();
+                if (fslTab === 'queue') scheduleFslQueueRefresh(700);
+            }
 
             // Track / lyrics content changed underneath us → rebuild + refresh header.
             const sig = fslLyricsSignature();
@@ -627,10 +900,20 @@
             if (!panel) return;
             const prefs = getFslPrefs();
             const lyricsOn = isLyricsDisplayEnabled();
+            const look = typeof getSpotifyPlayerStyle === 'function' ? getSpotifyPlayerStyle() : 'glass';
 
             const seg = (group, current, options) => options.map(o =>
                 `<button type="button" class="fsl-seg-btn${current === o.value ? ' is-on' : ''} no-drag"` +
                 ` onclick="setFslPref(${jsAttr(group)},${jsAttr(o.value)})">` +
+                `<i class="fas ${o.icon}"></i><span>${o.label}</span></button>`
+            ).join('');
+            // The look is the shared Player Style setting, not one of this widget's prefs.
+            const lookSeg = [
+                { value: 'glass', icon: 'fa-moon', label: 'Glass' },
+                { value: 'white', icon: 'fa-sun', label: 'White' },
+            ].map(o =>
+                `<button type="button" class="fsl-seg-btn${look === o.value ? ' is-on' : ''} no-drag"` +
+                ` onclick="setSpotifyPlayerStyle(${jsAttr(o.value)})">` +
                 `<i class="fas ${o.icon}"></i><span>${o.label}</span></button>`
             ).join('');
 
@@ -639,6 +922,10 @@
                     (lyricsOn ? '' :
                         `<div class="fsl-cfg-note"><i class="fas fa-triangle-exclamation"></i>` +
                         `<span>Turn on <b>Show Lyrics display</b> (Settings ▸ Widgets) for the full-screen button to appear on the player.</span></div>`) +
+                    `<div class="fsl-cfg-row">` +
+                        `<span class="fsl-cfg-label">Look</span>` +
+                        `<div class="fsl-seg">${lookSeg}</div>` +
+                    `</div>` +
                     `<div class="fsl-cfg-row">` +
                         `<span class="fsl-cfg-label">Backdrop</span>` +
                         `<div class="fsl-seg">` +
@@ -661,7 +948,7 @@
                         `${canUseFullscreenLyrics() ? '' : ' disabled'}>` +
                         `<i class="fas fa-up-right-and-down-left-from-center"></i> Open full-screen lyrics` +
                     `</button>` +
-                    `<p class="fsl-cfg-hint">Tip: the full-screen button sits in the top-left of the Spotify player. Press <b>Esc</b> to exit the stage.</p>` +
+                    `<p class="fsl-cfg-hint">Tip: the full-screen button sits in the top-left of the Spotify player. The look also switches from the stage’s top bar, and changes the dashboard player with it. Press <b>Esc</b> to exit the stage.</p>` +
                 `</div>`;
         }
 

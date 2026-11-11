@@ -495,7 +495,6 @@
                     title="${esc(w.description)}">
                     <i class="${w.iconStyle || 'fas'} ${w.icon} text-[10px]"></i>
                     <span>${esc(w.label)}</span>
-                    <i class="fas fa-star text-[8px] mini-widget-chip-star"></i>
                 </button>
             `).join('');
         }

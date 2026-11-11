@@ -153,14 +153,42 @@
                 label: 'Full Screen Lyrics',
                 icon: 'fa-up-right-and-down-left-from-center',
                 description: 'An Apple Music–style full-screen lyrics stage, opened from a button on the player.',
-                longDescription: 'Turns the compact lyrics strip into a cinematic, Apple Music–style full-screen lyrics stage. When on, a small full-screen button appears in the top-left of the Spotify player (only while the Lyrics display is enabled) — click it to fill the whole window with big, bold, karaoke-synced lyrics over a blurred, colour-matched album-art backdrop. The active line lights up and glides to centre as the song plays, past and upcoming lines soften and blur with distance, and every line is click-to-seek when the track has synced timing. Reads beautifully whether the panel has synced lyrics or plain text.',
+                longDescription: 'Turns the compact lyrics strip into a cinematic, Apple Music–style full-screen lyrics stage. When on, a small full-screen button appears in the top-left of the Spotify player (only while the Lyrics display is enabled) — click it to fill the whole window with big, bold, karaoke-synced lyrics over a blurred, colour-matched album-art backdrop. The active line lights up and glides to centre as the song plays, past and upcoming lines soften and blur with distance, and every line is click-to-seek when the track has synced timing. Reads beautifully whether the panel has synced lyrics or plain text. The stage is a complete player too — play, pause and skip, shuffle and repeat, like, volume, and an Up next list one tap away — in Glass, or in White with a clear vinyl sliding out of its sleeve.',
                 category: 'Spotify',
-                keywords: ['lyrics', 'fullscreen', 'full screen', 'apple music', 'karaoke', 'spotify', 'music', 'immersive', 'stage', 'sing', 'synced', 'now playing'],
-                version: '1.0.0',
+                keywords: ['lyrics', 'fullscreen', 'full screen', 'apple music', 'karaoke', 'spotify', 'music', 'immersive', 'stage', 'sing', 'synced', 'now playing', 'up next', 'queue', 'white', 'glass'],
+                version: '1.1.0',
                 author: 'ryota',
-                features: ['Full-screen, Apple Music–style lyrics stage', 'Full-screen button on the player (top-left) while Lyrics are on', 'Karaoke highlight that glides to centre as the song plays', 'Blurred, colour-matched album-art backdrop', 'Progressive dim + blur on past / upcoming lines', 'Click any line to seek (synced tracks)', 'Album-blur or accent-gradient backdrop, centre or left alignment'],
+                features: ['Full-screen, Apple Music–style lyrics stage', 'Full-screen button on the player (top-left) while Lyrics are on', 'Karaoke highlight that glides to centre as the song plays', 'Blurred, colour-matched album-art backdrop', 'Progressive dim + blur on past / upcoming lines', 'Click any line to seek (synced tracks)', 'Play, skip, shuffle, repeat, like and volume on the stage', 'Up next list in place of the lyrics', 'Glass or White look, shared with the dashboard player', 'Album-blur or accent-gradient backdrop, centre or left alignment'],
                 panelId: 'fullscreen-lyrics-panel',
                 panelRenderer: 'renderFullscreenLyricsPanel'
+            },
+            {
+                id: 'miniPlayer',
+                label: 'Corner Player',
+                icon: 'fa-compact-disc',
+                description: 'A tiny always-on-top Spotify player that tucks into a corner of your screen.',
+                longDescription: 'Keeps what\'s playing in a small card in a corner of your screen, on top of your other windows and borderless games: the vinyl, title and artist, a progress bar you can click to seek, and play, pause and skip. Turn on the lyric line to sing along — the current line glows above the controls, timed exactly like the main player. It shows up while Main is hidden (or always, if you prefer), stays out of the way while nothing is playing, and remembers its corner. Drag it to another corner, or right-click it for every option. Comes in Glass, matching the launcher, or White.',
+                category: 'Spotify',
+                keywords: ['mini player', 'corner', 'floating', 'overlay', 'always on top', 'pip', 'picture in picture', 'spotify', 'music', 'now playing', 'lyrics', 'controls'],
+                version: '1.1.0',
+                author: 'ryota',
+                features: ['Tiny always-on-top player in any screen corner', 'Optional live lyric line, timed like the main player', 'Play, pause, skip and click-to-seek', 'Shows while Main is hidden, or always', 'Drag to snap to a corner; remembers it per screen', 'Glass or White style'],
+                panelId: 'mini-player-panel',
+                panelRenderer: 'renderMiniPlayerPanel'
+            },
+            {
+                id: 'phoneRemote',
+                label: 'Phone Remote',
+                icon: 'fa-mobile-screen-button',
+                description: 'Your player and synced lyrics on your phone, from anywhere, not just your Wi-Fi.',
+                longDescription: 'Puts the music player on your phone: the song, synced lyrics, what\'s up next, and every control — play, skip, seek, like, shuffle, repeat and volume. Pair once by pointing your phone\'s camera at a code, then add it to your Home Screen and it opens like an app. It works wherever your phone and PC are online, through main\'s relay, end-to-end encrypted so the relay never sees what you\'re playing. It follows your Glass or White player look.',
+                category: 'Spotify',
+                keywords: ['phone', 'iphone', 'android', 'remote', 'mobile', 'lyrics', 'spotify', 'controls', 'qr', 'pair', 'now playing', 'up next'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Player, synced lyrics and Up next on your phone', 'Play, skip, seek, like, shuffle, repeat and volume', 'Works from anywhere, not just the same Wi-Fi', 'End-to-end encrypted: the relay sees nothing', 'Pair by scanning a code; add it to your Home Screen', 'Follows your Glass or White look'],
+                panelId: 'phone-remote-panel',
+                panelRenderer: 'renderPhoneRemotePanel'
             },
             {
                 id: 'screenResolution',
@@ -311,17 +339,31 @@
             },
             {
                 id: 'timer',
-                label: 'Countdown Timer',
+                label: 'Timers',
                 icon: 'fa-hourglass-half',
-                description: 'A countdown timer with quick presets that keeps ticking on the dashboard.',
-                longDescription: 'A simple countdown timer with one-tap presets (1, 5, 10, 25 minutes and more) or a custom duration. Start, pause, resume and reset from the panel; while it runs, a live readout sits in the header so you can watch it from anywhere in the app. Alerts you with a sound and a toast when time is up.',
+                description: 'Countdowns, a lap stopwatch and focus sessions — pop any timer out to float over your desktop and games.',
+                longDescription: 'Run as many countdowns as you like side by side, plus a lap stopwatch and a Pomodoro focus timer. Type times the way you think ("25", "1h30", "at 5pm"), label, colour and repeat each one, and pop it out of the app into a floating always-on-top window you can drag onto any monitor: ring, pill or text-only, any size and opacity, even click-through over a game. Alarms run in the background process, so they ring on time while main sits in the tray, with a desktop notification you can snooze from. Also: a heads-up before the end, five alarm sounds, global hotkeys, and focus stats with a weekly chart, streaks and history.',
                 category: 'Productivity',
-                keywords: ['timer', 'countdown', 'stopwatch', 'pomodoro', 'alarm', 'minutes', 'reminder', 'cooking'],
-                version: '1.0.0',
+                keywords: ['timer', 'timers', 'countdown', 'stopwatch', 'lap', 'pomodoro', 'focus', 'study', 'alarm', 'minutes', 'reminder', 'cooking', 'floating', 'overlay', 'always on top', 'pop out', 'desktop', 'second monitor', 'break', 'productivity', 'stats', 'streak'],
+                version: '2.0.0',
                 author: 'ryota',
-                features: ['Countdown to zero', 'Quick presets + custom duration', 'Start / Pause / Resume / Reset', 'Live header readout while running', 'Sound + toast when time is up'],
+                features: ['Many countdowns at once — label, colour, repeat each', 'Pop out: floating always-on-top timers on any monitor', 'Ring, pill or text-only · size, opacity, click-through', 'Stopwatch with laps, fastest / slowest highlighted', 'Pomodoro focus sessions with automatic breaks', 'Type times naturally: 25 · 5:30 · 1h15 · at 5pm', 'Rings on time from the tray, snooze from the notification', 'Checkpoints: pings part-way through, flagged on the ring and bar', 'Heads-up warning, 5 alarm sounds, global hotkeys', 'Focus stats: today, 7-day chart, streak, history'],
                 panelId: 'timer-panel',
                 panelRenderer: 'renderTimerPanel'
+            },
+            {
+                id: 'calendar',
+                label: 'Calendar',
+                icon: 'fa-calendar-days',
+                description: 'A beautiful calendar with smart quick-add, repeating events, tasks and reminders that reach you anywhere.',
+                longDescription: 'A full calendar that lives in your launcher. Just type what you mean — "Math test fri 10am", "History essay due next thursday", "Standup every weekday 9:30-9:45 #work", "Gym mondays and thursdays 6pm for 1h" — and it understands the date, time, length, repeat, place and reminder as you type, showing you exactly what it read before you press Enter. Switch between Month, Week and Agenda views; drag events to another day or time and stretch them to resize; repeat anything daily, on weekdays, weekly on chosen days, every other week, monthly (on a date or "the 2nd Tuesday") or yearly, then change or skip a single occurrence without touching the rest. Tasks sit alongside events with a tick box, so homework, assignments and deadlines live in the same place as classes, shifts and meetings. Reminders are handled by the app itself, so they still fire while main is minimised to the tray — as a desktop notification with Snooze and Join-call buttons, plus an in-app card and a soft chime — and if your PC was asleep you get the ones that still matter, never a pile of stale ones. Add a morning digest of your day, quiet hours that hold back everything but important items, and a live "up next" chip in the header. Import .ics files from Google Calendar, Outlook or your school, subscribe to a calendar link so a timetable or work rota stays in sync on its own, and export or back up everything any time. Everything is stored on your PC.',
+                category: 'Productivity',
+                keywords: ['calendar', 'schedule', 'planner', 'agenda', 'events', 'reminder', 'reminders', 'notification', 'notifications', 'tasks', 'todo', 'homework', 'assignment', 'deadline', 'exam', 'test', 'school', 'class', 'timetable', 'work', 'meeting', 'shift', 'rota', 'week', 'month', 'ics', 'ical', 'google calendar', 'outlook', 'recurring', 'repeat', 'digest', 'snooze', 'zoom', 'teams'],
+                version: '1.0.0',
+                author: 'ryota',
+                features: ['Natural-language quick add with a live preview of what it understood', 'Month, Week and Agenda views, drag to move and resize', 'Repeating events — weekdays, chosen days, every other week, monthly, yearly', 'Change or skip one occurrence, or everything from here on', 'Tasks & deadlines with tick boxes, overdue tracking and countdowns', 'Reminders that fire even while main is in the tray — Snooze & Join-call buttons', 'Catches up after sleep without flooding you with stale alerts', 'Daily digest, quiet hours and a live "up next" header chip', 'Colour-coded calendars you can show, hide or mute', 'Import / export .ics and subscribe to calendar links (Google, Outlook, school)'],
+                panelId: 'calendar-panel',
+                panelRenderer: 'renderCalendarPanel'
             },
             {
                 id: 'notesEnhanced',
@@ -570,7 +612,7 @@
         const FIRST_RUN_MINI_WIDGETS = [
             'launchEnhanced',   // Quick Launch — jump to your apps
             'notesEnhanced',    // Quick Notes — jot things down
-            'timer',            // Countdown Timer
+            'timer',            // Timers (countdowns, stopwatch, focus)
             'volumeMixer',      // Per-app volume
             'weatherEnhanced',  // Auto-located weather + forecast
         ];

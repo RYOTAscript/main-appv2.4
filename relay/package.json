@@ -1,0 +1,12 @@
+{
+  "name": "main-phone-relay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker + Durable Object that relays the Phone Remote's end-to-end encrypted messages between the main desktop app and a phone.",
+  "scripts": {
+    "test": "node --test",
+    "dev": "npx wrangler@4 dev",
+    "deploy": "npx wrangler@4 deploy"
+  }
+}

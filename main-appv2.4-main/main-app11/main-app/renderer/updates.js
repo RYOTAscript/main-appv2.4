@@ -88,11 +88,25 @@ function renderUpdatesState(s) {
             status = 'Downloading update' + (s.version ? ' v' + s.version : '') + '…';
             badge = 'Downloading'; badgeColor = '#60a5fa'; showProgress = true; checkDisabled = true; break;
         case 'downloaded':
+            // Say that doing nothing is a valid choice. It is the truth
+            // (autoInstallOnAppQuit is on) and it turns a demand into an offer:
+            // nobody wants to be told to restart in the middle of something.
             status = (s.version ? 'Version ' + s.version : 'The update') +
-                     ' is downloaded and ready. Restarting takes a few seconds.';
+                     ' is ready. It installs when you next quit main — or restart now.';
             badge = 'Ready'; badgeColor = '#34d399'; showInstall = true; checkDisabled = true; break;
         case 'error':
-            status = "Couldn't check for updates. Try again shortly."; badge = 'Error'; badgeColor = '#f87171'; break;
+            // The main process has already worked out WHICH failure this is and
+            // phrased it for a person. Repeating a generic line over the top of
+            // that would throw away the one useful thing in the payload: a user
+            // who is offline can fix that, and a user whose security software is
+            // intercepting HTTPS cannot — telling them apart is the whole point.
+            status = s.error || "Couldn't check for updates.";
+            if (s.errorKind === 'offline' || s.errorKind === 'unreachable') {
+                status += ' Retrying automatically.';
+            }
+            badge = s.errorKind === 'missing' ? 'Up to date' : 'Error';
+            badgeColor = s.errorKind === 'missing' ? '#a1a1aa' : '#f87171';
+            break;
         default: // idle
             status = 'Checking for updates…'; checkDisabled = true; break;
     }

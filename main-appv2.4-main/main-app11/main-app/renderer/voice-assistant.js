@@ -889,6 +889,21 @@
             'timer.pause': () => voiceTimerCall('timerPause', 'Timer paused'),
             'timer.resume': () => voiceTimerCall('timerResume', 'Timer running'),
             'timer.restart': () => voiceTimerCall('timerRestart', 'Timer restarted'),
+            'timer.float': async () => {
+                if (typeof timerFloatPrimary !== 'function') return { ok: false, message: 'Timer isn’t available' };
+                if (!isMiniWidgetEnabled('timer')) return { ok: false, message: 'Timers widget is off' };
+                return timerFloatPrimary();
+            },
+            'timer.stopwatch': async () => {
+                if (typeof timerStartStopwatch !== 'function') return { ok: false, message: 'Timer isn’t available' };
+                if (!isMiniWidgetEnabled('timer')) return { ok: false, message: 'Timers widget is off' };
+                return timerStartStopwatch();
+            },
+            'timer.focus': async () => {
+                if (typeof timerStartFocus !== 'function') return { ok: false, message: 'Timer isn’t available' };
+                if (!isMiniWidgetEnabled('timer')) return { ok: false, message: 'Timers widget is off' };
+                return timerStartFocus();
+            },
             'timer.status': () => {
                 if (typeof getTimerState !== 'function' || typeof timerRemaining !== 'function') {
                     return { ok: false, message: 'Timer isn’t available' };

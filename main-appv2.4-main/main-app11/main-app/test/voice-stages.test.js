@@ -20,7 +20,10 @@ const statsSrc = fs.readFileSync(here('main', 'systemStats.js'), 'utf8');
 // ── Stage 3: rich answers ────────────────────────────────────────────────────
 
 test('album art is allowed by the overlay CSP, and only as an image', () => {
-  assert.match(overlaySrc, /img-src 'self' file: data: blob: https:;/);
+  // The CSP half of this lives in test/csp.test.js, which PARSES the policy
+  // instead of matching its text. A substring match here once passed for a
+  // policy the browser was discarding — see that file for what went wrong.
+  // What remains here is the other half: the value that reaches the src.
   // A src attribute is not a place to trust a value that arrived from an API,
   // so it is re-checked at the point of use as well as on the way in. Both
   // checks accept exactly two shapes: a remote http(s) cover, and a base64

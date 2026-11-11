@@ -16,7 +16,7 @@
 // registered — even in dev — so the Updates section can at least show the
 // current version and a clear "updates only in the installed build" state.
 
-const { app, ipcMain, BrowserWindow, Notification } = require('electron');
+const { app, ipcMain, BrowserWindow, Notification, powerMonitor } = require('electron');
 
 let started = false;
 let autoUpdater = null;
@@ -24,7 +24,7 @@ let log = null;
 
 // status: dev | disabled | idle | checking | available | not-available |
 //         downloading | downloaded | error
-let state = { status: 'idle', version: null, progress: 0, error: null,
+let state = { status: 'idle', version: null, progress: 0, error: null, errorKind: null,
   // electron-updater reports these on every progress tick and they were all
   // being thrown away, leaving the UI with nothing to say but a percentage.
   transferred: 0, total: 0, bytesPerSecond: 0 };
@@ -40,6 +40,7 @@ function publicState() {
     total: state.total,
     bytesPerSecond: state.bytesPerSecond,
     error: state.error,
+    errorKind: state.errorKind || null,
   };
 }
 
@@ -96,6 +97,53 @@ function registerIpc() {
     return { ok: true };
   });
 }
+
+// ── What actually went wrong ──────────────────────────────────────────────
+// electron-updater's message is a stack-flavoured string ("net::ERR_..." ,
+// "ENOTFOUND", an HTML error page). Shown raw it tells the user nothing, and
+// the previous generic "Couldn't check for updates" told them nothing either —
+// in particular it could not distinguish "your wifi is off" (their problem, and
+// they can fix it) from "the update server is down" (ours, and they cannot).
+// This machine sits behind a TLS-inspecting proxy that intercepts HTTPS, so the
+// certificate case is a real one here, not a hypothetical.
+function classifyError(err) {
+  const m = String(err?.message || err || '').toLowerCase();
+  const code = String(err?.code || '').toLowerCase();
+  const both = code + ' ' + m;
+  if (/enotfound|enetunreach|eai_again|err_name_not_resolved|err_internet_disconnected|err_network/.test(both)) {
+    return { kind: 'offline', message: 'No internet connection.' };
+  }
+  if (/cert|ssl|tls|err_cert|self.signed|unable to verify/.test(both)) {
+    return { kind: 'blocked', message: 'A security product on this network is blocking the update server.' };
+  }
+  if (/404|not found/.test(both)) {
+    return { kind: 'missing', message: 'No update published yet.' };
+  }
+  if (/etimedout|timeout|econnreset|econnrefused|socket hang up|err_connection/.test(both)) {
+    return { kind: 'unreachable', message: 'Update server did not respond.' };
+  }
+  if (/signature|invalid_signature/.test(both)) {
+    return { kind: 'signature', message: 'That update failed its signature check and was not installed.' };
+  }
+  return { kind: 'unknown', message: 'Update check failed.' };
+}
+
+// ── Retrying, quietly ─────────────────────────────────────────────────────
+// A check that fails once is almost never a check that will fail forever: a
+// laptop that just woke, a proxy mid-handshake, a CDN blip. The old behaviour
+// painted the Updates section red on the first failure and then did nothing
+// until the app restarted or the user pressed the button themselves, which is
+// the opposite of smooth — the one thing the user could not know is that
+// nothing was going to happen.
+//
+// So failures are absorbed: retried on a widening delay, and kept out of the UI
+// until enough of them in a row mean something is genuinely wrong. A signature
+// failure is exempt — that one is not transient and must be seen.
+const RETRY_DELAYS_MS = [30 * 1000, 2 * 60 * 1000, 10 * 60 * 1000];
+const FAILURES_BEFORE_SURFACING = 3;
+let consecutiveFailures = 0;
+let retryTimer = null;
+let recheck = () => {};
 
 function initAutoUpdate(logger) {
   if (started) return;
@@ -183,7 +231,9 @@ function initAutoUpdate(logger) {
   }
 
     autoUpdater.on('update-available', (info) => {
-      setState({ status: 'available', version: info?.version || null });
+      consecutiveFailures = 0;
+      clearTimeout(retryTimer);
+      setState({ status: 'available', version: info?.version || null, error: null, errorKind: null });
       logger?.info?.('[autoUpdate] update available', info?.version);
       const v = info?.version;
       // Once per version, so a restart or a re-check cannot re-nag.
@@ -192,7 +242,11 @@ function initAutoUpdate(logger) {
         notify('main ' + v + ' is available', 'Downloading now — you can keep working.');
       }
     });
-    autoUpdater.on('update-not-available', () => setState({ status: 'not-available' }));
+    autoUpdater.on('update-not-available', () => {
+      consecutiveFailures = 0;
+      clearTimeout(retryTimer);
+      setState({ status: 'not-available', error: null, errorKind: null });
+    });
     autoUpdater.on('download-progress', (p) =>
       setState({
         status: 'downloading',
@@ -228,8 +282,30 @@ function initAutoUpdate(logger) {
       );
     });
     autoUpdater.on('error', (err) => {
-      setState({ status: 'error', error: err?.message || 'Update error.' });
-      logger?.warn?.('[autoUpdate] check failed', err?.message || err);
+      const info = classifyError(err);
+      consecutiveFailures += 1;
+      logger?.warn?.('[autoUpdate] attempt failed',
+        { kind: info.kind, attempt: consecutiveFailures, detail: String(err?.message || err).slice(0, 200) });
+
+      // A build that fails verification is a hard stop, not a blip: retrying
+      // downloads the same bad bytes again, and the user needs to know their
+      // update is not going to arrive.
+      const hard = info.kind === 'signature';
+
+      if (hard || consecutiveFailures >= FAILURES_BEFORE_SURFACING) {
+        setState({ status: 'error', error: info.message, errorKind: info.kind });
+      } else {
+        // Below the threshold the section keeps saying whatever it said before.
+        // Showing "error" for something we are about to retry in 30 seconds is
+        // just flicker with a red badge on it.
+        logger?.info?.('[autoUpdate] absorbed, retrying', info.kind);
+      }
+      if (hard) return;
+
+      const delay = RETRY_DELAYS_MS[Math.min(consecutiveFailures - 1, RETRY_DELAYS_MS.length - 1)];
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(
+        () => recheck('retry ' + consecutiveFailures, { force: true }), delay);
     });
 
     // checkForUpdatesAndNotify shows a native "update ready" notification.
@@ -237,10 +313,57 @@ function initAutoUpdate(logger) {
       logger?.warn?.('[autoUpdate] initial check failed', err?.message || err),
     );
 
-    // Re-check every 6 hours for long-running sessions (the app is always-on).
-    setInterval(() => {
+    // ── How soon a new version is noticed ──
+    // This is an always-on launcher: it is normal for it to run untouched for
+    // days, so the poll interval IS the latency on every release. Six hours
+    // meant a fix could sit published and unseen for most of a day. A check is
+    // one conditional GET of a few hundred bytes of YAML on a CDN, so the old
+    // interval was not buying anything worth that delay.
+    const CHECK_INTERVAL_MS = 30 * 60 * 1000;
+
+    // eslint-disable-next-line no-func-assign
+    // Unlocking the screen triggers a check, and locking and unlocking again is
+    // something people do many times an hour — without a floor that is a burst
+    // of requests at the CDN for an answer that cannot have changed since the
+    // last one a minute ago. The retry ladder and the user's own button are
+    // exempt: those are deliberate, and a retry that a floor swallowed would
+    // stop the ladder dead.
+    const MIN_CHECK_GAP_MS = 5 * 60 * 1000;
+    // Seeded with now, not 0: the initial checkForUpdatesAndNotify() a few lines
+    // above has just gone out, so an unlock in the first minutes of a session
+    // would otherwise repeat it for nothing.
+    let lastCheckAt = Date.now();
+
+    recheck = function recheck(why, { force = false } = {}) {
+      // Nothing to look for once a build is already downloaded and waiting.
+      if (state.status === 'downloading' || state.status === 'downloaded') return;
+      const now = Date.now();
+      if (!force && now - lastCheckAt < MIN_CHECK_GAP_MS) {
+        logger?.info?.('[autoUpdate] skipped, checked recently', why);
+        return;
+      }
+      lastCheckAt = now;
+      logger?.info?.('[autoUpdate] checking', why);
+      // Rejections arrive through the 'error' event as well, which is where the
+      // retry lives — swallowing here only stops an unhandled rejection.
       autoUpdater.checkForUpdates().catch(() => {});
-    }, 6 * 60 * 60 * 1000);
+    };
+
+    setInterval(() => recheck('interval'), CHECK_INTERVAL_MS);
+
+    // A timer alone is not enough. The two moments a machine is most likely to
+    // be behind are the two a fixed interval handles worst: waking from sleep
+    // (where the timer may not have advanced at all) and regaining a network
+    // after being offline (where every check so far has failed). Both are cheap
+    // to observe and both are answered immediately.
+    try {
+      // A few seconds of grace — the network adapter is rarely up at the instant
+      // the OS says the machine resumed, and a check that fails is a check wasted.
+      powerMonitor.on('resume', () => setTimeout(() => recheck('resume'), 8000));
+      powerMonitor.on('unlock-screen', () => setTimeout(() => recheck('unlock'), 4000));
+    } catch (e) {
+      logger?.warn?.('[autoUpdate] power events unavailable', e?.message || e);
+    }
   } catch (e) {
     setState({ status: 'error', error: 'Updater init failed.' });
     logger?.warn?.('[autoUpdate] init failed', e);

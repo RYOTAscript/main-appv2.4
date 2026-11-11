@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <!-- Phone Remote socket — a hidden window whose preload (phone-remote-preload.js)
+         holds the relay WebSocket for main/phoneRemote.js. Nothing is ever shown and
+         there is no page script. connect-src is the one thing it needs: wss: for the
+         relay, and the loopback ws: a dev relay runs on (MAIN_PHONE_RELAY, dev only). -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'none';
+        connect-src wss: ws://localhost:* ws://127.0.0.1:*;
+        base-uri 'none';
+        form-action 'none';">
+    <title>main phone remote</title>
+</head>
+
+<body></body>
+
+</html>

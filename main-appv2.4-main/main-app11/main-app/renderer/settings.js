@@ -92,6 +92,9 @@
             if (!slider) return;
             const val = parseInt(slider.value, 10);
             localStorage.setItem('lyricsAnticipateMs', val.toString());
+            // The corner player and the phone remote time their lyrics with the same offset.
+            if (typeof pushMiniPlayerSync === 'function') pushMiniPlayerSync();
+            if (typeof pushPhoneRemoteSync === 'function') pushPhoneRemoteSync();
             if (valEl) valEl.textContent = (val / 1000).toFixed(1) + 's';
             const pct = Math.max(0, Math.min(100, (val / 2000) * 100));
             slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;

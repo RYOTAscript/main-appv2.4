@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Content-Security-Policy: the floating timer renders only its own local
+     markup, the vendored icon font, and talks to the main process over its
+     narrow preload bridge — everything else is denied. script-src keeps
+     'unsafe-inline' only to match the other documents; this page has no
+     inline script or handlers. -->
+<meta http-equiv="Content-Security-Policy" content="
+    default-src 'none';
+    script-src 'self' 'unsafe-inline' file:;
+    style-src 'self' 'unsafe-inline' file:;
+    img-src 'self' file: data:;
+    font-src 'self' file: data:;
+    connect-src 'none';
+    object-src 'none';
+    frame-src 'none';
+    child-src 'none';
+    worker-src 'none';
+    base-uri 'none';
+    form-action 'none';">
+<title>Timer</title>
+<link rel="stylesheet" href="styles/vendor/fontawesome/css/all.min.css">
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        -webkit-user-select: none;
+        user-select: none;
+        font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        color: #fafafa;
+    }
+    * { box-sizing: border-box; }
+
+    .tf {
+        --c: #60a5fa;
+        --u: 1;
+        position: fixed;
+        inset: 0;
+        padding: 4px;
+        -webkit-app-region: drag;
+    }
+    .tf.size-s { --u: 0.8; }
+    .tf.size-l { --u: 1.32; }
+
+    .card {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(12, 12, 15, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+        transition: border-color 0.25s ease, background-color 0.25s ease, opacity 0.25s ease;
+        overflow: hidden;
+    }
+    .style-ring .card { border-radius: 50%; }
+    .style-pill .card { border-radius: calc(18px * var(--u)); justify-content: flex-start; padding: 0 calc(14px * var(--u)); }
+    .style-text .card { background: transparent; border-color: transparent; box-shadow: none; justify-content: flex-start; padding: 0 calc(10px * var(--u)); }
+    .style-text:hover .card, .style-text.is-done .card { background: rgba(12, 12, 15, 0.55); border-color: rgba(255, 255, 255, 0.08); border-radius: calc(14px * var(--u)); }
+
+    /* progress ring (ring style only) */
+    .ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); display: none; }
+    .style-ring .ring { display: block; }
+    .ring circle { fill: none; stroke-width: 4.5; }
+    .ring .track { stroke: rgba(255, 255, 255, 0.08); }
+    /* No transition on the progress itself: renderer/timer-float.js drives it
+       with Web Animations pinned to the timer's real elapsed time. */
+    .ring .arc { stroke: var(--c); stroke-linecap: round; transition: stroke 0.25s ease; filter: drop-shadow(0 0 3px var(--c)); }
+
+    /* progress bar (pill style) */
+    .bar { position: absolute; left: 0; right: 0; bottom: 0; height: calc(3px * var(--u)); background: rgba(255, 255, 255, 0.06); display: none; }
+    .style-pill .bar { display: block; }
+    /* checkpoints: ticks across the ring, notches on the pill's bar */
+    .cps line { stroke: rgba(255, 255, 255, 0.95); stroke-width: 1.8; stroke-linecap: round; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9)); }
+    .cps line.hit { stroke: rgba(255, 255, 255, 0.28); filter: none; }
+    .bar-cps { position: absolute; inset: 0; pointer-events: none; }
+    .bar-cps b { position: absolute; bottom: 0; width: 2px; height: calc(9px * var(--u)); margin-left: -1px; border-radius: 1px; background: rgba(255, 255, 255, 0.95); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4); }
+    .bar-cps b.hit { background: rgba(255, 255, 255, 0.28); box-shadow: none; }
+    /* A look/size change is applied in one jump, never animated between. */
+    .no-trans, .no-trans * { transition: none !important; }
+    .bar i { display: block; height: 100%; width: 100%; transform-origin: left center; transform: scaleX(0); will-change: transform; background: var(--c); box-shadow: 0 0 6px var(--c); }
+
+    .face {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 0;
+        max-width: 100%;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+        pointer-events: none;
+    }
+    .style-pill .face, .style-text .face { align-items: flex-start; flex: 1; }
+    .label {
+        font-size: calc(10.5px * var(--u));
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.55);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: calc(120px * var(--u));
+        line-height: 1.2;
+    }
+    .style-pill .label, .style-text .label { max-width: 100%; }
+    .label .dot { display: inline-block; width: calc(6px * var(--u)); height: calc(6px * var(--u)); border-radius: 50%; background: var(--c); margin-right: 5px; vertical-align: 1px; }
+    .clock {
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1.05;
+        font-size: calc(36px * var(--u));
+        white-space: nowrap;
+    }
+    .clock.long { font-size: calc(28px * var(--u)); }
+    .style-pill .clock { font-size: calc(30px * var(--u)); }
+    .style-pill .clock.long { font-size: calc(25px * var(--u)); }
+    .style-text .clock { font-size: calc(40px * var(--u)); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 0, 0, 0.6); }
+    .style-text .clock.long { font-size: calc(32px * var(--u)); }
+    .style-text .label { color: rgba(255, 255, 255, 0.8); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
+    .clock .frac { font-size: 0.55em; opacity: 0.6; margin-left: 1px; }
+    .sub {
+        margin-top: calc(3px * var(--u));
+        font-size: calc(10px * var(--u));
+        color: rgba(255, 255, 255, 0.45);
+        white-space: nowrap;
+        line-height: 1.2;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .style-pill .sub { display: none; }
+    .style-text .sub { display: none; }
+    .pips { display: inline-flex; gap: 3px; }
+    .pips b { width: calc(5px * var(--u)); height: calc(5px * var(--u)); border-radius: 50%; background: rgba(255, 255, 255, 0.18); }
+    .pips b.on { background: var(--c); }
+
+    .is-paused .clock { opacity: 0.6; }
+    .is-idle .clock { opacity: 0.75; }
+    .is-done .card { border-color: var(--c); animation: tf-done 1.2s ease-in-out infinite; }
+    @keyframes tf-done {
+        0%, 100% { box-shadow: inset 0 0 0 1px var(--c), 0 0 0 0 transparent; background-color: rgba(12, 12, 15, 0.82); }
+        50% { box-shadow: inset 0 0 18px -2px var(--c); background-color: rgba(30, 30, 36, 0.9); }
+    }
+    .flash .card { animation: tf-flash 0.5s ease-in-out 3; }
+    @keyframes tf-flash { 50% { border-color: var(--c); box-shadow: inset 0 0 14px -2px var(--c); } }
+
+    /* hover controls */
+    .controls {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        gap: calc(5px * var(--u));
+        opacity: 0;
+        transform: translateY(4px);
+        transition: opacity 0.18s ease, transform 0.18s ease;
+        pointer-events: none;
+    }
+    .style-ring .controls { bottom: 17%; left: 50%; transform: translate(-50%, 4px); }
+    .style-pill .controls, .style-text .controls { right: calc(10px * var(--u)); top: 50%; transform: translate(4px, -50%); }
+    .tf:hover .controls, .is-done .controls { opacity: 1; pointer-events: auto; }
+    .style-ring:hover .controls, .style-ring.is-done .controls { transform: translate(-50%, 0); }
+    .style-pill:hover .controls, .style-text:hover .controls, .style-pill.is-done .controls, .style-text.is-done .controls { transform: translate(0, -50%); }
+    /* Hover controls must never sit on top of the time. The ring lifts its
+       face clear of the buttons; the pill and text styles give the buttons
+       their own space on the right and shrink the clock to fit beside them. */
+    .style-ring:hover .sub, .style-ring.is-done .sub { opacity: 0; }
+    .style-ring:hover .face, .style-ring.is-done .face { transform: translateY(calc(-10px * var(--u))); }
+    .clock { transition: font-size 0.18s ease; }
+    .style-pill:hover .face, .style-text:hover .face, .style-pill.is-done .face, .style-text.is-done .face {
+        max-width: calc(100% - 96px * var(--u));
+        overflow: hidden;
+    }
+    .style-pill:hover .clock, .style-pill.is-done .clock { font-size: calc(26px * var(--u)); }
+    .style-pill:hover .clock.long, .style-pill.is-done .clock.long { font-size: calc(21px * var(--u)); }
+    .style-text:hover .clock, .style-text.is-done .clock { font-size: calc(28px * var(--u)); }
+    .style-text:hover .clock.long, .style-text.is-done .clock.long { font-size: calc(22px * var(--u)); }
+
+    button {
+        -webkit-app-region: no-drag;
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: #f5f5f5;
+        width: calc(26px * var(--u));
+        height: calc(26px * var(--u));
+        border-radius: 50%;
+        font-size: calc(10.5px * var(--u));
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+        font-family: inherit;
+        font-weight: 600;
+        transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+    }
+    button:hover { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.3); }
+    button:active { transform: scale(0.92); }
+    button.primary { background: var(--c); border-color: transparent; color: #0a0a0a; }
+    button.primary:hover { filter: brightness(1.12); background: var(--c); }
+    button:focus-visible { outline: 2px solid var(--c); outline-offset: 1px; }
+
+    .close {
+        position: absolute;
+        top: 6%;
+        right: 6%;
+        width: calc(18px * var(--u));
+        height: calc(18px * var(--u));
+        font-size: calc(9px * var(--u));
+        opacity: 0;
+        pointer-events: none;
+        background: rgba(0, 0, 0, 0.5);
+    }
+    .style-ring .close { top: 3%; right: 3%; }
+    .style-pill .close, .style-text .close { top: 4px; right: 4px; width: calc(16px * var(--u)); height: calc(16px * var(--u)); }
+    .tf:hover .close { opacity: 1; pointer-events: auto; }
+
+    /* ghost (click-through) mode */
+    .ghost .controls, .ghost .close { display: none; }
+    .ghost .card { border-color: rgba(255, 255, 255, 0.04); }
+    .ghost-handle {
+        display: none;
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 20px;
+        height: 20px;
+        font-size: 9px;
+        background: rgba(0, 0, 0, 0.65);
+        opacity: 0;
+        transition: opacity 0.15s ease;
+    }
+    .ghost .ghost-handle { display: inline-flex; }
+    .ghost.near .ghost-handle { opacity: 1; }
+</style>
+</head>
+<body>
+    <div id="tf" class="tf style-ring size-m is-idle">
+        <div class="card">
+            <svg class="ring" viewBox="0 0 100 100" aria-hidden="true">
+                <circle class="track" cx="50" cy="50" r="45"></circle>
+                <circle id="tf-arc" class="arc" cx="50" cy="50" r="45"></circle>
+                <g id="tf-cps" class="cps"></g>
+            </svg>
+            <div class="face">
+                <div class="label" id="tf-label"></div>
+                <div class="clock" id="tf-clock">00:00</div>
+                <div class="sub" id="tf-sub"></div>
+            </div>
+            <div class="bar"><i id="tf-bar"></i><div class="bar-cps" id="tf-bar-cps"></div></div>
+            <div class="controls">
+                <button type="button" id="tf-primary" class="primary" title="Start / pause (Space)"><i class="fas fa-play"></i></button>
+                <button type="button" id="tf-secondary" title=""></button>
+                <button type="button" id="tf-more" title="More (right-click)"><i class="fas fa-ellipsis"></i></button>
+            </div>
+            <button type="button" id="tf-close" class="close" title="Close floating timer"><i class="fas fa-xmark"></i></button>
+            <button type="button" id="tf-ghost" class="ghost-handle" title="Leave click-through mode"><i class="fas fa-lock-open"></i></button>
+        </div>
+    </div>
+    <script src="renderer/timer-engine.js"></script>
+    <script src="renderer/timer-float.js"></script>
+</body>
+</html>

@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   lyricsSetImmersive: (on) => ipcRenderer.invoke('lyrics-set-immersive', !!on),
   setFocusHotkey: (accelerator) => ipcRenderer.invoke('set-focus-hotkey', accelerator),
   getFocusHotkey: () => ipcRenderer.invoke('get-focus-hotkey'),
+  // (The first-run welcome window has its own narrow bridge — see
+  // first-run-preload.js. It has no business on the main app's surface.)
   unregisterFocusHotkey: () => ipcRenderer.invoke('unregister-focus-hotkey'),
   getLogPath: () => ipcRenderer.invoke('get-log-path'),
   openLogFolder: () => ipcRenderer.invoke('open-log-folder'),
@@ -179,6 +181,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   spotifyPlayContext: (contextUri) => ipcRenderer.invoke('spotify-play-context', contextUri),
   spotifyIsSaved: (trackId) => ipcRenderer.invoke('spotify-is-saved', trackId),
   spotifySetSaved: (trackId, saved) => ipcRenderer.invoke('spotify-set-saved', trackId, saved),
+  // Remove a song from the queue through the Spotify desktop app (see main/spotify.js).
+  spotifyDesktopQueueRemove: (title, occurrence) => ipcRenderer.invoke('spotify-desktop-queue-remove', title, occurrence),
+  spotifyDesktopQueueWarm: () => ipcRenderer.invoke('spotify-desktop-queue-warm'),
 
   // Mini Widgets: Screen Resolution Manager
   screenResolutionList: () => ipcRenderer.invoke('screen-resolution-list'),
@@ -387,6 +392,118 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_e, payload) => { try { callback(payload); } catch (err) { /* ignore */ } };
     ipcRenderer.on('voice:state', listener);
     return () => ipcRenderer.removeListener('voice:state', listener);
+  },
+
+  // Mini Widgets: Calendar (cross-platform). Main owns the data and the
+  // reminder scheduler (main/calendar.js); these are the panel's calls.
+  calendarGet: () => ipcRenderer.invoke('calendar:get'),
+  calendarSetEnabled: (enabled, env) => ipcRenderer.invoke('calendar:set-enabled', !!enabled, env || null),
+  calendarSaveEvent: (ev, opts) => ipcRenderer.invoke('calendar:save-event', ev, opts || null),
+  calendarDeleteEvent: (id, opts) => ipcRenderer.invoke('calendar:delete-event', id, opts || null),
+  calendarSetDone: (id, occKey, done) => ipcRenderer.invoke('calendar:set-done', id, occKey, !!done),
+  calendarSaveCalendar: (cal) => ipcRenderer.invoke('calendar:save-calendar', cal),
+  calendarDeleteCalendar: (id, opts) => ipcRenderer.invoke('calendar:delete-calendar', id, opts || null),
+  calendarSetSettings: (patch) => ipcRenderer.invoke('calendar:set-settings', patch),
+  calendarSnooze: (eventId, occKey, minutes) => ipcRenderer.invoke('calendar:snooze', eventId, occKey, minutes),
+  calendarHistoryRead: (id) => ipcRenderer.invoke('calendar:history-read', id || '*'),
+  calendarHistoryClear: () => ipcRenderer.invoke('calendar:history-clear'),
+  calendarTestNotify: () => ipcRenderer.invoke('calendar:test-notify'),
+  calendarOpenLink: (url) => ipcRenderer.invoke('calendar:open-link', url),
+  calendarImportIcs: () => ipcRenderer.invoke('calendar:import-ics'),
+  calendarExportIcs: (calendarId) => ipcRenderer.invoke('calendar:export-ics', calendarId || null),
+  calendarBackupExport: () => ipcRenderer.invoke('calendar:backup-export'),
+  calendarBackupImport: () => ipcRenderer.invoke('calendar:backup-import'),
+  calendarSubscribe: (input) => ipcRenderer.invoke('calendar:subscribe', input),
+  calendarRefresh: (id) => ipcRenderer.invoke('calendar:refresh', id),
+  onCalendarChanged: (cb) => {
+    const listener = (_e, s) => { try { cb(s); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('calendar:changed', listener);
+    return () => ipcRenderer.removeListener('calendar:changed', listener);
+  },
+  onCalendarAlert: (cb) => {
+    const listener = (_e, a) => { try { cb(a); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('calendar:alert', listener);
+    return () => ipcRenderer.removeListener('calendar:alert', listener);
+  },
+  onCalendarOpen: (cb) => {
+    const listener = (_e, p) => { try { cb(p); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('calendar:open', listener);
+    return () => ipcRenderer.removeListener('calendar:open', listener);
+  },
+
+  // Mini Widgets: Timers (cross-platform). Main owns the timers, the alarm
+  // scheduler, the floating always-on-top timer windows and their hotkeys
+  // (main/timers.js); these are the panel's calls.
+  timerGet: () => ipcRenderer.invoke('timer:get'),
+  timerSetEnabled: (enabled) => ipcRenderer.invoke('timer:set-enabled', !!enabled),
+  timerCreate: (opts) => ipcRenderer.invoke('timer:create', opts || {}),
+  timerImportLegacy: (legacy) => ipcRenderer.invoke('timer:import-legacy', legacy || null),
+  timerAction: (id, action, arg) => ipcRenderer.invoke('timer:action', id, action, arg),
+  timerUpdate: (id, patch) => ipcRenderer.invoke('timer:update', id, patch || {}),
+  timerRemove: (id) => ipcRenderer.invoke('timer:remove', id),
+  timerSetCheckpoints: (id, list) => ipcRenderer.invoke('timer:set-checkpoints', id, Array.isArray(list) ? list : []),
+  timerReorder: (ids) => ipcRenderer.invoke('timer:reorder', ids),
+  timerSetSettings: (patch) => ipcRenderer.invoke('timer:set-settings', patch || {}),
+  timerSavePreset: (preset) => ipcRenderer.invoke('timer:save-preset', preset || {}),
+  timerDeletePreset: (id) => ipcRenderer.invoke('timer:delete-preset', id),
+  timerResetPresets: () => ipcRenderer.invoke('timer:reset-presets'),
+  timerClearHistory: () => ipcRenderer.invoke('timer:clear-history'),
+  timerFloatOpen: (id) => ipcRenderer.invoke('timer:float-open', id),
+  timerFloatClose: (id) => ipcRenderer.invoke('timer:float-close', id),
+  timerFloatCloseAll: () => ipcRenderer.invoke('timer:float-close-all'),
+  timerFloatPrefs: (id, patch) => ipcRenderer.invoke('timer:float-prefs', id, patch || {}),
+  timerFloatSnap: (id, corner) => ipcRenderer.invoke('timer:float-snap', id, corner),
+  onTimerChanged: (cb) => {
+    const listener = (_e, s) => { try { cb(s); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('timer:changed', listener);
+    return () => ipcRenderer.removeListener('timer:changed', listener);
+  },
+  onTimerAlert: (cb) => {
+    const listener = (_e, a) => { try { cb(a); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('timer:alert', listener);
+    return () => ipcRenderer.removeListener('timer:alert', listener);
+  },
+  onTimerOpen: (cb) => {
+    const listener = (_e, p) => { try { cb(p); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('timer:open', listener);
+    return () => ipcRenderer.removeListener('timer:open', listener);
+  },
+
+  // Mini Widgets: Corner Player (cross-platform). Main owns the always-on-top
+  // corner window and polls Spotify for it (main/miniPlayer.js); these are the
+  // panel's calls.
+  miniPlayerGet: () => ipcRenderer.invoke('mini-player:get'),
+  miniPlayerSetEnabled: (enabled) => ipcRenderer.invoke('mini-player:set-enabled', !!enabled),
+  miniPlayerSetPrefs: (patch) => ipcRenderer.invoke('mini-player:set-prefs', patch || {}),
+  miniPlayerSync: (data) => ipcRenderer.invoke('mini-player:sync', data || {}),
+  onMiniPlayerChanged: (cb) => {
+    const listener = (_e, p) => { try { cb(p); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('mini-player:changed', listener);
+    return () => ipcRenderer.removeListener('mini-player:changed', listener);
+  },
+  onMiniPlayerOpenFullscreen: (cb) => {
+    const listener = () => { try { cb(); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('mini-player:open-fullscreen', listener);
+    return () => ipcRenderer.removeListener('mini-player:open-fullscreen', listener);
+  },
+  onMiniPlayerTurnedOff: (cb) => {
+    const listener = () => { try { cb(); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('mini-player:turned-off', listener);
+    return () => ipcRenderer.removeListener('mini-player:turned-off', listener);
+  },
+
+  // Mini Widgets: Phone Remote (cross-platform). Main pairs phones, holds the
+  // relay connection and polls Spotify for them (main/phoneRemote.js); these
+  // are the panel's calls. phoneRemotePair returns the pairing link for the QR.
+  phoneRemoteGet: () => ipcRenderer.invoke('phone-remote:get'),
+  phoneRemoteSetEnabled: (enabled) => ipcRenderer.invoke('phone-remote:set-enabled', !!enabled),
+  phoneRemotePair: () => ipcRenderer.invoke('phone-remote:pair'),
+  phoneRemoteUnpair: () => ipcRenderer.invoke('phone-remote:unpair'),
+  phoneRemoteSync: (data) => ipcRenderer.invoke('phone-remote:sync', data || {}),
+  onPhoneRemoteChanged: (cb) => {
+    const listener = (_e, p) => { try { cb(p); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('phone-remote:changed', listener);
+    return () => ipcRenderer.removeListener('phone-remote:changed', listener);
   },
 
   // ── macOS-only mini widgets ──

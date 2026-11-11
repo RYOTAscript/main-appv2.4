@@ -897,6 +897,23 @@ const COMMANDS = Object.freeze([
     reply: 'Checking'
   },
   {
+    id: 'timer.float', title: 'Pop the timer out onto the desktop', category: 'Productivity',
+    phrases: ['pop out the timer', 'pop the timer out', 'float the timer', 'put the timer on my screen',
+      'show the timer on my desktop'
+    ],
+    reply: 'Timer floating'
+  },
+  {
+    id: 'timer.stopwatch', title: 'Start a stopwatch', category: 'Productivity',
+    phrases: ['start a stopwatch', 'start the stopwatch', 'open the stopwatch'],
+    reply: 'Stopwatch started'
+  },
+  {
+    id: 'timer.focus', title: 'Start a focus session', category: 'Productivity',
+    phrases: ['start a focus session', 'start a pomodoro', 'start the pomodoro', 'start focus mode'],
+    reply: 'Focus session started'
+  },
+  {
     id: 'notes.new', title: 'New note', category: 'Productivity',
     phrases: ['start a new note', 'make me a new note', 'new note'],
     reply: 'New note'

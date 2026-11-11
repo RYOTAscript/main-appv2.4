@@ -147,6 +147,10 @@ function init(ctx) {
   ipcMain.handle('get-lyrics', async (_event, trackName, artistName, albumName, durationMs) => {
     return await getLyricsWithTimestamps(trackName, artistName, albumName, durationMs);
   });
+
+  // The corner player (main/miniPlayer.js) looks lyrics up from main and
+  // shares this cache with the launcher's own player.
+  return { getLyrics: getLyricsWithTimestamps };
 }
 
 module.exports = { init };

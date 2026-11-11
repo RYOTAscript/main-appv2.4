@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Content-Security-Policy: the corner player renders only its own local
+     markup, the vendored Inter font, the bundled vinyl and Spotify's album art
+     (https), and talks to the main process over its narrow preload bridge —
+     everything else is denied. script-src keeps 'unsafe-inline' only to match
+     the other documents; this page has no inline script or handlers. -->
+<meta http-equiv="Content-Security-Policy" content="
+    default-src 'none';
+    script-src 'self' 'unsafe-inline' file:;
+    style-src 'self' 'unsafe-inline' file:;
+    img-src 'self' file: data: https:;
+    font-src 'self' file: data:;
+    connect-src 'none';
+    object-src 'none';
+    frame-src 'none';
+    child-src 'none';
+    worker-src 'none';
+    base-uri 'none';
+    form-action 'none';">
+<title>Corner player</title>
+<link rel="stylesheet" href="styles/vendor/fonts/fonts.css">
+<style>
+    :root {
+        --accent: 255, 255, 255;
+        --settle: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        overflow: hidden;
+        font-family: 'Inter', sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: default;
+    }
+    /* Room around the card for its shadow — matches PAD in
+       renderer/mini-player-engine.js. */
+    .wrap { padding: 20px; }
+
+    /* Invisible until main says it's on screen, then it arrives (see
+       enterCard in renderer/mini-player-window.js). */
+    .card {
+        position: relative;
+        width: 336px;
+        border-radius: 20px;
+        overflow: hidden;
+        opacity: 0;
+        -webkit-app-region: drag;
+        transition: background-color 0.3s ease, color 0.3s ease;
+    }
+    .is-in .card { opacity: 1; }
+    .card button { -webkit-app-region: no-drag; font-family: inherit; }
+    button:focus-visible { outline: 2px solid rgba(var(--accent), 0.9); outline-offset: 2px; }
+    .ellip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Glass — the launcher's own card, shrunk */
+    .style-glass .card {
+        color: #fff;
+        background: rgba(8, 8, 8, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 0 22px rgba(var(--accent), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 18px -6px rgba(0, 0, 0, 0.6);
+    }
+    .style-glass .card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent);
+        pointer-events: none;
+    }
+    /* White */
+    .style-white .card {
+        color: #111;
+        background: rgba(250, 250, 247, 0.96);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 18px -6px rgba(0, 0, 0, 0.45);
+        letter-spacing: -0.01em;
+    }
+
+    /* Open full screen + hide until the next song */
+    .tools {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 2;
+        display: flex;
+        gap: 5px;
+        opacity: 0.45;
+        transition: opacity 0.2s ease;
+    }
+    .tools:hover, .tools:focus-within { opacity: 1; }
+    /* Without the lyric line there's no free corner above the controls, so the
+       two buttons stack at the card's right edge instead. */
+    .no-lyrics .tools { top: 50%; transform: translateY(-50%); flex-direction: column; gap: 4px; }
+    .no-lyrics .row { padding-right: 38px; }
+    .tool {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border: 0;
+        border-radius: 7px;
+        cursor: pointer;
+        transition: transform 0.2s var(--settle), color 0.2s ease, background 0.2s ease;
+    }
+    .tool:active { transform: scale(0.88); transition-duration: 0.07s; }
+    .style-glass .tool { background: rgba(0, 0, 0, 0.34); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); color: rgba(255, 255, 255, 0.75); }
+    .style-glass .tool:hover { color: #fff; background: rgba(255, 255, 255, 0.14); }
+    .style-white .tool { background: #fff; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); color: #5f5f5b; }
+    .style-white .tool:hover { color: #111; }
+
+    /* Lyric rows — a conveyor: the next line glides up and grows into the current
+       one, which lifts away (renderer/mini-player-window.js). Only transform and
+       opacity animate, so a line change is the compositor's work and never a
+       repaint, and the block keeps one height so the window never has to resize. */
+    .lyric {
+        position: relative;
+        height: 32px;
+        margin-top: 14px;
+        font-size: 12.5px;
+        line-height: 16px;
+        font-weight: 700;
+        letter-spacing: -0.3px;
+    }
+    .style-glass .lyric { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif; }
+    .style-white .lyric { font-size: 13px; }
+    .no-lyrics .lyric { display: none; }
+    .lyric-rows { position: absolute; inset: 0; }
+    .lyric-measure { position: absolute; left: 0; top: 0; visibility: hidden; white-space: nowrap; }
+    .lyric-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+    /* A row's box is as wide as a line can be at MIN_LINE_SCALE (the free span
+       divided by 0.8), so the shrink-to-fit in lyricFit always has room to work.
+       The ellipsis needs overflow: hidden, which would slice the glow off at the
+       text's edge, so --glow-room pads the box by more than the glow's reach and
+       negative offsets put the text back where it belongs. */
+    .lline {
+        --line-w: 330px;
+        --glow-room: 24px;
+        position: absolute;
+        top: calc(var(--glow-room) * -1);
+        left: calc(50% - var(--line-w) / 2 - var(--glow-room));
+        width: calc(var(--line-w) + var(--glow-room) * 2);
+        padding: var(--glow-room);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        text-align: center;
+        isolation: isolate;
+        pointer-events: none;
+        transition: transform 0.62s var(--settle), opacity 0.42s ease;
+    }
+    .style-white .lline {
+        --line-w: 324px;
+        left: calc(14px - var(--glow-room));
+        text-align: left;
+        transform-origin: var(--glow-room) 50%;
+    }
+    .lline.is-cur { transform: translateX(var(--shift, 0px)) scale(var(--fit, 1)); opacity: 1; }
+    .lline.is-next { transform: translateY(18px) scale(0.8); opacity: 0.32; transition-delay: 0.06s; }
+    .style-white .lline.is-next { opacity: 0.45; }
+    .lline.is-next.is-faded { opacity: 0; transition-delay: 0s; transition-duration: 0.62s, 0.16s; }
+    .lline.is-past { transform: translateY(-14px) scale(0.9); opacity: 0; transition-duration: 0.5s, 0.26s; }
+    .lline.is-below { transform: translateY(30px) scale(0.72); opacity: 0; transition-duration: 0.5s, 0.26s; }
+    .lline.is-cur.is-dim { opacity: 0.55; font-weight: 600; }
+
+    /* The glow is its own copy of the line behind the text, so it can fade in
+       and out without repainting. Same glow as the launcher's own lyric line
+       (.lyrics-slot-current in styles/main.css); a test keeps the two alike. */
+    .style-glass .lline::before {
+        content: attr(data-t);
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        padding: inherit;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: transparent;
+        text-shadow: 0 0 8px rgba(var(--accent), 0.9), 0 0 20px rgba(var(--accent), 0.6);
+        opacity: 0;
+        transition: opacity 0.5s ease;
+    }
+    .style-glass .lline.is-cur::before { opacity: 1; }
+    .style-glass.is-paused .lline.is-cur::before { opacity: 0.4; }
+    .style-glass .lline.is-cur.is-dim::before { opacity: 0; }
+
+    /* An instrumental gap: three dots that fill as the next line nears. */
+    .dots { display: inline-flex; gap: 5px; vertical-align: 1px; }
+    .dots i { display: block; width: 4.5px; height: 4.5px; border-radius: 50%; background: currentColor; opacity: 0.3; }
+    .style-glass .dots i { box-shadow: 0 0 6px rgba(var(--accent), 0.55); }
+    .dots i:nth-child(2) { --n: 1; }
+    .dots i:nth-child(3) { --n: 2; }
+    .dots.is-filling i {
+        animation: dotFill var(--third) linear forwards;
+        animation-delay: calc(var(--third) * var(--n, 0) - var(--gone, 0ms));
+    }
+    .is-paused .dots i { animation-play-state: paused; }
+
+    /* Player row */
+    .row { display: flex; align-items: center; gap: 11px; padding: 11px 12px 11px 11px; }
+
+    .art { position: relative; flex-shrink: 0; width: 46px; height: 46px; }
+    .style-white .art { width: 58px; height: 44px; }
+    .art-glass, .art-white { position: absolute; inset: 0; }
+    .style-glass .art-white, .style-white .art-glass { display: none; }
+    .halo {
+        position: absolute;
+        inset: -9px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(var(--accent), 0.4) 0%, rgba(var(--accent), 0.1) 42%, transparent 72%);
+        opacity: 0.12;
+        transition: opacity 0.6s ease;
+    }
+    .is-playing .halo { opacity: 0.28; }
+    .disk {
+        position: absolute;
+        inset: 0;
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        object-fit: cover;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(255, 255, 255, 0.06);
+    }
+    .tile {
+        position: absolute;
+        left: -2px;
+        bottom: -2px;
+        width: 19px;
+        height: 19px;
+        border-radius: 4px;
+        object-fit: cover;
+        box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6), 0 0 12px rgba(255, 255, 255, 0.08);
+    }
+    /* The slide is the record's place in its sleeve (a little further in while
+       paused); the vinyl inside it is what spins. */
+    .vinyl-slide {
+        position: absolute;
+        left: 17px;
+        top: 3px;
+        width: 38px;
+        height: 38px;
+        transition: transform 0.7s var(--settle);
+    }
+    .is-paused .vinyl-slide { transform: translateX(-7px); }
+    .vinyl {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        overflow: hidden;
+        background:
+            repeating-radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.07) 0 0.6px, rgba(0, 0, 0, 0) 0.6px 2.2px),
+            radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.7) 0%, rgba(225, 225, 220, 0.5) 70%, rgba(0, 0, 0, 0.18) 100%);
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+    }
+    .vinyl img { position: absolute; left: 32%; top: 32%; width: 36%; height: 36%; border-radius: 50%; object-fit: cover; }
+    .sleeve {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 44px;
+        height: 44px;
+        border-radius: 3px;
+        object-fit: cover;
+        background: #e4e4e0;
+        box-shadow: 4px 0 8px -4px rgba(0, 0, 0, 0.35);
+    }
+    img:not([src]) { visibility: hidden; }
+
+    .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .title { font-size: 11.5px; line-height: 1.3; font-weight: 500; }
+    .artist { font-size: 10px; line-height: 1.3; }
+    .style-glass .artist { color: #a3a3a3; }
+    .style-white .title { font-size: 12px; font-weight: 600; }
+    .style-white .artist { color: #5f5f5b; font-weight: 500; font-size: 10.5px; }
+
+    /* The fill is a full-width bar slid in from the left inside .seek-clip, and
+       the rail carries the knob: both move by transform alone, on the compositor
+       (seatBar in renderer/mini-player-window.js). ::before is the bar's rounded
+       start, which the clip's straight edge would otherwise cut square. */
+    .seek {
+        position: relative;
+        display: block;
+        width: 100%;
+        height: 12px;
+        margin-top: 3px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+    }
+    .seek-track { position: absolute; left: 0; right: 0; top: 5px; height: 3px; border-radius: 99px; transition: transform 0.18s ease; }
+    .seek-clip { position: absolute; left: 1.5px; right: 0; top: 0; bottom: 0; overflow: hidden; transform-origin: 50% 6.5px; transition: transform 0.18s ease; }
+    .seek-fill { position: absolute; left: -1.5px; width: calc(100% + 1.5px); top: 5px; height: 3px; border-radius: 99px; transform: translateX(-100%); }
+    .seek::before { content: ''; position: absolute; left: 0; top: 5px; width: 3px; height: 3px; border-radius: 50%; transition: transform 0.18s ease; }
+    .seek:hover .seek-track, .seek:hover .seek-clip, .seek:hover::before { transform: scaleY(1.5); }
+    .seek-rail { position: absolute; left: 0; right: 0; top: 0; bottom: 0; pointer-events: none; }
+    .style-glass .seek-track { background: #262626; }
+    .style-glass .seek-fill { background: #fff; box-shadow: 0 0 6px rgba(var(--accent), 0.6); }
+    .style-glass .seek::before { background: #fff; }
+    .style-white .seek-track { background: rgba(0, 0, 0, 0.12); }
+    .style-white .seek-fill { background: #111; }
+    .style-white .seek::before { background: #111; }
+    .seek-knob {
+        position: absolute;
+        left: 0;
+        top: 2.5px;
+        width: 8px;
+        height: 8px;
+        margin-left: -4px;
+        border-radius: 99px;
+        opacity: 0;
+        transform: scale(0.5);
+        transition: opacity 0.2s ease, transform 0.25s var(--settle);
+    }
+    .style-glass .seek-knob { background: #fff; }
+    .seek:hover .seek-knob { opacity: 1; transform: none; }
+    .style-white .seek-knob { opacity: 1; transform: none; top: 3px; width: 7px; height: 7px; margin-left: -3.5px; background: #ff6a13; box-shadow: 0 0 0 1.5px #fafaf7; }
+    .style-white .seek:hover .seek-knob { transform: scale(1.3); }
+
+    .times { display: flex; justify-content: space-between; font-size: 8.5px; font-variant-numeric: tabular-nums; }
+    .style-glass .times { font-family: ui-monospace, 'SF Mono', 'Segoe UI Mono', monospace; color: #737373; }
+    .style-white .times { color: #5f5f5b; font-weight: 500; font-size: 9px; }
+
+    .controls { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+    .ctl {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        border: 0;
+        border-radius: 99px;
+        background: transparent;
+        cursor: pointer;
+        transition: transform 0.22s var(--settle), color 0.2s ease, background 0.2s ease;
+    }
+    .ctl:hover { transform: scale(1.12); }
+    .ctl:active { transform: scale(0.88); transition-duration: 0.07s; }
+    .ctl.play { width: 32px; height: 32px; }
+    .style-glass .ctl { color: #a3a3a3; }
+    .style-glass .ctl:hover { color: #fff; }
+    .style-glass .ctl.play { background: rgba(255, 255, 255, 0.1); color: #fff; }
+    .style-glass .ctl.play:hover { background: rgba(255, 255, 255, 0.2); }
+    .style-white .ctl { color: #111; }
+    .style-white .ctl.play { background: #111; color: #fff; }
+
+    /* Play and pause are one shape: the two bars fold into the two halves of the
+       triangle. The round-joined stroke rounds their corners. */
+    .morph path { transition: d 0.26s cubic-bezier(0.3, 0.7, 0.2, 1); }
+    .morph .bar-a { d: path('M6.8 5.3 L9.5 5.3 L9.5 18.7 L6.8 18.7 Z'); }
+    .morph .bar-b { d: path('M14.5 5.3 L17.2 5.3 L17.2 18.7 L14.5 18.7 Z'); }
+    .is-paused .morph .bar-a { d: path('M8.8 6 L13.85 9 L13.85 15 L8.8 18 Z'); }
+    .is-paused .morph .bar-b { d: path('M13.85 9 L18.9 12 L18.9 12 L13.85 15 Z'); }
+
+    @keyframes dotFill { to { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+</style>
+</head>
+<body class="style-glass is-paused">
+<div class="wrap">
+    <div class="card" id="card">
+        <div class="tools" id="tools">
+            <button type="button" class="tool" id="btn-expand" title="Open full-screen lyrics" aria-label="Open full-screen lyrics">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"></path><path d="M20 4l-7 7"></path><path d="M10 20H4v-6"></path><path d="M4 20l7-7"></path></svg>
+            </button>
+            <button type="button" class="tool" id="btn-dismiss" title="Hide until the next song" aria-label="Hide until the next song">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
+        </div>
+        <div class="lyric" id="lyric">
+            <div class="lyric-rows" id="lyric-rows" aria-hidden="true"></div>
+            <span class="lyric-measure" id="lyric-measure" aria-hidden="true"></span>
+            <span class="lyric-live" id="lyric-live" aria-live="polite"></span>
+        </div>
+        <div class="row" id="row">
+            <div class="art" aria-hidden="true">
+                <div class="art-glass">
+                    <span class="halo" id="halo"></span>
+                    <img class="disk" id="disk" src="icons/player.png" alt="">
+                    <img class="tile" id="cover-tile" alt="">
+                </div>
+                <div class="art-white">
+                    <span class="vinyl-slide" id="vinyl-slide"><span class="vinyl" id="vinyl"><img id="cover-label" alt=""></span></span>
+                    <img class="sleeve" id="cover-sleeve" alt="">
+                </div>
+            </div>
+            <div class="meta">
+                <div class="title ellip" id="title"></div>
+                <div class="artist ellip" id="artist"></div>
+                <button type="button" class="seek" id="seek" aria-label="Seek">
+                    <span class="seek-track"></span>
+                    <span class="seek-clip"><span class="seek-fill" id="seek-fill"></span></span>
+                    <span class="seek-rail" id="seek-rail"><span class="seek-knob"></span></span>
+                </button>
+                <div class="times"><span id="t-cur">0:00</span><span id="t-total">0:00</span></div>
+            </div>
+            <div class="controls">
+                <button type="button" class="ctl" id="btn-prev" aria-label="Previous song">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4.5" y="5" width="2.8" height="14" rx="1.4"></rect><path d="M19.5 6.2v11.6a1 1 0 0 1-1.55.83L9.6 12.83a1 1 0 0 1 0-1.66l8.35-5.8a1 1 0 0 1 1.55.83z"></path></svg>
+                </button>
+                <button type="button" class="ctl play" id="btn-play" aria-label="Play">
+                    <svg class="morph" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path class="bar-a"></path><path class="bar-b"></path></svg>
+                </button>
+                <button type="button" class="ctl" id="btn-next" aria-label="Next song">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="16.7" y="5" width="2.8" height="14" rx="1.4"></rect><path d="M4.5 6.2v11.6a1 1 0 0 0 1.55.83l8.35-5.8a1 1 0 0 0 0-1.66L6.05 5.37A1 1 0 0 0 4.5 6.2z"></path></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="renderer/mini-player-engine.js"></script>
+<script src="renderer/mini-player-window.js"></script>
+</body>
+</html>

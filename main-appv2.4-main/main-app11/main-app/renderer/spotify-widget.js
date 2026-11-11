@@ -165,9 +165,7 @@
                 const suppress = isDraggingVolume || (Date.now() - lastVolumeChangeTime < 400);
                 if (volSlider && !suppress) {
                     volSlider.value = data.volume_percent;
-                    const volNum = Number(data.volume_percent);
-                    const pct = Math.max(0, Math.min(100, volNum));
-                    volSlider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+                    paintSpotifyVolume(volSlider, data.volume_percent);
                     spotifyUpdateVolumeIcon(data.volume_percent);
                 }
             }
@@ -217,6 +215,8 @@
                         albumCoverEl.style.transition = 'opacity 0.35s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)';
                         albumCoverEl.style.opacity = '1';
                         albumCoverEl.style.transform = 'scale(1)';
+                        // White player style: the record's label follows the sleeve.
+                        if (typeof syncSpotifyDiskArt === 'function') syncSpotifyDiskArt();
                     }, 150);
                 }
             }
@@ -235,6 +235,7 @@
             }
 
             playBtn.classList.toggle('is-playing', data.is_playing);
+            if (typeof spotifyEnhancedOnPlayback === 'function') spotifyEnhancedOnPlayback(data);
 
             // Vinyl glow (static fallback when beat-reactive glow is off or beat data unavailable)
             const disk = document.getElementById('spotify-disk');
@@ -287,17 +288,21 @@
             }
         }
 
+        // Paints the volume track's fill up to `value`. Both colours are variables
+        // so the White player style can repaint the slider in ink
+        // (styles/player-style.css); Glass leaves them unset.
+        function paintSpotifyVolume(slider, value) {
+            const pct = Math.max(0, Math.min(100, Number(value))).toFixed(2);
+            slider.style.background = `linear-gradient(to right, var(--spotify-vol-fill, var(--accent-solid, #fff)) ${pct}%, var(--spotify-vol-rest, rgba(255,255,255,0.15)) ${pct}%)`;
+        }
+
         let volumeSliderTimeout = null;
 
         function spotifyVolumeSliderInput(value) {
             lastVolumeChangeTime = Date.now();
             spotifyUpdateVolumeIcon(value);
             const slider = document.getElementById('spotify-volume');
-            if (slider) {
-                const volNum = Number(value);
-                const pct = Math.max(0, Math.min(100, volNum));
-                slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
-            }
+            if (slider) paintSpotifyVolume(slider, value);
             clearTimeout(volumeSliderTimeout);
             volumeSliderTimeout = setTimeout(() => spotifySetVolume(value), 50);
         }
@@ -322,8 +327,7 @@
                 lastVolumeChangeTime = Date.now();
                 if (volSlider) {
                     volSlider.value = newVol;
-                    const pct = Math.max(0, Math.min(100, newVol));
-                    volSlider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+                    paintSpotifyVolume(volSlider, newVol);
                 }
                 spotifyUpdateVolumeIcon(newVol);
                 await window.electronAPI.spotifySetVolume(newVol);
@@ -395,9 +399,7 @@
             const slider = document.getElementById('spotify-volume');
             if (!slider) return;
 
-            const volNum = Number(slider.value);
-            const pct = Math.max(0, Math.min(100, volNum));
-            slider.style.background = `linear-gradient(to right, var(--accent-solid, #fff) ${pct.toFixed(2)}%, rgba(255,255,255,0.15) ${pct.toFixed(2)}%)`;
+            paintSpotifyVolume(slider, slider.value);
 
             slider.addEventListener('mousedown', () => {
                 isDraggingVolume = true;

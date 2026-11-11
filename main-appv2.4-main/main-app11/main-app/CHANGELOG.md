@@ -5,6 +5,193 @@ Versioning: **Patch** (0.0.x) = bug fixes · **Minor** (0.x) = new features · *
 
 ---
 
+## [4.3.0] — 2026-11-11
+
+### Added
+
+- **Corner Player.** A tiny always-on-top Spotify card that tucks into a screen corner,
+  on top of borderless games: cover, title, a click-to-seek bar, play/pause/skip, and an
+  optional lyric line that glows like the launcher's. Shows while Main is hidden (or
+  always), stays away while nothing plays, drag it to snap to another corner. Glass or
+  White. Lyrics move as a conveyor (the next line glides up into place), Spotify's
+  position updates never make a line jump back, and the bar and disc animate on the
+  compositor so it costs next to nothing while it sits on screen.
+- **Player Style: Glass or White.** One setting restyles the dashboard player and the
+  full-screen lyrics together. The full-screen stage gains complete controls (shuffle,
+  repeat, like, volume) and an Up next tab.
+- **Phone Remote.** Pair an iPhone (or any phone) by scanning a code, and get the player
+  and live lyrics with controls on the phone — from anywhere, not just your Wi-Fi.
+  End-to-end encrypted through a relay that can't read or forge anything.
+- **Timers 2.0 (was Countdown Timer).** Rebuilt from the ground up:
+  - **Floating timers.** Pop any timer out of the app into its own small always-on-top
+    window and drag it anywhere — onto any monitor, over a borderless game. Ring, pill
+    or text-only; small / medium / large; opacity; click-through "ghost" mode; snap to a
+    corner or move to another display from its right-click menu. Windows reopen where
+    you left them, and are pulled back on screen if a monitor is unplugged.
+  - **As many countdowns as you like**, side by side, each with a label, colour and
+    repeat (2×, 3×, 5× or loop). Type times naturally: `25`, `5:30`, `1h15`, `90s`,
+    `at 5pm`. ±1 / +5 minute nudges, click the clock to change the duration, custom presets.
+  - **Checkpoints** on any countdown: "5m left", "10m after start", "every 5m", or
+    one-tap Halfway / Quarters / 1 min left, each with an optional label. Each one pings
+    (its own chime + toast + notification) and shows as a tick on the floating ring, a
+    notch on the pill's bar and on the panel's bar, fading once passed. Repeats reset them
+    each round; nudging the time re-decides which are still ahead.
+  - **Stopwatch** with tenths and laps (fastest / slowest highlighted, copy laps).
+  - **Pomodoro focus sessions** with short / long breaks, auto-start options and
+    session dots.
+  - **Rings on time from the tray.** The scheduler moved into the main process
+    (`main/timers.js`), so a timer no longer finishes late while the launcher is hidden.
+    Desktop notification with +1 min / Restart / Dismiss, five alarm sounds, volume,
+    ring-until-dismissed, and an optional heads-up before the end. Anything that
+    finished while main was closed is reported once as "missed" instead of ringing.
+  - **Global hotkeys** for start/pause and pop out, **stats** (today, 7-day chart,
+    streak, history), and voice commands: "pop out the timer", "start a stopwatch",
+    "start a focus session".
+  - Shared pure engine `renderer/timer-engine.js` (unit-tested) and a narrow
+    `timer-float-preload.js` bridge for the floating windows. A running timer from the
+    old widget is migrated automatically.
+- **Calendar mini widget.** A full calendar in the Widget Library: Month / Week / Agenda
+  views, drag to move an event and stretch to resize, repeats (daily, weekdays, chosen
+  weekdays, every other week, monthly on a date or "the 2nd Tuesday", yearly) with
+  per-occurrence edits and "this and following", and tasks with tick boxes, overdue
+  tracking and countdowns alongside events. Natural-language quick add ("Math test fri
+  10am", "History essay due next thursday", "Standup every weekday 9:30-9:45 #work")
+  shows a live preview of what it understood before you press Enter.
+- **Calendar reminders that reach you in the tray.** The scheduler lives in the main
+  process (`main/calendar.js`), so reminders fire while the window is hidden — desktop
+  notification with Snooze and Join-call buttons, an in-app card, and a chime. After
+  sleep it delivers what still matters and folds the rest into one "missed" summary.
+  Plus a morning digest, quiet hours, a notifications inbox and a live "up next" chip in
+  the app header.
+- **Calendar import / export / subscribe.** Read and write `.ics` (Google Calendar,
+  Outlook, school timetables), subscribe to a calendar link that refreshes itself, and
+  back up or restore everything as JSON. New `main/calendarIcs.js`.
+- Shared pure date/recurrence engine (`renderer/calendar-engine.js`) used by both the
+  renderer and the main process, with unit tests (`test/calendar-*.test.js`).
+
+### Changed
+
+- **Spotify Enhanced redesign.** The Queue / Recent / Playlists strip now matches the
+  app's glass look and is coloured from the theme like the rest of the launcher
+  (card glass + Panel glass setting, accent-tinted borders/tabs/stars, the Text colour
+  ramp), in a more compact size: a segmented tab control with a sliding pill, left-aligned rows with
+  artist/track-count second lines, hover play glyphs over the art, faded list edges,
+  skeleton loading and centred empty/reconnect states.
+  - In the 3-widget row it no longer covers the vinyl and track name: it rests as a
+    small button in the corner and unfolds on hover (or click).
+  - When Spotify has the row to itself the strip gains tab labels, and the disc,
+    controls and progress bar re-centre beside it instead of sliding underneath.
+  - The settings panel is rebuilt as one list surface with a "Now playing" equaliser,
+    numbered Up Next, and a pill sort button. It updates in place, so liking a track
+    or refreshing no longer flashes "Loading…".
+  - Motion: rows cascade in on tab/sort changes (not on every background refresh),
+    stars pop, and liking from the heart plays a pop + ring. All honour reduced motion.
+- **Remove from queue.** Queue rows (strip and settings panel) get a remove button on
+  hover. Spotify's Web API has no endpoint to delete queue items, so the track is hidden
+  and auto-skipped when it comes up; removals clear when you start a different
+  playlist, play that track on purpose, or disable the widget.
+- **Remove from queue now really removes the song — through the Spotify app.** The
+  mute-and-skip workaround is gone. The ✕ on a queue row drives the Spotify desktop app
+  via Windows UI Automation (`main/spotifyQueueScript.js`, IPC
+  `spotify-desktop-queue-remove`): it opens the app's queue panel if needed, finds the
+  row by title (and which copy, for a song queued twice), opens its menu and chooses
+  "Remove from queue", then restores the panel. It never touches the mouse; its only
+  keystroke is one Enter on the focused "Remove from queue" item — accessibility "invoke"
+  only closes Spotify's menu and posted keys are ignored, so a real key is the only thing
+  that works — pressed only while Spotify is the foreground window with focus still on
+  that item, and success is reported only once the row is really gone — checked with a
+  name-matched accessibility query, because scanning every row of a long queue is slow
+  enough that a removal which had already happened still reported failure. The
+  row dims while it works; clear messages explain when the app isn't running, is closed
+  to the tray, or the song can't be found. Requires the Spotify desktop app on Windows
+  (English UI). Chromium won't draw a song's menu while the window is minimized or
+  covered, so the helper restores Spotify without activating it, removes the song, then
+  re-minimizes it and hands focus back to whatever you were using — a brief flash of the
+  Spotify window is the price of a removal that actually removes. The first removal after
+  Spotify starts no longer times out: the
+  helper waits for Spotify's accessibility tree, and the launcher warms it up as soon
+  as queue rows are shown (`spotify-desktop-queue-warm`).
+- (Superseded) **Fixed: the song after a removed one started 2–3 s late.** The skipper only turned
+  the volume back up once Spotify's player state confirmed the new song, and that state
+  trails the real audio by up to a couple of seconds. Sound now returns ~0.2 s after the
+  `/next` that lands on a kept song (predicted from the queue); confirmation is still
+  awaited before any further hop, and a wrong prediction re-mutes.
+- **Queue fixes (skipping, flicker).**
+  - Wrong songs skipped: the skipper fired one `/next` per removed track back to back;
+    with Spotify's state lag, a song that had just ended on its own turned that into
+    skipping a song you kept. It now hops one confirmed track at a time — `/next`, wait
+    until Spotify reports the change, hop again only if the new track is removed too.
+  - Removing a later copy of the song that's playing no longer skips that song, and a
+    removed song you then play on purpose (e.g. from Spotify) is kept, not skipped.
+  - Removed songs still playing: the renderer no longer prunes removals (it dropped them
+    whenever Spotify's queue response briefly left a track out); the main process forgets
+    a removal only after two queue checks in a row miss it.
+  - Flicker: a row main just skipped past stays hidden while Spotify's queue catches up,
+    the queue refreshes once it has settled after a track change (not immediately and
+    again), and the move animation is skipped while the window is hidden so ghost rows
+    can't pile up.
+- **Mini Widgets dock:** no more yellow stars on the chips.
+- **Like button:** the liked state is white instead of Spotify green.
+- **Removed queue songs are never heard.** Spotify's API still has no way to remove
+  or reorder the queue, so removal moved into the main process (`spotify-queue-skip`):
+  it follows the song clock without the throttling a hidden launcher window suffers,
+  and as the song before a removed one ends it mutes the device, steps past the
+  removed track(s) in order, then restores the volume. The renderer now only mirrors
+  the list (`spotify-queue-skips` pushes), and the volume slider holds steady during
+  the mute.
+- **Recently played plays in context, and verifies it.** A Recent track now starts
+  inside the album/playlist it was played from (falling back to the track alone), and
+  the launcher checks a moment later that Spotify actually switched — retrying once on
+  the active device and saying so if it didn't. Every outcome is logged.
+- **"Like button" setting (off by default).** The heart left the controls row: hover
+  the song title and it pops out to the right (green when already liked). While off,
+  like-state is never fetched.
+- **Smoother lyrics hand-off.** When a song's lyrics arrive, the loading bars (or the
+  previous song's lines) dissolve upward while the new lines rise in one by one,
+  instead of swapping instantly.
+- **"Hover bars" setting.** Tucks the Queue / Recent / Playlists panel away behind two
+  thin bars beside the volume slider; hovering them (or clicking, for touch) slides the
+  panel out over the player, and it stays while the pointer is on the bars or panel.
+- **"Loop & shuffle" setting.** Adds shuffle and repeat buttons to the player. The on
+  state is the accent colour with a dot underneath; repeat cycles off → all → this song
+  (with a small "1"). State comes from each player poll; clicks paint instantly and
+  revert if Spotify refuses. New `spotify-control` actions `shuffle-on|off` and
+  `repeat-off|context|track`. Both settings are included in settings export/import.
+- **Fixed: playing a Recent track or playlist did nothing.** With no active Spotify
+  device the play request returns 404, which was reported as success ("Playing…").
+  The launcher now wakes your most recent Spotify device and retries, and says so when
+  there's none. A 404 from any player command no longer counts as success, and a 403
+  on play shows "Premium may be required" instead of asking you to reconnect.
+- **Removed songs no longer play for a few seconds.** Instead of waiting for the next
+  2.5s poll to notice a removed song has started, the widget watches the clock on the
+  current song and — just before it ends, if removed songs are next — skips straight
+  past them. The on-change skip remains as a fallback (e.g. Spotify crossfade, or the
+  launcher hidden in the tray, where Chromium throttles its timers).
+- **Fixed: the heart never showed a song as already liked.** Spotify's February 2026
+  migration removed `GET /me/tracks/contains` and `PUT/DELETE /me/tracks`; the removed
+  endpoints return 404, which read as "not liked". The check and the like/unlike
+  toggle now use `GET /me/library/contains` and `PUT/DELETE /me/library` (URIs), with
+  the old endpoints as a fallback, and the heart re-checks when the launcher regains
+  focus (so liking a song in the Spotify app shows up too).
+- **Fixed: playlist track counts.** Spotify's March 2026 API migration renamed a
+  playlist's `tracks` object to `items`, so every count read 0. `main/spotify.js` reads
+  the new field (falling back to the old one) and the count is hidden when unknown.
+- When Spotify is the only widget, the vinyl column and the strip now sit as one centred
+  group between the lyrics and the volume slider (lyrics on or off), nudged slightly up.
+- **Queue moves smoothly when a song starts.** Rows glide up to their new slots, the
+  song that started lifts away, newly revealed songs rise in, and in the settings panel
+  the next song slides up into "Now playing". The queue is re-checked 1.5s after a
+  track change (Spotify's queue can lag), and the panel keeps its scroll position.
+- **Fixed: lyrics cut off at the edges.** The lyrics viewport was a fixed 218px box
+  centred in a ~150px column, so lines were hard-clipped top and bottom — the current
+  line's glow and any line scrolling away got sliced. It now fills the column with a
+  soft fade mask, so leaving lines dissolve instead of being cut.
+- Recently played rows in the settings panel now pass the track URI through `jsAttr()`
+  instead of a quoted `esc()` string.
+- Files: `renderer/spotify-enhanced.js`, `styles/main.css`, `main.html`.
+
+---
+
 ## [3.48.4] — 2026-08-17
 
 ### Added

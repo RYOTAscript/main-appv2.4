@@ -39,7 +39,7 @@
         // stride for the loading skeleton bars, which are all the same tiny height.
         const LYRICS_ROW_HEIGHT = 44;  // px fallback/skeleton stride
         const LYRICS_GAP = 14;         // px vertical gap between consecutive measured lyric lines
-        const LYRICS_TOP_PAD = 26;     // px headroom above slot 0 so its glow isn't clipped at the top — must match the extra height baked into #spotify-lyrics-window in CSS
+        const LYRICS_TOP_PAD = 26;     // px headroom above slot 0 so its glow clears the soft top fade of #spotify-lyrics-window (22px mask in CSS) — keep this larger than that fade
         const LYRICS_SLOTS_AHEAD = 2;  // how many upcoming lines are visible below the current one
         let lyricsSlotEls = new Map();  // absolute lyric index -> DOM element currently representing it
         let lyricsWindowStart = null;   // the lyric index currently occupying slot role 0 (top/current)
@@ -228,7 +228,20 @@
             const snap = forceSnap || forwardStep === null || forwardStep !== 1;
 
             if (snap) {
+                // A fresh track (forceSnap) arriving over the loading skeleton — or over
+                // the previous song's lines — hands off softly: what's on screen dissolves
+                // upward while the new lines rise in one after another. Purely visual:
+                // the slot map and window start below are set synchronously as before.
+                // Seeks that jump several lines still snap instantly.
+                const leaving = forceSnap
+                    ? [...windowEl.querySelectorAll('.lyrics-skeleton-line:not(.is-leaving), .lyrics-slot:not(.is-leaving)')]
+                    : [];
                 resetLyricsConveyor();
+                for (const node of leaving) {
+                    node.classList.add('is-leaving');
+                    windowEl.appendChild(node);
+                    setTimeout(() => node.remove(), 420);
+                }
                 const freshEls = [];
                 for (let role = 0; role <= LYRICS_SLOTS_AHEAD; role++) {
                     const idx = newStart + role;
@@ -237,6 +250,14 @@
                     el.style.transition = 'none';
                     el.style.opacity = String(lyricsSlotOpacity(role));
                     el.classList.toggle('lyrics-slot-current', idx === activeIdx);
+                    if (leaving.length) {
+                        el.classList.add('lyrics-slot-enter');
+                        el.style.animationDelay = `${140 + role * 80}ms`;
+                        el.addEventListener('animationend', () => {
+                            el.classList.remove('lyrics-slot-enter');
+                            el.style.animationDelay = '';
+                        }, { once: true });
+                    }
                     windowEl.appendChild(el);
                     lyricsSlotEls.set(idx, el);
                     freshEls.push(el);

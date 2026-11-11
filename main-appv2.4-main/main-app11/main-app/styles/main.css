@@ -1270,57 +1270,107 @@
         }
 
         /* ── Spotify Enhanced inline strip (Queue / Recent / Playlists) ──
-           Crammed into the upper-right of the player, over the vinyl area (translucent
-           so the disk still reads through), clear of the controls/progress below. */
+           Coloured entirely from the theme, like the rest of the launcher: the
+           panel is the same glass as the widget cards (--glass-alpha) with a faint
+           accent wash, borders are --tile-border (the Quick Launch tile edge), and
+           text uses the --text-* ramp from the Text colour setting. Every var has
+           the unthemed value as its fallback, so a default install looks neutral.
+           Compact (3-widget row) defaults are here; .spotify-solo below sizes it
+           for the open space beside the vinyl. */
         .spotify-enhanced-widget {
             position: absolute;
-            top: 3px;
-            right: 28px;
-            width: 92px;
+            top: 2px;
+            right: 30px;
+            width: 104px;
             height: 104px;
             z-index: 30;
-            background: rgba(10, 10, 12, 0.72);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            padding: 5px;
             display: flex;
             flex-direction: column;
             gap: 4px;
+            padding: 4px;
+            text-align: left;           /* the player card is text-center */
+            background:
+                linear-gradient(180deg, rgba(var(--accent), 0.05), rgba(var(--accent), 0.02)),
+                rgba(8, 8, 8, var(--glass-alpha, 0.88));
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid var(--tile-border, rgba(255, 255, 255, 0.1));
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+            box-shadow:
+                0 6px 18px rgba(0, 0, 0, 0.35),
+                0 0 calc(var(--glow-spread) * 0.5) rgba(var(--accent), calc(var(--glow-strength) * 0.5)),
+                inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            transform-origin: top right;
+            animation: spotifyEwIn var(--dur-4) var(--ease-emphasized) backwards;
+            transition: border-color var(--dur-3) var(--ease-out), box-shadow var(--dur-3) var(--ease-out);
         }
 
+        .spotify-enhanced-widget:hover {
+            border-color: rgba(var(--accent), 0.22);
+        }
+
+        @keyframes spotifyEwIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px) scale(0.95);
+            }
+        }
+
+        /* Segmented tab control. The active pill is ONE pseudo-element that slides
+           between segments (--ew-i is set by spotifyEwSwitch), rather than three
+           buttons each lighting up — that slide is what makes switching feel alive. */
         .spotify-ew-tabs {
-            display: flex;
-            gap: 3px;
+            --ew-i: 0;
+            position: relative;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             flex-shrink: 0;
+            padding: 2px;
+            border-radius: 8px;
+            background: rgba(var(--accent), 0.04);
+            border: 1px solid rgba(var(--accent), 0.07);
+        }
+
+        .spotify-ew-tabs::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            bottom: 2px;
+            left: 2px;
+            width: calc((100% - 4px) / 3);
+            border-radius: 6px;
+            background: rgba(var(--accent), 0.14);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 10px rgba(var(--accent), 0.12);
+            transform: translateX(calc(var(--ew-i) * 100%));
+            transition: transform var(--dur-3) var(--ease-out);
         }
 
         .spotify-ew-tab {
-            flex: 1;
-            height: 19px;
+            position: relative;
+            z-index: 1;
+            height: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 9px;
-            color: #a3a3a3;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            gap: 4px;
+            font-size: 7.5px;
+            color: var(--text-dim, #737373);
+            background: none;
+            border: 0;
             border-radius: 6px;
             cursor: pointer;
-            transition: background 0.15s ease, color 0.15s ease;
+            transition: color var(--dur-2) var(--ease-out);
         }
 
-        .spotify-ew-tab:hover { color: #e5e5e5; }
+        .spotify-ew-tab:hover { color: var(--text-soft, #d4d4d4); }
+        .spotify-ew-tab.active { color: var(--text-main, #fff); }
+        .spotify-ew-tab i { transition: transform var(--dur-2) var(--ease-spring); }
+        .spotify-ew-tab:active i { transform: scale(0.82); }
+        .spotify-ew-tab-label { display: none; font-weight: 500; letter-spacing: 0.01em; }
 
-        .spotify-ew-tab.active {
-            background: rgba(255, 255, 255, 0.16);
-            color: #fff;
-            border-color: rgba(255, 255, 255, 0.25);
-        }
-
+        /* List viewport. The mask fades rows out at both edges instead of slicing
+           them in half, and the scrollbar only shows while the strip is hovered. */
         .spotify-ew-content {
             flex: 1;
             min-height: 0;
@@ -1328,173 +1378,1093 @@
             overflow-x: hidden;
             display: flex;
             flex-direction: column;
-            gap: 2px;
+            gap: 1px;
+            margin: 0 -2px;
+            padding: 2px 2px 7px;
+            -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 4px, #000 calc(100% - 10px), transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 4px, #000 calc(100% - 10px), transparent 100%);
+            transition: opacity var(--dur-2) var(--ease-out);
         }
 
         .spotify-ew-content::-webkit-scrollbar { width: 3px; }
-        .spotify-ew-content::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 3px; }
+        .spotify-ew-content::-webkit-scrollbar-track { background: transparent; }
+        .spotify-ew-content::-webkit-scrollbar-thumb { background: transparent; border: 0; box-shadow: none; border-radius: 3px; }
+        .spotify-enhanced-widget:hover .spotify-ew-content::-webkit-scrollbar-thumb { background: rgba(var(--accent), 0.2); }
+
+        /* Content swap choreography, shared with the settings panel (.se-body):
+           .spotify-busy dims the old list while the next tab is fetched, then
+           .spotify-swap cascades the new rows in. Only applied on a tab change, so
+           the queue refreshing on every track change doesn't re-animate. */
+        .spotify-busy { opacity: 0.45; }
+
+        /* Queue FLIP (spotifyFlipPlay): rows glide to their new slots when a song
+           starts. A row that left the list is shown as a ghost copy pinned where it
+           was while it lifts away, so the lists are the positioning context. */
+        .spotify-ew-content,
+        .se-body { position: relative; }
+
+        .spotify-ew-content > .spotify-flip-ghost,
+        .se-body > .spotify-flip-ghost {
+            position: absolute;
+            margin: 0;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .spotify-swap .spotify-stagger {
+            animation: spotifyRowIn var(--dur-3) var(--ease-out) backwards;
+            animation-delay: calc(min(var(--i, 0), 9) * 24ms);
+        }
+
+        @keyframes spotifyRowIn {
+            from {
+                opacity: 0;
+                transform: translateY(5px);
+            }
+        }
 
         .spotify-ew-sub {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 2px 1px;
+            gap: 4px;
+            padding: 1px 2px 2px;
             flex-shrink: 0;
         }
 
         .spotify-ew-caption {
-            font-size: 7px;
+            font-size: 6.5px;
+            font-weight: 500;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #737373;
+            letter-spacing: 0.14em;
+            color: var(--text-faint, #5c5c5c);
+            white-space: nowrap;
         }
 
         .spotify-ew-sort {
-            font-size: 8px;
-            color: #a3a3a3;
-            background: none;
-            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            font-size: 7px;
+            color: var(--text-mid, #8a8a8a);
+            background: rgba(var(--accent), 0.04);
+            border: 1px solid rgba(var(--accent), 0.1);
+            border-radius: 999px;
+            padding: 0 5px;
             cursor: pointer;
-            padding: 1px 2px;
+            white-space: nowrap;
+            transition: color var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out);
         }
-        .spotify-ew-sort:hover { color: #fff; }
+
+        .spotify-ew-sort:hover {
+            color: var(--text-main, #fff);
+            background: rgba(var(--accent), 0.1);
+            border-color: rgba(var(--accent), 0.2);
+        }
+
+        .spotify-ew-sort i { font-size: 0.9em; opacity: 0.75; }
 
         .spotify-ew-row {
+            position: relative;
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 5px;
+            min-height: 21px;
             padding: 2px 3px;
-            border-radius: 5px;
-            font-size: 9px;
-            color: #d4d4d4;
-            line-height: 1.2;
+            border-radius: 6px;
+            color: var(--text-soft, #d4d4d4);
+            transition: background-color var(--dur-2) var(--ease-out);
         }
 
         .spotify-ew-row.clickable { cursor: pointer; }
-        .spotify-ew-row.clickable:hover { background: rgba(255, 255, 255, 0.07); }
+        .spotify-ew-row.clickable:hover { background: rgba(var(--accent), 0.08); }
+        .spotify-ew-row.clickable:active { background: rgba(var(--accent), 0.13); }
 
-        .spotify-ew-thumb {
-            width: 16px;
-            height: 16px;
-            border-radius: 3px;
-            object-fit: cover;
+        .spotify-ew-index {
+            display: none;
             flex-shrink: 0;
-            background: #262626;
+            width: 11px;
+            text-align: right;
+            font-size: 8.5px;
+            color: var(--text-faint, #525252);
+            font-variant-numeric: tabular-nums;
         }
 
-        .spotify-ew-name {
+        .spotify-ew-thumb-wrap {
+            position: relative;
+            flex-shrink: 0;
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            overflow: hidden;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--tile-bg, #141414);
+            color: var(--text-faint, #4a4a4a);
+            font-size: 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), inset 0 0 0 1px var(--tile-border, rgba(255, 255, 255, 0.08));
+        }
+
+        .spotify-ew-thumb {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            transition: transform var(--dur-3) var(--ease-out), filter var(--dur-2) var(--ease-out);
+        }
+
+        .spotify-ew-row.clickable:hover .spotify-ew-thumb {
+            transform: scale(1.1);
+            filter: brightness(0.5);
+        }
+
+        /* Play glyph that pops over the art on hover — makes "click to play" obvious. */
+        .spotify-ew-play {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 6px;
+            opacity: 0;
+            transform: scale(0.5);
+            transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-spring);
+        }
+
+        .spotify-ew-row.clickable:hover .spotify-ew-play {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .spotify-ew-text {
             flex: 1;
             min-width: 0;
+            display: flex;
+            flex-direction: column;
+            line-height: 1.2;
+        }
+
+        .spotify-ew-name,
+        .spotify-ew-meta {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
+        .spotify-ew-name {
+            font-size: 8px;
+            font-weight: 500;
+            color: var(--text-soft, #e5e5e5);
+        }
+
+        .spotify-ew-meta {
+            font-size: 6.5px;
+            color: var(--text-dim, #6b6b6b);
+        }
+
         .spotify-ew-star {
             flex-shrink: 0;
-            width: 11px;
-            font-size: 8px;
-            color: #737373;
+            width: 10px;
+            font-size: 7px;
+            color: var(--text-faint, #4f4f4f);
             background: none;
             border: none;
             cursor: pointer;
             padding: 0;
+            transition: color var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-spring);
         }
-        .spotify-ew-star.on { color: #fbbf24; }
 
+        .spotify-ew-star:hover { color: var(--accent-solid, #fff); transform: scale(1.15); }
+        .spotify-ew-star.on { color: var(--accent-solid, #fff); filter: drop-shadow(0 0 4px rgba(var(--accent), 0.5)); }
+        .spotify-ew-star.pop i { display: inline-block; animation: spotifyStarPop 0.42s var(--ease-spring); }
+
+        @keyframes spotifyStarPop {
+            0% { transform: scale(0.6) rotate(-20deg); }
+            55% { transform: scale(1.35) rotate(8deg); }
+            100% { transform: scale(1) rotate(0); }
+        }
+
+        /* Empty / offline / reconnect states — centred in the viewport with a faint
+           icon, the way the rest of the app presents "nothing here". */
         .spotify-ew-empty {
-            font-size: 8.5px;
-            color: #737373;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
             padding: 4px 3px;
-            line-height: 1.3;
+            text-align: center;
+            font-size: 7.5px;
+            line-height: 1.35;
+            color: var(--text-dim, #6b6b6b);
+        }
+
+        .spotify-ew-empty i {
+            font-size: 10px;
+            color: var(--text-faint, #3f3f3f);
+            opacity: 0.7;
         }
 
         .spotify-ew-reconnect {
-            font-size: 8.5px;
+            font-size: 7px;
+            font-weight: 500;
             color: #fcd34d;
-            background: none;
-            border: none;
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 999px;
+            padding: 1px 6px;
             cursor: pointer;
-            padding: 4px 3px;
-            text-align: left;
+            transition: background-color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out);
         }
-        .spotify-ew-reconnect:hover { text-decoration: underline; }
+
+        .spotify-ew-reconnect:hover {
+            background: rgba(245, 158, 11, 0.2);
+            border-color: rgba(245, 158, 11, 0.5);
+        }
+
+        /* Loading skeleton rows (first fetch only; later fetches keep the old list). */
+        .spotify-ew-skel-bar {
+            display: block;
+            height: 4px;
+            border-radius: 3px;
+            margin: 1.5px 0;
+            background: linear-gradient(90deg, rgba(var(--accent), 0.05), rgba(var(--accent), 0.12), rgba(var(--accent), 0.05));
+            background-size: 200% 100%;
+            animation: spotifyEwShimmer 1.3s ease-in-out infinite;
+        }
+
+        .spotify-ew-skel-bar.short { width: 45%; opacity: 0.6; }
+        .spotify-ew-skel .spotify-ew-thumb-wrap { box-shadow: none; background: rgba(var(--accent), 0.06); }
+
+        @keyframes spotifyEwShimmer {
+            from { background-position: 100% 0; }
+            to { background-position: -100% 0; }
+        }
+
+        /* Queue "remove" button, revealed on row hover/focus. Spotify's API can't
+           delete from the queue, so the renderer hides the row and skips the track
+           when it comes up (spotifyQueueRemove). On the strip it floats over the end
+           of the row so names keep their full width until you hover. */
+        .spotify-ew-remove,
+        .se-remove {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border: 0;
+            border-radius: 999px;
+            color: var(--text-dim, #8a8a8a);
+            cursor: pointer;
+            opacity: 0;
+            transform: scale(0.7);
+            transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-spring), color var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out);
+        }
+
+        .spotify-ew-remove {
+            position: absolute;
+            top: 50%;
+            right: 3px;
+            width: 12px;
+            height: 12px;
+            margin-top: -6px;
+            font-size: 6.5px;
+            background: rgba(8, 8, 8, 0.9);
+            box-shadow: 0 0 0 1px rgba(var(--accent), 0.12);
+        }
+
+        .se-remove {
+            width: 26px;
+            height: 26px;
+            font-size: 11px;
+            background: none;
+        }
+
+        .spotify-ew-row:hover .spotify-ew-remove,
+        .spotify-ew-remove:focus-visible,
+        .se-row:hover .se-remove,
+        .se-remove:focus-visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .spotify-ew-remove:hover,
+        .se-remove:hover {
+            color: #fca5a5;
+            background: rgb(58, 20, 20);
+        }
+
+        .se-remove:hover { background: rgba(248, 113, 113, 0.14); }
+        .spotify-ew-remove i, .se-remove i { transition: transform var(--dur-1) var(--ease-out); }
+        .spotify-ew-remove:active i, .se-remove:active i { transform: scale(0.75); }
+
+        /* Waiting for the Spotify app to remove it. */
+        .spotify-ew-row.is-pending,
+        .se-row.is-pending {
+            opacity: 0.45;
+            pointer-events: none;
+            transition: opacity var(--dur-2) var(--ease-out);
+        }
+
+        /* The removed row slides aside and folds shut (JS pins max-height to the
+           row's real height first so the fold has something to animate from). */
+        .spotify-ew-row.is-removing,
+        .se-row.is-removing {
+            overflow: hidden;
+            pointer-events: none;
+            animation: spotifyRowOut var(--dur-3) var(--ease-in) forwards;
+        }
+
+        @keyframes spotifyRowOut {
+            45% {
+                opacity: 0;
+                transform: translateX(12px);
+            }
+
+            100% {
+                opacity: 0;
+                transform: translateX(12px);
+                max-height: 0;
+                min-height: 0;
+                padding-top: 0;
+                padding-bottom: 0;
+            }
+        }
 
         /* ── Drag handle ──
            Hidden unless the "Draggable panel" toggle in Settings is on, which adds
-           the .draggable class. Grip dots at the very top; grabbing them repositions
-           the whole strip (position persisted per layout mode). */
+           the .draggable class. A small grabber pill at the very top; grabbing it
+           repositions the whole strip (position persisted per layout mode). */
         .spotify-ew-drag {
             display: none;
             align-items: center;
             justify-content: center;
-            gap: 3px;
-            height: 9px;
+            height: 6px;
             flex-shrink: 0;
+            margin: -1px 0 -1px;
             cursor: grab;
-            margin: -2px 0 1px;
         }
+
         .spotify-ew-drag span {
-            width: 3px;
+            width: 16px;
             height: 3px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.4);
+            border-radius: 999px;
+            background: rgba(var(--accent), 0.25);
+            transition: width var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out);
         }
+
+        .spotify-ew-drag:hover span { width: 22px; background: rgba(var(--accent), 0.5); }
         .spotify-enhanced-widget.draggable .spotify-ew-drag { display: flex; }
+
         .spotify-enhanced-widget.dragging {
             cursor: grabbing;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+            border-color: rgba(var(--accent), 0.3);
+            box-shadow:
+                0 14px 32px rgba(0, 0, 0, 0.5),
+                0 0 calc(var(--glow-spread) * 0.7) rgba(var(--accent), calc(var(--glow-strength) * 1.2)),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
         }
+
         .spotify-enhanced-widget.dragging .spotify-ew-drag { cursor: grabbing; }
+        .spotify-enhanced-widget.dragging .spotify-ew-drag span { width: 22px; background: rgba(var(--accent), 0.65); }
 
         /* ── Expanded strip when Spotify is the only main widget (full-width player) ──
-           There's a big open area right of the vinyl then, so the strip grows into it
-           (beside the disk, not over it) with larger rows/text. Toggled by the
-           .spotify-solo class the renderer adds to #widget-spotify. */
+           There's open space right of the vinyl then, so the strip sits beside the
+           disc with a second text line and tab labels. Toggled by the .spotify-solo
+           class the renderer adds to #widget-spotify. The centre column gets a
+           matching right margin so the disc, controls (incl. the heart) and progress
+           bar re-centre in the space that's left instead of sliding underneath. */
         .spotify-solo .spotify-enhanced-widget {
-            top: 8px;
-            bottom: 22px;
-            right: 46px;
-            width: 206px;
+            top: 5px;
+            bottom: 19px;
+            right: 40px;
+            width: 188px;
             height: auto;
-            padding: 8px;
+            padding: 6px;
             gap: 6px;
-            border-radius: 16px;
+            border-radius: 14px;
         }
-        .spotify-solo .spotify-ew-tabs { gap: 5px; }
-        .spotify-solo .spotify-ew-tab { height: 26px; font-size: 12px; border-radius: 8px; }
-        .spotify-solo .spotify-ew-content { gap: 3px; }
-        .spotify-solo .spotify-ew-content::-webkit-scrollbar { width: 4px; }
-        .spotify-solo .spotify-ew-sub { padding: 1px 4px 2px; }
-        .spotify-solo .spotify-ew-caption { font-size: 9px; }
-        .spotify-solo .spotify-ew-sort { font-size: 11px; }
-        .spotify-solo .spotify-ew-row { font-size: 12.5px; padding: 4px 6px; gap: 8px; border-radius: 8px; }
-        .spotify-solo .spotify-ew-thumb { width: 28px; height: 28px; border-radius: 5px; }
-        .spotify-solo .spotify-ew-star { width: 16px; font-size: 12px; }
-        .spotify-solo .spotify-ew-empty { font-size: 11px; padding: 6px 4px; }
-        .spotify-solo .spotify-ew-reconnect { font-size: 11px; padding: 6px 4px; }
-        .spotify-solo .spotify-ew-drag { height: 12px; }
-        .spotify-solo .spotify-ew-drag span { width: 4px; height: 4px; }
+
+        #spotify-active > .flex-1 {
+            transition: margin-right var(--dur-4) var(--ease-emphasized);
+        }
+
+        /* Centring: the disc column and the strip are laid out as ONE group, centred
+           in the space between the lyrics panel and the volume slider. The disc
+           column gets a fixed basis plus 208px reserved for the strip (188 + a 20px
+           gap); auto margins on it and on the volume column split the spare room
+           evenly. The strip's `right` is that same half-gap plus the 28px volume
+           column, computed from the player width — lyrics shown (28% capped at
+           260px) or hidden (the lyrics toggle sets display:none inline). */
+        .spotify-solo #spotify-active:not(.ew-hover-mode):has(> .spotify-enhanced-widget:not(.hidden)) > .flex-1 {
+            flex: 0 1 300px;
+            margin-left: auto;
+            margin-right: 208px;
+        }
+
+        .spotify-solo #spotify-active:not(.ew-hover-mode):has(> .spotify-enhanced-widget:not(.hidden)) > .flex-1 + div {
+            margin-left: auto;
+        }
+
+        .spotify-solo .spotify-enhanced-widget {
+            right: max(40px, calc(28px + (100% - min(28%, 260px) - 536px) / 2));
+        }
+
+        .spotify-solo #spotify-active:has(> .spotify-lyrics-panel[style*="none"]) > .spotify-enhanced-widget {
+            right: max(40px, calc(28px + (100% - 536px) / 2));
+        }
+
+        .spotify-solo .spotify-ew-tabs { padding: 2px; border-radius: 9px; }
+        .spotify-solo .spotify-ew-tabs::before { border-radius: 7px; }
+        .spotify-solo .spotify-ew-tab { height: 20px; font-size: 9px; border-radius: 7px; }
+        .spotify-solo .spotify-ew-tab-label { display: inline; }
+        .spotify-solo .spotify-ew-content { gap: 1px; margin: 0 -3px; padding: 2px 3px 10px; }
+        .spotify-solo .spotify-ew-sub { padding: 1px 3px 3px; }
+        .spotify-solo .spotify-ew-caption { font-size: 8px; }
+        .spotify-solo .spotify-ew-sort { font-size: 8.5px; padding: 1px 7px; gap: 4px; }
+        .spotify-solo .spotify-ew-row { min-height: 30px; padding: 3px 5px; gap: 7px; border-radius: 8px; }
+        .spotify-solo .spotify-ew-index { display: block; }
+        .spotify-solo .spotify-ew-thumb-wrap { width: 24px; height: 24px; border-radius: 5px; font-size: 9px; }
+        .spotify-solo .spotify-ew-play { font-size: 8px; }
+        .spotify-solo .spotify-ew-name { font-size: 10px; }
+        .spotify-solo .spotify-ew-meta { font-size: 8.5px; margin-top: 1px; }
+        .spotify-solo .spotify-ew-star { width: 13px; font-size: 9.5px; }
+        .spotify-solo .spotify-ew-remove { width: 18px; height: 18px; margin-top: -9px; right: 5px; font-size: 9px; }
+        .spotify-solo .spotify-ew-empty { font-size: 9.5px; gap: 6px; }
+        .spotify-solo .spotify-ew-empty i { font-size: 14px; }
+        .spotify-solo .spotify-ew-reconnect { font-size: 9px; padding: 2px 10px; }
+        .spotify-solo .spotify-ew-skel-bar { height: 5px; margin: 2px 0; }
+        .spotify-solo .spotify-ew-drag { height: 7px; }
+        .spotify-solo .spotify-ew-drag span { width: 22px; }
+        .spotify-solo .spotify-ew-drag:hover span,
+        .spotify-solo .spotify-enhanced-widget.dragging .spotify-ew-drag span { width: 30px; }
+
+        /* ── Compact (3-widget row): collapsible ──
+           The card is ~230px wide there, so an always-open strip covered the vinyl
+           and the track name. At rest it's a small glass button in the top-right
+           corner (clear of the track chip and the volume slider); hovering it — or
+           focusing into it, or clicking it (.ew-open, for touch) — unfolds the full
+           panel leftwards over the disc. Closing waits a beat so crossing the edge
+           doesn't snap it shut. The inner parts keep a fixed width and hug the right
+           edge, so opening is a clean reveal rather than text reflowing as it grows. */
+        .spotify-ew-peek { display: none; }
+
+        #widget-spotify:not(.spotify-solo) .spotify-enhanced-widget {
+            top: 0;
+            right: 0;
+            width: 22px;
+            height: 20px;
+            padding: 0;
+            gap: 4px;
+            align-items: flex-end;
+            border-radius: 7px;
+            transition:
+                width var(--dur-3) var(--ease-emphasized) 0.16s,
+                height var(--dur-3) var(--ease-emphasized) 0.16s,
+                padding var(--dur-3) var(--ease-emphasized) 0.16s,
+                border-radius var(--dur-3) var(--ease-emphasized) 0.16s,
+                border-color var(--dur-3) var(--ease-out),
+                box-shadow var(--dur-3) var(--ease-out);
+        }
+
+        #widget-spotify:not(.spotify-solo) .spotify-ew-peek {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 20px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 8px;
+            color: var(--text-mid, #a3a3a3);
+            background: none;
+            border: 0;
+            cursor: pointer;
+            transition: opacity var(--dur-2) var(--ease-out) 0.16s, transform var(--dur-3) var(--ease-spring) 0.16s, color var(--dur-2) var(--ease-out);
+        }
+
+        #widget-spotify:not(.spotify-solo) .spotify-enhanced-widget:hover .spotify-ew-peek { color: var(--text-main, #fff); }
+
+        #widget-spotify:not(.spotify-solo) .spotify-ew-drag,
+        #widget-spotify:not(.spotify-solo) .spotify-ew-tabs,
+        #widget-spotify:not(.spotify-solo) .spotify-ew-content {
+            width: 104px;
+            align-self: flex-end;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity var(--dur-1) var(--ease-in) 0.1s;
+        }
+
+        #widget-spotify:not(.spotify-solo) .spotify-ew-content { margin: 0; }
+
+        #widget-spotify:not(.spotify-solo) .spotify-enhanced-widget:is(:hover, :focus-within, .ew-open, .dragging) {
+            width: 114px;
+            height: 112px;
+            padding: 4px;
+            border-radius: 12px;
+            z-index: 40;
+            border-color: rgba(var(--accent), 0.22);
+            transition-delay: 0s;
+        }
+
+        #widget-spotify:not(.spotify-solo) .spotify-enhanced-widget:is(:hover, :focus-within, .ew-open, .dragging) .spotify-ew-peek {
+            opacity: 0;
+            transform: scale(0.5) rotate(-30deg);
+            pointer-events: none;
+            transition-delay: 0s;
+        }
+
+        #widget-spotify:not(.spotify-solo) .spotify-enhanced-widget:is(:hover, :focus-within, .ew-open, .dragging) :is(.spotify-ew-drag, .spotify-ew-tabs, .spotify-ew-content) {
+            opacity: 1;
+            pointer-events: auto;
+            transition: opacity var(--dur-3) var(--ease-out) 0.09s;
+        }
+
+        #widget-spotify:not(.spotify-solo) .spotify-enhanced-widget.draggable:is(:hover, :focus-within, .ew-open, .dragging) {
+            height: 120px;
+        }
+
+        /* ── Hover bars (Spotify Enhanced → "Hover bars") ──
+           #spotify-active gets .ew-hover-mode: two thin bars appear just left of the
+           volume slider, and the panel stays tucked away until they are hovered. It
+           then floats over the player (no room is reserved beside the vinyl) and stays
+           out while the pointer is on the bars or on the panel. Hiding waits a beat so
+           the pointer can cross the gap between them — visibility flips last, so the
+           panel is still hoverable during that beat. Pure CSS via :has(). The handle
+           sits in the controls row in the markup but is positioned against
+           #spotify-active (its nearest positioned ancestor). */
+        .spotify-ew-handle { display: none; }
+
+        #spotify-active.ew-hover-mode .spotify-ew-handle {
+            position: absolute;
+            top: 50%;
+            right: 30px;
+            z-index: 31;
+            width: 16px;
+            height: 80px;
+            margin-top: -48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            padding: 0;
+            background: none;
+            border: 0;
+            cursor: pointer;
+        }
+
+        .spotify-ew-handle span {
+            width: 2px;
+            height: 48px;
+            border-radius: 2px;
+            background: rgba(var(--accent), 0.28);
+            transition: height var(--dur-3) var(--ease-spring), background-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+        }
+
+        .spotify-ew-handle span + span { transition-delay: 40ms; }
+
+        #spotify-active.ew-hover-mode:has(.spotify-ew-handle:hover, > .spotify-enhanced-widget:hover, > .spotify-enhanced-widget.ew-open) .spotify-ew-handle span {
+            height: 64px;
+            background: rgba(var(--accent), 0.75);
+            box-shadow: 0 0 8px rgba(var(--accent), 0.55);
+        }
+
+        #widget-spotify #spotify-active.ew-hover-mode > .spotify-enhanced-widget {
+            right: 50px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateX(10px) scale(0.97);
+            transform-origin: right center;
+            transition:
+                opacity 0.2s var(--ease-in) 0.2s,
+                transform 0.24s var(--ease-in) 0.2s,
+                visibility 0s linear 0.44s;
+        }
+
+        #widget-spotify #spotify-active.ew-hover-mode:has(.spotify-ew-handle:hover, > .spotify-enhanced-widget:hover, > .spotify-enhanced-widget:focus-within, > .spotify-enhanced-widget.ew-open, > .spotify-enhanced-widget.dragging) > .spotify-enhanced-widget {
+            opacity: 1;
+            visibility: visible;
+            transform: none;
+            transition:
+                opacity var(--dur-3) var(--ease-out),
+                transform var(--dur-4) var(--ease-emphasized),
+                visibility 0s;
+        }
+
+        /* Compact row: always the unfolded size — the bars replace the corner button. */
+        #widget-spotify:not(.spotify-solo) #spotify-active.ew-hover-mode > .spotify-enhanced-widget {
+            top: 50%;
+            width: 114px;
+            height: 112px;
+            margin-top: -60px;
+            padding: 4px;
+            border-radius: 12px;
+            z-index: 40;
+        }
+
+        #widget-spotify:not(.spotify-solo) #spotify-active.ew-hover-mode > .spotify-enhanced-widget[style*="top:"] { margin-top: 0; }
+        #widget-spotify:not(.spotify-solo) #spotify-active.ew-hover-mode .spotify-ew-peek { display: none; }
+
+        #widget-spotify:not(.spotify-solo) #spotify-active.ew-hover-mode > .spotify-enhanced-widget :is(.spotify-ew-drag, .spotify-ew-tabs, .spotify-ew-content) {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* ── Loop & shuffle buttons (Spotify Enhanced → "Loop & shuffle") ──
+           On = accent colour, a soft glow and a small dot underneath (the Spotify
+           convention); repeat-one adds a tiny "1". In the narrow 3-widget row the
+           controls tighten up so all six buttons fit the centre column. */
+        .spotify-mode-btn { position: relative; }
+
+        .spotify-mode-btn.is-on {
+            color: var(--accent-solid, #fff);
+            text-shadow: 0 0 8px rgba(var(--accent), 0.6);
+        }
+
+        .spotify-mode-btn::before {
+            content: '';
+            position: absolute;
+            bottom: 1px;
+            left: 50%;
+            width: 3px;
+            height: 3px;
+            margin-left: -1.5px;
+            border-radius: 50%;
+            background: var(--accent-solid, #fff);
+            box-shadow: 0 0 5px rgba(var(--accent), 0.8);
+            opacity: 0;
+            transform: scale(0);
+            transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-3) var(--ease-spring);
+        }
+
+        .spotify-mode-btn.is-on::before { opacity: 1; transform: scale(1); }
+
+        .spotify-mode-btn.is-track::after {
+            content: '1';
+            position: absolute;
+            top: 2px;
+            right: 1px;
+            font-size: 6px;
+            font-weight: 700;
+            line-height: 1;
+            color: var(--accent-solid, #fff);
+        }
+
+        .spotify-mode-btn i { transition: transform var(--dur-1) var(--ease-out); }
+        .spotify-mode-btn:active i { transform: scale(0.8); }
+        .spotify-mode-btn.mode-pop i { animation: spotify-like-pop 0.45s var(--ease-spring); }
+
+        #spotify-controls.spotify-modes-on { gap: 6px; }
+        #widget-spotify:not(.spotify-solo) #spotify-controls.spotify-modes-on { gap: 2px; }
+        #widget-spotify:not(.spotify-solo) #spotify-controls.spotify-modes-on > .spotify-control-btn:not(#spotify-play-btn) { width: 18px; }
+
+        @media (prefers-reduced-motion: reduce) {
+            #widget-spotify #spotify-active.ew-hover-mode > .spotify-enhanced-widget { transition: none; }
+            .spotify-mode-btn.mode-pop i { animation: none; }
+        }
+
+        /* ── Like button on the title chip (Spotify Enhanced → "Like button") ──
+           Hovering the song title slides a round heart out to the chip's right. The
+           heart is a child of the chip, so hovering it keeps the chip "hovered"; a
+           transparent ::before bridges the small gap between them. While the title is
+           hovered the disc column is lifted above the Enhanced strip, so the heart is
+           never underneath the strip's corner button. Selectors carry the chip class
+           so they outrank the older .spotify-like-btn rules further down. */
+        .spotify-track-info .spotify-like-pop {
+            position: absolute;
+            top: 50%;
+            left: 100%;
+            z-index: 2;
+            width: 24px;
+            height: 24px;
+            margin-top: -12px;
+            margin-left: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border-radius: 50%;
+            color: var(--text-soft, #d4d4d4);
+            background: rgba(8, 8, 8, 0.82);
+            border: 1px solid var(--tile-border, rgba(255, 255, 255, 0.12));
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            cursor: pointer;
+            opacity: 0;
+            transform: translateX(-10px) scale(0.55);
+            pointer-events: none;
+            transition:
+                opacity var(--dur-2) var(--ease-out) 0.12s,
+                transform var(--dur-3) var(--ease-spring) 0.12s,
+                color var(--dur-2) var(--ease-out),
+                background-color var(--dur-2) var(--ease-out),
+                border-color var(--dur-2) var(--ease-out);
+        }
+
+        .spotify-track-info .spotify-like-pop.hidden { display: none; }
+
+        .spotify-track-info .spotify-like-pop::before {
+            content: '';
+            position: absolute;
+            top: -6px;
+            bottom: -6px;
+            right: 100%;
+            width: 10px;
+        }
+
+        .spotify-track-info.has-like:hover .spotify-like-pop,
+        .spotify-track-info .spotify-like-pop:focus-visible {
+            opacity: 1;
+            transform: none;
+            pointer-events: auto;
+            transition-delay: 0s;
+        }
+
+        .spotify-track-info .spotify-like-pop:hover {
+            color: #fff;
+            background: rgba(22, 22, 22, 0.92);
+            border-color: rgba(var(--accent), 0.35);
+        }
+
+        .spotify-track-info .spotify-like-pop.is-liked {
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.45);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.55);
+        }
+
+        .spotify-disk-glow-wrapper:has(.spotify-track-info.has-like:hover) { z-index: 45; }
+
+        /* Three-widget row: the strip's collapsed corner button sits where the heart pops
+           out, so it steps aside while the title is hovered (unless it is itself open). */
+        #widget-spotify:not(.spotify-solo) #spotify-active:has(.spotify-track-info.has-like:hover) > .spotify-enhanced-widget:not(:hover):not(.ew-open):not(.dragging) {
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(0.85);
+        }
+
+        /* ── Spotify Enhanced settings panel (Widget Library detail) ──
+           Same vocabulary as the strip, at settings scale: one list surface with
+           hover rows instead of a stack of bordered boxes, and the same sliding
+           segmented control. */
+        .se-shell, .se-main { display: flex; flex-direction: column; gap: 12px; }
+        .se-shell { margin-top: 12px; }
+        .se-banner-slot:empty { display: none; }
+
+        .se-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.025);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+        }
+
+        .se-card-label { display: flex; align-items: center; gap: 12px; min-width: 0; cursor: pointer; }
+        .se-card-title { display: block; font-size: 12px; color: #e5e5e5; font-weight: 500; }
+        .se-card-sub { display: block; font-size: 10.5px; color: #6b6b6b; margin-top: 2px; line-height: 1.4; }
+
+        .se-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+            padding: 6px 12px;
+            border-radius: 10px;
+            font-size: 11px;
+            color: #d4d4d4;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            cursor: pointer;
+            transition: background-color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out), opacity var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out);
+        }
+
+        .se-btn:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.25); color: #fff; }
+        .se-btn i { font-size: 10px; opacity: 0.8; }
+        .se-btn.is-off { opacity: 0; transform: scale(0.9); pointer-events: none; }
+
+        .se-btn.se-btn-warn { color: #fcd34d; background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.35); }
+        .se-btn.se-btn-warn:hover { background: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.55); }
+
+        .se-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 12px 10px 14px;
+            border-radius: 14px;
+            background: rgba(245, 158, 11, 0.07);
+            border: 1px solid rgba(245, 158, 11, 0.25);
+            font-size: 11px;
+            line-height: 1.45;
+            color: #fcd34d;
+            animation: spotifyRowIn var(--dur-3) var(--ease-out) backwards;
+        }
+
+        .se-hint { font-size: 12px; color: #6b6b6b; }
+        .se-hint b { color: #a3a3a3; font-weight: 500; }
+
+        .se-toolbar { display: flex; align-items: center; gap: 8px; }
+
+        .se-tabs {
+            --se-i: 0;
+            position: relative;
+            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            padding: 3px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+        }
+
+        .se-tabs::before {
+            content: '';
+            position: absolute;
+            top: 3px;
+            bottom: 3px;
+            left: 3px;
+            width: calc((100% - 6px) / 3);
+            border-radius: 9px;
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 16px rgba(var(--accent), 0.08);
+            transform: translateX(calc(var(--se-i) * 100%));
+            transition: transform var(--dur-3) var(--ease-out);
+        }
+
+        .se-tab {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            height: 30px;
+            font-size: 11.5px;
+            color: #7a7a7a;
+            background: none;
+            border: 0;
+            cursor: pointer;
+            transition: color var(--dur-2) var(--ease-out);
+        }
+
+        .se-tab:hover { color: #d4d4d4; }
+        .se-tab.active { color: #fff; }
+        .se-tab i { font-size: 10.5px; transition: transform var(--dur-2) var(--ease-spring); }
+        .se-tab:active i { transform: scale(0.82); }
+
+        .se-icon-btn {
+            width: 38px;
+            height: 38px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            font-size: 11.5px;
+            color: #7a7a7a;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            cursor: pointer;
+            transition: color var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out);
+        }
+
+        .se-icon-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.14); }
+        .se-icon-btn.spinning i { animation: seSpin 0.7s linear infinite; }
+
+        @keyframes seSpin { to { transform: rotate(360deg); } }
+
+        .se-body { min-height: 120px; transition: opacity var(--dur-2) var(--ease-out); }
+
+        .se-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin: 0 2px 8px;
+        }
+
+        .se-label {
+            font-size: 10px;
+            font-weight: 500;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: #5c5c5c;
+        }
+
+        .se-label + .se-list, .se-list + .se-label { margin-top: 0; }
+        .se-list + .se-head, .se-now + .se-head { margin-top: 14px; }
+
+        .se-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 4px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .se-list.se-scroll { max-height: 272px; overflow-y: auto; }
+        .se-list.se-scroll::-webkit-scrollbar { width: 6px; }
+        .se-list.se-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; box-shadow: none; }
+
+        .se-row {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 6px 10px 6px 6px;
+            border-radius: 10px;
+            transition: background-color var(--dur-2) var(--ease-out);
+        }
+
+        .se-row.clickable { cursor: pointer; }
+        .se-row.clickable:hover { background: rgba(255, 255, 255, 0.05); }
+        .se-row.clickable:active { background: rgba(255, 255, 255, 0.08); }
+
+        .se-row.se-now {
+            padding: 8px 12px 8px 8px;
+            border-radius: 14px;
+            background: rgba(var(--accent), 0.045);
+            box-shadow: inset 0 0 0 1px rgba(var(--accent), 0.1);
+        }
+
+        .se-index {
+            width: 18px;
+            flex-shrink: 0;
+            text-align: right;
+            font-size: 11px;
+            color: #4f4f4f;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .se-row .spotify-ew-thumb-wrap {
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            font-size: 12px;
+        }
+
+        .se-row .spotify-ew-play { font-size: 12px; }
+        .se-row.clickable:hover .spotify-ew-thumb { transform: scale(1.1); filter: brightness(0.5); }
+        .se-row.clickable:hover .spotify-ew-play { opacity: 1; transform: scale(1); }
+
+        .se-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .se-name, .se-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .se-name { font-size: 12.5px; font-weight: 500; color: #e5e5e5; }
+        .se-meta { font-size: 11px; color: #6b6b6b; }
+
+        .se-badge {
+            flex-shrink: 0;
+            font-size: 10.5px;
+            color: #5c5c5c;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .se-row .spotify-ew-star { width: 20px; font-size: 12px; }
+
+        /* Equaliser glyph beside "Now playing" — three bars, CSS only. */
+        .se-eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 10px; margin-right: 7px; vertical-align: -1px; }
+        .se-eq span { width: 2px; height: 100%; border-radius: 1px; background: var(--accent-solid); transform-origin: bottom; animation: seEq 1s ease-in-out infinite; }
+        .se-eq span:nth-child(2) { animation-delay: -0.35s; }
+        .se-eq span:nth-child(3) { animation-delay: -0.7s; }
+
+        .se-eq.paused span { animation-play-state: paused; }
+
+        @keyframes seEq {
+            0%, 100% { transform: scaleY(0.35); }
+            50% { transform: scaleY(1); }
+        }
+
+        .se-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 28px 16px;
+            text-align: center;
+            font-size: 12px;
+            color: #6b6b6b;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px dashed rgba(255, 255, 255, 0.08);
+        }
+
+        .se-empty i { font-size: 20px; color: #3f3f3f; }
+
+        .se-row.spotify-ew-skel .spotify-ew-skel-bar { height: 8px; margin: 3px 0; }
 
         /* Spotify Enhanced "like" heart — turns Spotify green and softly glows when the
-           current track is in Liked Songs. A quick pop confirms each toggle. */
+           current track is in Liked Songs. Liking from the button adds .like-burst for
+           a spring pop plus an expanding ring; a track that simply loads as liked
+           just turns green, so skipping through liked songs doesn't strobe. */
+        .spotify-like-btn {
+            position: relative;
+        }
+
+        .spotify-like-btn i {
+            transition: color var(--dur-2) var(--ease-out), transform var(--dur-1) var(--ease-out);
+        }
+
+        .spotify-like-btn:active i {
+            transform: scale(0.8);
+        }
+
         .spotify-like-btn.is-liked {
-            color: #1db954;
-            text-shadow: 0 0 8px rgba(29, 185, 84, 0.6);
+            color: #fff;
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.55);
         }
 
         .spotify-like-btn.is-liked:hover {
-            color: #1ed760;
+            color: #fff;
         }
 
-        .spotify-like-btn.is-liked i {
-            animation: spotify-like-pop 0.32s ease;
+        .spotify-like-btn.like-burst i {
+            animation: spotify-like-pop 0.45s var(--ease-spring);
+        }
+
+        .spotify-like-btn.like-burst::after {
+            content: '';
+            position: absolute;
+            inset: 3px;
+            border-radius: 50%;
+            border: 1.5px solid rgba(255, 255, 255, 0.8);
+            pointer-events: none;
+            animation: spotify-like-ring 0.55s var(--ease-out) forwards;
         }
 
         @keyframes spotify-like-pop {
-            0% { transform: scale(1); }
-            45% { transform: scale(1.4); }
+            0% { transform: scale(0.7); }
+            45% { transform: scale(1.45); }
             100% { transform: scale(1); }
+        }
+
+        @keyframes spotify-like-ring {
+            from { transform: scale(0.4); opacity: 1; }
+            to { transform: scale(1.6); opacity: 0; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .spotify-enhanced-widget,
+            .spotify-swap .spotify-stagger,
+            .spotify-ew-star.pop i,
+            .se-banner,
+            .se-eq span,
+            .spotify-like-btn.like-burst i,
+            .spotify-like-btn.like-burst::after,
+            .spotify-ew-row.is-removing,
+            .se-row.is-removing { animation: none; }
+            .spotify-ew-tabs::before,
+            .se-tabs::before,
+            #spotify-active > .flex-1 { transition: none; }
         }
 
         /* Play/pause "morph" icon. Built from 2 simple bars instead of swapping Font
@@ -1635,16 +2605,21 @@
             overflow: hidden;
         }
 
-        /* Fixed-height viewport showing the current line + upcoming lines. Tall enough to
-           hold the current line (which may wrap to a few rows) plus the two upcoming lines,
-           which renderer/lyrics.js stacks by measured height (layoutLyricsSlots). The top
-           padding baked into LYRICS_TOP_PAD is headroom so the current line's white glow
-           renders fully instead of being clipped by overflow:hidden. */
+        /* Viewport for the current line + upcoming lines (renderer/lyrics.js stacks them
+           by measured height, starting LYRICS_TOP_PAD down). It fills the lyrics column
+           exactly. It used to be a fixed 218px box centred in a ~150px column, so ~33px
+           was sliced off each end by a hard overflow edge: the current line's glow sat
+           on that edge and a line scrolling away was chopped mid-fade. The edges are a
+           soft mask now, so a line leaving upwards (or a long wrapped line running off
+           the bottom) dissolves instead of being cut. */
         #spotify-lyrics-window {
             position: relative;
+            flex: 1 1 auto;
             width: 100%;
-            height: 218px;
+            min-height: 0;
             overflow: hidden;
+            -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 30px), transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 30px), transparent 100%);
         }
 
         .lyrics-slot {
@@ -1759,6 +2734,43 @@
                 inset 0 0 0 1px rgba(var(--accent), 0.28),
                 0 0 10px rgba(var(--accent), 0.35),
                 0 0 22px rgba(var(--accent), 0.18);
+        }
+
+        /* Skeleton → lyrics hand-off (renderLyricsWindow with forceSnap): the loading
+           bars — or the previous song's lines — dissolve upward and soften while the
+           new lines rise into place one after another. Uses the separate `translate`
+           and `filter` properties so it never fights the inline `transform` the
+           conveyor positions each line with. */
+        .lyrics-skeleton-line.is-leaving,
+        .lyrics-slot.is-leaving {
+            animation: lyricsLeave 0.38s var(--ease-in) forwards;
+            pointer-events: none;
+        }
+
+        @keyframes lyricsLeave {
+            to {
+                opacity: 0;
+                translate: 0 -12px;
+                filter: blur(4px);
+            }
+        }
+
+        .lyrics-slot.lyrics-slot-enter {
+            animation: lyricsEnter 0.62s var(--ease-emphasized) backwards;
+        }
+
+        @keyframes lyricsEnter {
+            from {
+                opacity: 0;
+                translate: 0 14px;
+                filter: blur(6px);
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .lyrics-skeleton-line.is-leaving,
+            .lyrics-slot.is-leaving { animation: none; opacity: 0; }
+            .lyrics-slot.lyrics-slot-enter { animation: none; }
         }
 
         /* Shared glossy-sweep used by every skeleton surface. The bright band starts
@@ -4300,7 +5312,9 @@
            down, exit button spins out. */
         #fullscreen-lyrics.fsl-closing .fsl-scene { animation: fslSceneOut 0.42s var(--ease-emphasized) forwards; }
         #fullscreen-lyrics.fsl-closing .fsl-now { animation: fslNowOut 0.42s var(--ease-emphasized) forwards; }
-        #fullscreen-lyrics.fsl-closing .fsl-exit { animation: fslExitOut 0.22s var(--ease-in) forwards; }
+        #fullscreen-lyrics.fsl-closing :is(.fsl-exit, .fsl-look) { animation: fslExitOut 0.22s var(--ease-in) forwards; }
+        #fullscreen-lyrics.fsl-closing :is(.fsl-context, .fsl-tabs) { animation: fslTopOut 0.22s var(--ease-in) forwards; }
+        @keyframes fslTopOut { to { opacity: 0; } }
         @keyframes fslSceneOut { to { opacity: 0; transform: translateY(36px) scale(0.955); filter: blur(12px); } }
         @keyframes fslNowOut { to { opacity: 0; transform: translateY(24px) scale(0.9); filter: blur(6px); } }
         @keyframes fslExitOut { to { opacity: 0; transform: scale(0.8) rotate(-8deg); } }
@@ -4345,8 +5359,77 @@
             background: radial-gradient(130% 130% at 50% 46%, transparent 46%, rgba(0, 0, 0, 0.66) 100%);
         }
 
-        /* ── Floating exit (with a soft scrim so it reads over bright art) ── */
-        .fsl-exit {
+        /* ── Top bar ──
+           Left: the album; centre: Lyrics / Up next; right: the look switch and the
+           exit. Each is placed on its own so the scene below keeps its layout. */
+        .fsl-context {
+            position: absolute;
+            top: clamp(18px, 3vh, 40px);
+            left: clamp(18px, 3vw, 44px);
+            z-index: 4;
+            height: 46px;
+            max-width: 28vw;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 3px;
+            animation: fslFadeDown 0.55s var(--ease-emphasized) backwards;
+            animation-delay: 0.14s;
+        }
+        .fsl-context-eyebrow {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.58);
+        }
+        .fsl-context-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .fsl-tabs {
+            position: absolute;
+            top: calc(clamp(18px, 3vh, 40px) + 5px);
+            left: 50%;
+            z-index: 4;
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            border-radius: 99px;
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(16px) saturate(1.4);
+            -webkit-backdrop-filter: blur(16px) saturate(1.4);
+            transform: translateX(-50%);
+            animation: fslTabsIn 0.55s var(--ease-emphasized) backwards;
+            animation-delay: 0.14s;
+        }
+        @keyframes fslTabsIn {
+            from { opacity: 0; transform: translateX(-50%) translateY(-12px) scale(0.94); }
+            to   { opacity: 1; transform: translateX(-50%); }
+        }
+        .fsl-tab {
+            height: 28px;
+            padding: 0 16px;
+            border: 0;
+            border-radius: 99px;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.72);
+            background: transparent;
+            cursor: pointer;
+            transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+        }
+        .fsl-tab:hover { color: #fff; }
+        .fsl-tab.is-on { color: #0a0a0c; background: rgba(255, 255, 255, 0.92); }
+
+        /* ── Floating exit + look switch (with a soft scrim so they read over bright art) ── */
+        .fsl-exit,
+        .fsl-look {
             position: absolute;
             top: clamp(18px, 3vh, 40px);
             right: clamp(18px, 3vw, 44px);
@@ -4368,24 +5451,30 @@
             animation: fslFadeDown 0.55s var(--ease-emphasized) backwards;
             animation-delay: 0.14s;
         }
-        .fsl-exit:hover { background: rgba(255, 255, 255, 0.18); color: #fff; transform: scale(1.06); }
+        .fsl-look { right: calc(clamp(18px, 3vw, 44px) + 56px); }
+        :is(.fsl-exit, .fsl-look):hover { background: rgba(255, 255, 255, 0.18); color: #fff; transform: scale(1.06); }
 
-        /* ── Scene: two columns (art + lyrics), centred as a group ── */
+        /* ── Scene: two columns (art + lyrics), centred as a group ──
+           The top padding clears the top bar; `safe` keeps a column taller than the
+           screen scrollable from its top instead of clipped above it. */
         .fsl-scene {
             position: absolute;
             inset: 0;
             z-index: 2;
             display: flex;
-            align-items: center;
+            align-items: safe center;
             justify-content: center;
             gap: clamp(36px, 6.5vw, 132px);
-            padding: clamp(30px, 6vh, 84px) clamp(36px, 7.5vw, 140px);
+            padding: calc(clamp(18px, 3vh, 40px) + 62px) clamp(36px, 7.5vw, 140px) clamp(30px, 6vh, 84px);
+            overflow-y: auto;
         }
 
-        /* ── Left: album art + progress + meta ── */
+        /* ── Left: album art, title + like, progress, transport, volume ──
+           The art gives way on short screens (the 100vh term) so the controls below
+           it always fit. */
         .fsl-now {
             flex-shrink: 0;
-            width: clamp(240px, 30vw, 470px);
+            width: clamp(240px, min(30vw, 100vh - 420px), 470px);
             display: flex;
             flex-direction: column;
             align-items: flex-start;
@@ -4431,13 +5520,18 @@
             to   { opacity: 1; transform: translateX(0) scale(1); }
         }
 
-        .fsl-progress { width: 100%; margin-top: clamp(18px, 2.6vh, 32px); }
+        /* The record: just the artwork in Glass. The White look adds a clear vinyl
+           sliding out of it (.fsl-vinyl, styles/player-style.css). */
+        .fsl-record { position: relative; width: 100%; }
+        .fsl-vinyl { display: none; }
+
+        .fsl-progress { width: 100%; margin-top: clamp(12px, 1.8vh, 22px); }
         .fsl-times {
             display: flex; justify-content: space-between;
             font-family: ui-monospace, 'SF Mono', 'Segoe UI Mono', monospace;
             font-size: clamp(10px, 0.75vw, 13px);
             color: rgba(255, 255, 255, 0.5);
-            margin-bottom: 9px;
+            margin-top: 9px;
             font-variant-numeric: tabular-nums;
             letter-spacing: 0.3px;
         }
@@ -4472,7 +5566,15 @@
         }
         .fsl-progress-bar:hover .fsl-progress-knob { transform: translate(50%, -50%) scale(1); }
 
-        .fsl-nowmeta { width: 100%; margin-top: clamp(16px, 2.2vh, 28px); min-width: 0; }
+        .fsl-nowmeta {
+            width: 100%;
+            margin-top: clamp(16px, 2.4vh, 28px);
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .fsl-titles { flex: 1; min-width: 0; }
         /* Both are single-line marquee containers (see setMarqueeText / the .marquee-*
            classes shared with the compact player): long titles/artists scroll on the
            exact same looping schedule instead of clipping or ellipsising. */
@@ -4499,6 +5601,145 @@
             overflow: hidden;
             text-overflow: clip;
         }
+
+        /* ── Like, transport, volume ──
+           Every control calls the dashboard player's own function; the follow-loop
+           mirrors the state back (renderer/fullscreen-lyrics.js → updateFslControls). */
+        .fsl-like {
+            flex-shrink: 0;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            border-radius: 50%;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 19px;
+            cursor: pointer;
+            transition: transform var(--dur-2) var(--ease-spring), color var(--dur-2) var(--ease-out), filter var(--dur-2) var(--ease-out);
+        }
+        .fsl-like:hover { color: #fff; transform: scale(1.12); }
+        .fsl-like:active i { transform: scale(0.8); }
+        .fsl-like.is-liked { color: #fff; filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6)); }
+        .fsl-like.is-popping i { animation: spotify-like-pop 0.45s var(--ease-spring); }
+
+        .fsl-transport {
+            width: 100%;
+            margin-top: clamp(10px, 1.6vh, 18px);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .fsl-ctl {
+            position: relative;
+            width: clamp(38px, 3vw, 46px);
+            height: clamp(38px, 3vw, 46px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            border-radius: 50%;
+            background: transparent;
+            color: #fff;
+            font-size: clamp(17px, 1.35vw, 22px);
+            cursor: pointer;
+            transition: transform var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+        }
+        .fsl-ctl:hover { transform: scale(1.1); }
+        .fsl-ctl:active { transform: scale(0.92); }
+        .fsl-mode { color: rgba(255, 255, 255, 0.55); font-size: clamp(14px, 1.05vw, 17px); }
+        .fsl-mode:hover,
+        .fsl-mode.is-on { color: #fff; }
+        /* On = a dot underneath; repeat-one adds a small "1" (the Spotify convention). */
+        .fsl-mode::after {
+            content: '';
+            position: absolute;
+            bottom: 3px;
+            left: 50%;
+            width: 4px;
+            height: 4px;
+            margin-left: -2px;
+            border-radius: 50%;
+            background: currentColor;
+            opacity: 0;
+            transform: scale(0);
+            transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-3) var(--ease-spring);
+        }
+        .fsl-mode.is-on::after { opacity: 1; transform: scale(1); }
+        .fsl-mode.is-track::before {
+            content: '1';
+            position: absolute;
+            top: 5px;
+            right: 4px;
+            font-family: 'Inter', sans-serif;
+            font-size: 8px;
+            font-weight: 700;
+            line-height: 1;
+        }
+        .fsl-play {
+            width: clamp(54px, 4.4vw, 68px);
+            height: clamp(54px, 4.4vw, 68px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            border-radius: 50%;
+            color: #fff;
+            background: rgba(255, 255, 255, 0.14);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            cursor: pointer;
+            transition: background-color var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out);
+        }
+        .fsl-play:hover { background: rgba(255, 255, 255, 0.22); transform: scale(1.04); }
+        .fsl-play:active { transform: scale(0.95); }
+        .fsl-play .morph-play-icon { width: clamp(18px, 1.5vw, 24px); height: clamp(18px, 1.5vw, 24px); }
+        .fsl-play.is-playing .morph-bar-a { clip-path: polygon(20% 15%, 38% 15%, 38% 85%, 20% 85%); }
+        .fsl-play.is-playing .morph-bar-b { clip-path: polygon(58% 15%, 78% 15%, 78% 85%, 58% 85%); }
+
+        .fsl-volume {
+            width: 100%;
+            margin-top: clamp(8px, 1.4vh, 16px);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: rgba(255, 255, 255, 0.55);
+            font-size: 12px;
+        }
+        /* --fsl-vol (the fill) is set by the follow-loop and while dragging. */
+        .fsl-volume-slider {
+            --fsl-vol: 50%;
+            flex: 1;
+            height: 16px;
+            margin: 0;
+            background: transparent;
+            cursor: pointer;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .fsl-volume-slider:focus-visible { outline: none; }
+        .fsl-volume-slider::-webkit-slider-runnable-track {
+            height: 4px;
+            border-radius: 99px;
+            background: linear-gradient(to right, rgba(255, 255, 255, 0.85) var(--fsl-vol), rgba(255, 255, 255, 0.18) var(--fsl-vol));
+        }
+        .fsl-volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            margin-top: -4px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+            transform: scale(0.85);
+            transition: transform var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+        }
+        .fsl-volume-slider:is(:hover, :active)::-webkit-slider-thumb { transform: scale(1.15); }
+        .fsl-volume-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35), 0 2px 8px rgba(0, 0, 0, 0.45); }
 
         /* ── Right: scrolling lyrics ── */
         .fsl-stage {
@@ -4674,6 +5915,121 @@
         .fsl-state-title { font-size: clamp(24px, 2vw, 34px); font-weight: 700; color: #fff; letter-spacing: -0.5px; line-height: 1.15; }
         .fsl-state-sub { font-size: clamp(13px, 1vw, 16px); color: rgba(255, 255, 255, 0.55); line-height: 1.5; }
 
+        /* ── Up next (takes the lyrics' place while its tab is on) ── */
+        .fsl-queue { display: none; }
+        #fullscreen-lyrics.fsl-tab-queue #fsl-stage,
+        #fullscreen-lyrics.fsl-tab-queue #fsl-state { display: none; }
+        #fullscreen-lyrics.fsl-tab-queue #fsl-queue {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            align-self: stretch;
+            min-width: 0;
+            max-width: 52vw;
+            padding-top: clamp(16px, 5vh, 64px);
+            font-family: 'Inter', sans-serif;
+            animation: fslLyricsIn 0.5s var(--ease-emphasized) backwards;
+        }
+        .fsl-qhead { padding: 0 12px 14px; }
+        .fsl-qtitle {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+            font-size: clamp(22px, 1.7vw, 30px);
+            font-weight: 700;
+            letter-spacing: -0.4px;
+            color: #fff;
+        }
+        .fsl-qsub { margin-top: 4px; font-size: clamp(12px, 0.9vw, 14px); color: rgba(255, 255, 255, 0.58); }
+        .fsl-qlist {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 2px 6px 48px 0;
+            -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 64px), transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 64px), transparent 100%);
+        }
+        .fsl-qlist::-webkit-scrollbar { width: 8px; }
+        .fsl-qlist::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 99px; }
+        .fsl-qrow {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 8px 12px;
+            border-radius: 14px;
+            color: #fff;
+            transition: background-color var(--dur-2) var(--ease-out);
+        }
+        .fsl-qrow:hover { background: rgba(255, 255, 255, 0.07); }
+        .fsl-qrow.is-now {
+            margin-bottom: 8px;
+            background: rgba(255, 255, 255, 0.12);
+            box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.5), 0 0 28px rgba(255, 255, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+            backdrop-filter: blur(20px) saturate(1.5);
+            -webkit-backdrop-filter: blur(20px) saturate(1.5);
+        }
+        .fsl-qart {
+            flex-shrink: 0;
+            width: clamp(40px, 3.2vw, 52px);
+            aspect-ratio: 1 / 1;
+            border-radius: 10px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.35);
+            background: rgba(255, 255, 255, 0.08);
+        }
+        .fsl-qart img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .fsl-qtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+        .fsl-qname,
+        .fsl-qmeta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .fsl-qname { font-size: clamp(13px, 1vw, 16px); font-weight: 600; }
+        .fsl-qrow.is-now .fsl-qname { font-weight: 700; }
+        .fsl-qmeta { font-size: clamp(11.5px, 0.85vw, 13.5px); color: rgba(255, 255, 255, 0.58); }
+        .fsl-qdur {
+            flex-shrink: 0;
+            font-family: ui-monospace, 'SF Mono', 'Segoe UI Mono', monospace;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            font-variant-numeric: tabular-nums;
+        }
+        .fsl-qeq { flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; height: 14px; color: #fff; }
+        /* Resting heights first, so the bars still read as bars where motion is off. */
+        .fsl-qeq span { width: 3px; height: 9px; border-radius: 2px; background: currentColor; animation: fslEq 1s ease-in-out infinite; }
+        .fsl-qeq span:nth-child(2) { height: 14px; animation-delay: 0.25s; }
+        .fsl-qeq span:nth-child(3) { height: 6px; animation-delay: 0.5s; }
+        @media (prefers-reduced-motion: reduce) { .fsl-qeq span { animation: none; } }
+        #fullscreen-lyrics.fsl-paused .fsl-qeq span { animation-play-state: paused; }
+        @keyframes fslEq { 0%, 100% { height: 4px; } 50% { height: 14px; } }
+        .fsl-qmsg {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: center;
+            gap: 12px;
+            max-width: 34ch;
+            padding: 0 12px 10vh;
+        }
+        .fsl-qmsg-badge {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: #fff;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+        }
+        .fsl-qmsg-title { font-size: clamp(18px, 1.5vw, 24px); font-weight: 700; color: #fff; letter-spacing: -0.3px; }
+        .fsl-qmsg-sub { font-size: clamp(12.5px, 0.95vw, 15px); color: rgba(255, 255, 255, 0.55); line-height: 1.5; }
+        #fullscreen-lyrics.fsl-layout-focus.fsl-tab-queue #fsl-queue { max-width: min(720px, 82vw); }
+
         @keyframes fslFadeDown { from { opacity: 0; transform: translateY(-12px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
         @keyframes fslNowIn {
             from { opacity: 0; transform: translateY(38px) scale(0.9); filter: blur(12px); }
@@ -4692,6 +6048,7 @@
             #fullscreen-lyrics:not(.fsl-layout-focus) .fsl-line { transform-origin: center; }
             #fullscreen-lyrics:not(.fsl-layout-focus).fsl-has-state #fsl-state { justify-content: center; }
             #fullscreen-lyrics:not(.fsl-layout-focus) .fsl-state-inner { align-items: center; text-align: center; }
+            #fullscreen-lyrics:not(.fsl-layout-focus).fsl-tab-queue #fsl-queue { max-width: 88vw; width: 88vw; min-height: 60vh; }
         }
 
         /* ── Config panel (Widget Library detail view) ── */
@@ -4734,6 +6091,52 @@
         .fsl-cfg-open:disabled { opacity: 0.4; cursor: default; }
         .fsl-cfg-hint { font-size: 11px; color: #6f6f6f; line-height: 1.5; margin-top: 2px; }
         .fsl-cfg-hint b { color: #9a9a9a; font-weight: 600; }
+
+        /* ── Phone Remote panel (renderer/phone-remote.js) ──
+           Shares the .fsl-cfg vocabulary; adds the status line and the pairing code,
+           which is drawn dark-on-white whatever the theme — cameras need the contrast. */
+        .pr-status {
+            display: flex; align-items: center; gap: 9px;
+            padding: 10px 12px; border-radius: 12px;
+            font-size: 12.5px; color: #d4d4d4;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+        }
+        .pr-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: #525252; }
+        .pr-ok .pr-dot,
+        .pr-live .pr-dot { background: #4ade80; box-shadow: 0 0 10px rgba(74, 222, 128, 0.55); }
+        .pr-live .pr-dot { animation: prPulse 1.6s ease-in-out infinite; }
+        .pr-busy .pr-dot { background: #fbbf24; animation: prPulse 1.2s ease-in-out infinite; }
+        .pr-warn .pr-dot { background: #f87171; }
+        .pr-idle .pr-dot { background: #a3a3a3; }
+        @keyframes prPulse { 50% { opacity: 0.35; } }
+        .pr-pair { display: flex; align-items: center; gap: 16px; }
+        .pr-qr {
+            flex-shrink: 0; width: 172px; padding: 6px;
+            border-radius: 16px; background: #fff;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+        }
+        .pr-qr-svg { display: block; width: 100%; height: auto; }
+        .pr-steps {
+            margin: 0; padding-left: 18px; list-style: decimal;
+            display: flex; flex-direction: column; gap: 8px;
+            font-size: 12px; line-height: 1.5; color: #a3a3a3;
+        }
+        .pr-steps b { color: #e5e5e5; font-weight: 600; }
+        .pr-actions { display: flex; gap: 8px; }
+        .pr-actions .fsl-cfg-open { flex: 1; margin-top: 0; }
+        .pr-link-btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+            height: 40px; padding: 0 14px; border-radius: 12px;
+            font-size: 12.5px; font-weight: 500; color: #d4d4d4; cursor: pointer;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+        }
+        .pr-link-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+        .pr-danger { color: #fca5a5; border-color: rgba(248, 113, 113, 0.3); background: rgba(248, 113, 113, 0.06); }
+        .pr-danger:hover { color: #fecaca; background: rgba(248, 113, 113, 0.14); }
+        @media (prefers-reduced-motion: reduce) { .pr-dot { animation: none !important; } }
 
         /* ── Auto Clicker mini widget ──────────────────────────────────────
            Panel styling for renderer/autoclicker.js. Everything is built from

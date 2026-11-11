@@ -751,10 +751,22 @@ function signOut() {
   clearStore();
 }
 
+// The signed token itself, for the Phone Remote relay — which checks it with
+// the same public key and only opens a room for a licensed copy. Null unless
+// the stored record would unlock this machine right now.
+function relayToken() {
+  const stored = readStore();
+  return tokenUnlock(stored) ? stored.token : null;
+}
+
 function init(ctx) {
   logger = ctx.logger;
   storePath = path.join(ctx.userDataPath, 'license.json');
-  return { check, getCachedUnlock, verifyInBackground, verifyKey, signInWithGoogle, getState, getAccount, openPricing, openAccount, openSupport, signOut, SITE_URL };
+  return { check, getCachedUnlock, verifyInBackground, verifyKey, signInWithGoogle, getState, getAccount, openPricing, openAccount, openSupport, signOut, relayToken, SITE_URL };
 }
 
-module.exports = { init };
+// SITE_URL is exported so the rest of the app can link to the same site this
+// module treats as the licensing authority — main/firstRun.js builds the
+// Terms/Privacy links from it. One constant, so a deploy to a new domain cannot
+// leave a stale legal link behind in some other file.
+module.exports = { init, SITE_URL };

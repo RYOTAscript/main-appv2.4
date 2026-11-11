@@ -1,6 +1,19 @@
+        // A corrupt stored value used to survive as NaN, which makes every
+        // `rotate(NaNdeg)` invalid — the vinyl silently never turns again, and
+        // nothing says why. Fall back to 0 instead.
         let spotifyDiskAngle = parseFloat(localStorage.getItem('spotifyDiskAngle') || '0');
+        if (!Number.isFinite(spotifyDiskAngle)) spotifyDiskAngle = 0;
         let spotifyDiskVelocity = 0;
         let spotifyTargetVelocity = 0;
+        // Whether the glow visuals are already in their cleared state.
+        // resetBeatGlowVisuals() is idempotent, which is exactly why it ended up
+        // being called on every frame of the idle loop: two getElementById
+        // lookups and three style writes per frame, to set values that were
+        // already set, whenever nothing was playing — which is most of the time.
+        // It only has to run on the way INTO idle, and this is what remembers
+        // that it has. Set by resetBeatGlowVisuals() itself, so it stays true
+        // whichever caller does the clearing.
+        let beatGlowIdle = false;
         let spotifyIsPlaying = false;
         let spotifyCurrentTrack = null;
         let spotifyUpdateInterval = null;
@@ -160,8 +173,29 @@
             }
         }
 
+        // ── Reading a setting on the animation path ──
+        // isBeatGlowEnabled() and getBeatGlowIntensity() both go to
+        // localStorage, and both were being called from inside a 60fps loop that
+        // never stops — a synchronous storage read plus a parseFloat, ~120 times
+        // a second, forever, on an always-on launcher. Nobody changes a slider 60
+        // times a second, so the values are cached and re-read four times a
+        // second instead. A quarter second is imperceptible while dragging the
+        // intensity slider, and it is two orders of magnitude less work.
+        const SETTING_CACHE_MS = 250;
+        let settingCacheAt = 0;
+        let cachedGlowEnabled = true;
+        let cachedGlowIntensity = 1;
+
+        function refreshGlowSettings(now) {
+            if (now - settingCacheAt < SETTING_CACHE_MS) return;
+            settingCacheAt = now;
+            cachedGlowEnabled = isBeatGlowEnabled();
+            cachedGlowIntensity = getBeatGlowIntensity();
+        }
+
         function resetBeatGlowVisuals() {
             beatGlowLevel = 0;
+            beatGlowIdle = true;
             const halo = document.getElementById('spotify-beat-glow');
             const disk = document.getElementById('spotify-disk');
             if (halo) {
@@ -175,7 +209,10 @@
             const halo = document.getElementById('spotify-beat-glow');
             const disk = document.getElementById('spotify-disk');
             if (!halo || !disk) return;
-            const mult = getBeatGlowIntensity();
+            // Cached rather than read from localStorage on every frame — see
+            // refreshGlowSettings() below. Falls back to a live read for the
+            // callers that are not on the animation path.
+            const mult = settingCacheAt ? cachedGlowIntensity : getBeatGlowIntensity();
             const i = Math.min(1, Math.max(0, intensity * mult));
             if (i <= 0.02) {
                 halo.style.opacity = '0';
@@ -343,7 +380,9 @@
         }
 
         function tickBeatEngine() {
-            if (isBeatGlowEnabled() && beatEngineState.isPlaying) {
+            refreshGlowSettings(Date.now());
+            if (cachedGlowEnabled && beatEngineState.isPlaying) {
+                beatGlowIdle = false;
                 let progressMs = beatEngineState.progressMs;
                 if (beatEngineState.lastProgressAt) {
                     progressMs += Date.now() - beatEngineState.lastProgressAt;
@@ -360,9 +399,13 @@
                 if (beatGlowLevel > 0.01) {
                     beatGlowLevel *= BEAT_GLOW_DECAY;
                     applyBeatGlowVisual(beatGlowLevel);
-                } else {
+                    beatGlowIdle = false;
+                } else if (!beatGlowIdle) {
+                    // The frame the glow finishes fading out — clear once, then
+                    // let every following idle frame do nothing at all.
                     beatGlowLevel = 0;
                     resetBeatGlowVisuals();
+                    beatGlowIdle = true;
                 }
             }
             requestAnimationFrame(tickBeatEngine);
@@ -373,18 +416,62 @@
             return isNaN(stored) ? DEFAULT_DISK_SPEED : stored;
         }
 
+        // The vinyl eases to a stop rather than snapping, so the velocity only
+        // ever APPROACHES zero — it never reaches it. Left alone that means the
+        // disk is technically still turning by a millionth of a degree a frame
+        // for the rest of the session, and the loop goes on writing a transform
+        // for it. Below this it is neither visible nor worth a frame of work.
+        const DISK_STOPPED = 0.0005;
+        let diskEl = null;
+        let diskStopped = false;
+        let diskAngleSaved = spotifyDiskAngle;
+
+        function paintDisk() {
+            // Cached: the same element was being resolved by id 60 times a
+            // second. Re-resolved if it is replaced, or not rendered yet.
+            if (!diskEl || !diskEl.isConnected) diskEl = document.getElementById('spotify-disk');
+            if (diskEl) diskEl.style.transform = `rotate(${spotifyDiskAngle}deg)`;
+        }
+
         function animateSpotifyDisk() {
             const factor = spotifyTargetVelocity > 0 ? DISK_ACCEL : DISK_DECEL;
             spotifyDiskVelocity += (spotifyTargetVelocity - spotifyDiskVelocity) * factor;
-            spotifyDiskAngle = (spotifyDiskAngle + spotifyDiskVelocity) % 360;
-            const disk = document.getElementById('spotify-disk');
-            if (disk) disk.style.transform = `rotate(${spotifyDiskAngle}deg)`;
+
+            if (spotifyTargetVelocity <= 0 && Math.abs(spotifyDiskVelocity) < DISK_STOPPED) {
+                // Parked. Snap the residue away and paint the resting angle ONCE
+                // — that final write is also what restores the saved angle on a
+                // cold start, when the disk is stationary from the first frame.
+                // Every following idle frame then does nothing at all: no lookup,
+                // no style write, no layout.
+                if (!diskStopped) {
+                    spotifyDiskVelocity = 0;
+                    diskStopped = true;
+                    paintDisk();
+                }
+            } else {
+                diskStopped = false;
+                spotifyDiskAngle = (spotifyDiskAngle + spotifyDiskVelocity) % 360;
+                paintDisk();
+            }
+
             requestAnimationFrame(animateSpotifyDisk);
         }
 
+        let diskStarted = false;
+
         function startSpotifyDisk() {
+            // Two rAF loops driving one angle would race and double the speed.
+            if (diskStarted) return;
+            diskStarted = true;
             requestAnimationFrame(animateSpotifyDisk);
-            setInterval(() => localStorage.setItem('spotifyDiskAngle', spotifyDiskAngle.toString()), 2000);
+            // Persist the angle so the vinyl picks up where it left off — but
+            // only when it has actually moved. A paused launcher was writing the
+            // same string to localStorage every two seconds indefinitely.
+            setInterval(() => {
+                if (spotifyDiskAngle === diskAngleSaved) return;
+                diskAngleSaved = spotifyDiskAngle;
+                localStorage.setItem('spotifyDiskAngle', spotifyDiskAngle.toString());
+            }, 2000);
         }
 
         let isSpotifyUpdating = false;

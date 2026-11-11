@@ -1,4 +1,4 @@
-main — End User License Agreement
+main - End User License Agreement
 
 This copy of "main" is licensed, not sold. By installing or using it you agree
 to the Terms of Service and Privacy Policy published at the main website
@@ -7,7 +7,7 @@ to the Terms of Service and Privacy Policy published at the main website
 1. LICENSE. Purchase grants you a personal, non-transferable, lifetime license
    to install and use main on your own personal computers, on Windows and
    macOS; one license covers both. main may be activated on up to 2 computers
-   at a time — you can free a slot yourself at any time from the Account page
+   at a time - you can free a slot yourself at any time from the Account page
    on the website. You may not sell, rent, sublicense, share, or redistribute
    your license key or the installer, and you may not present main or its
    assets as your own product. Keys that are shared publicly or abused may be
@@ -35,4 +35,4 @@ to the Terms of Service and Privacy Policy published at the main website
    TikTok / ByteDance, Valve, or Epic Games. All trademarks are the property of
    their respective owners.
 
-© 2026 ryota. All rights reserved.
+(c) 2026 ryota. All rights reserved.

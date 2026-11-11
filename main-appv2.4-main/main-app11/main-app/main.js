@@ -31,6 +31,7 @@ const appIndex = require('./main/appIndex');
 const appLauncher = require('./main/appLauncher');
 const fpsOptimizer = require('./main/fpsOptimizer');
 const micMute = require('./main/micMute');
+const firstRun = require('./main/firstRun');
 const spotify = require('./main/spotify');
 const lyrics = require('./main/lyrics');
 const weather = require('./main/weather');
@@ -56,6 +57,10 @@ const quickLaunch = require('./main/quickLaunch');
 const appInstaller = require('./main/appInstaller');
 const debloat = require('./main/debloat');
 const revoUninstaller = require('./main/revoUninstaller');
+const calendar = require('./main/calendar');
+const timers = require('./main/timers');
+const miniPlayer = require('./main/miniPlayer');
+const phoneRemote = require('./main/phoneRemote');
 const license = require('./main/license');
 const autoUpdate = require('./main/autoUpdate');
 const elevate = require('./main/elevate');
@@ -262,6 +267,11 @@ if (!gotSingleInstanceLock) {
   let volumeMixerModule = null;
   let gameModeModule = null;
   let claudeLimitModule = null;
+  let calendarModule = null;
+  let timersModule = null;
+  let lyricsModule = null;
+  let miniPlayerModule = null;
+  let phoneRemoteModule = null;
 
   function registerFocusHotkey(accelerator) {
     if (!accelerator || typeof accelerator !== 'string' || accelerator === '-') return false;
@@ -531,6 +541,9 @@ if (!gotSingleInstanceLock) {
     // Cross-platform feature modules — run everywhere.
     elevate.init(ctx);
     micModule = micMute.init(ctx);
+    // The welcome window. Packaged builds only, once per install, and it
+    // opens BEHIND nothing — the launcher is already running underneath.
+    firstRun.init(ctx);
     spotifyModule = spotify.init(ctx);
     autostart.init(ctx);
     systemStats.init(ctx);
@@ -538,7 +551,7 @@ if (!gotSingleInstanceLock) {
     // handful of apps the user happens to have pinned.
     appIndex.init(ctx);
     appLauncher.init(ctx);
-    lyrics.init(ctx);
+    lyricsModule = lyrics.init(ctx);
     weather.init(ctx);
     displaySettings.init(ctx);
     clipboardHistory.init(ctx);
@@ -550,6 +563,22 @@ if (!gotSingleInstanceLock) {
     quickLaunch.init(ctx);
     volumeMixerModule = volumeMixer.init(ctx);
     discordRpc.init(ctx);
+    // Calendar: owns its data + the reminder scheduler, so reminders still
+    // fire while the window is hidden in the tray (renderer timers throttle).
+    calendarModule = calendar.init(ctx);
+    // Timers: owns the countdowns, stopwatches and focus sessions, the alarm
+    // scheduler (renderer timers throttle while hidden) and the floating
+    // always-on-top timer windows.
+    timersModule = timers.init(ctx);
+    // Corner Player: the tiny always-on-top Spotify player. It polls Spotify
+    // from main through the Spotify module (renderer timers throttle while the
+    // launcher sits hidden — exactly when the corner player is on screen).
+    miniPlayerModule = miniPlayer.init(ctx, { spotify: spotifyModule, lyrics: lyricsModule });
+    // Phone Remote: the player and lyrics on a phone, through the relay. Same
+    // Spotify functions; the license token is what the relay admits a PC on.
+    phoneRemoteModule = phoneRemote.init(ctx, {
+      spotify: spotifyModule, lyrics: lyricsModule, license: licenseModule, siteUrl: licenseModule.SITE_URL
+    });
 
     // Windows-only feature modules. Their backends rely on PowerShell / WinRT /
     // Win32 / winget / ViGEm with no macOS equivalent, and their widgets are
@@ -750,6 +779,10 @@ if (!gotSingleInstanceLock) {
     if (gameModeModule) gameModeModule.teardown();
     if (claudeLimitModule) claudeLimitModule.teardown();
     if (voiceAssistantModule) voiceAssistantModule.teardown();
+    if (calendarModule) calendarModule.teardown();
+    if (timersModule) timersModule.teardown();
+    if (miniPlayerModule) miniPlayerModule.teardown();
+    if (phoneRemoteModule) phoneRemoteModule.teardown();
     logger.system('Application quit');
   });
 
@@ -795,6 +828,8 @@ if (!gotSingleInstanceLock) {
         mainWindow.setResizable(lyricsImmersiveRestore.resizable);
         lyricsImmersiveRestore = null;
       }
+      // The stage already shows everything the corner player would.
+      if (miniPlayerModule) miniPlayerModule.setImmersive(!!on);
       return true;
     } catch (e) {
       logger.log(`lyrics-set-immersive failed: ${e?.message || e}`, 'ERROR');
@@ -859,6 +894,7 @@ if (!gotSingleInstanceLock) {
     if (autoClickerModule) autoClickerModule.reapplyHotkeys();
     if (crosshairModule) crosshairModule.reapplyHotkey();
     if (volumeMixerModule) volumeMixerModule.reapplyHotkeys();
+    if (timersModule) timersModule.reapplyHotkeys();
     if (voiceAssistantModule) voiceAssistantModule.resumeTriggers();
     logger.log('All hotkeys re-enabled');
     return { success: true };

@@ -510,6 +510,8 @@
             // this nudge the overlay kept whatever colour it had at startup and
             // changing the theme appeared to do nothing to it.
             if (typeof pushVoiceVocabulary === 'function') pushVoiceVocabulary(true);
+            // Same for the corner player, which is its own window too.
+            if (typeof pushMiniPlayerSync === 'function') pushMiniPlayerSync();
             // Quick Launch tiles: a colored theme deep-tints the tile face behind
             // each icon (accent at ~16% over black) and its border. Pure white
             // (unthemed) keeps the app's original neutral tile exactly.

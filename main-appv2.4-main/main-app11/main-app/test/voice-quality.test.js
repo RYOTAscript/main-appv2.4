@@ -693,25 +693,19 @@ test('the app index keeps out entries that are not apps', () => {
 
 // ── Installer and update notifications ───────────────────────────────────────
 
-test('the installer ships its own artwork at the sizes NSIS demands', () => {
-  // NSIS silently ignores a sidebar that is not a BMP of exactly 164x314 (and a
-  // header that is not 150x57) and falls back to the stock grey installer, so
-  // the dimensions are the thing worth asserting.
-  const pkg = JSON.parse(fs.readFileSync(here('package.json'), 'utf8'));
-  const nsis = pkg.build.nsis;
-  for (const k of ['installerIcon', 'uninstallerIcon', 'installerHeaderIcon',
-                   'installerHeader', 'installerSidebar', 'uninstallerSidebar']) {
+test('the installer references only artwork a one-click build can show', () => {
+  // Everything NSIS draws on a page — header strip, Welcome/Finish sidebars —
+  // belongs to the ASSISTED installer. A one-click build has no pages, so those
+  // keys would describe chrome that never appears. What survives is the icons:
+  // the .exe's own icon, the uninstaller's, and the icon on the progress window.
+  const nsis = JSON.parse(fs.readFileSync(here('package.json'), 'utf8')).build.nsis;
+  for (const k of ['installerIcon', 'uninstallerIcon', 'installerHeaderIcon']) {
     assert.ok(nsis[k], `nsis.${k} is set`);
     assert.ok(fs.existsSync(here(nsis[k])), `${nsis[k]} exists on disk`);
   }
-  const dims = (p) => {
-    // BMP header: width at byte 18, height at 22, both little-endian int32.
-    const b = fs.readFileSync(here(p));
-    return [b.readInt32LE(18), Math.abs(b.readInt32LE(22))];
-  };
-  assert.deepStrictEqual(dims(nsis.installerSidebar), [164, 314]);
-  assert.deepStrictEqual(dims(nsis.uninstallerSidebar), [164, 314]);
-  assert.deepStrictEqual(dims(nsis.installerHeader), [150, 57]);
+  for (const k of ['installerHeader', 'installerSidebar', 'uninstallerSidebar']) {
+    assert.ok(!(k in nsis), `nsis.${k} draws on a page this installer does not have`);
+  }
 });
 
 test('an update is announced once, and only twice in total', () => {
@@ -756,4 +750,156 @@ test('progress never depends on a single field being present', () => {
   assert.match(src, /return state\.progress \|\| 0;/);
   assert.ok(!/Math\.round\(p\?\.percent \|\| 0\)/.test(src),
     'the old percent-or-zero read must be gone');
+});
+
+test('a new version is noticed without waiting out a long poll', () => {
+  const src = fs.readFileSync(here('main', 'autoUpdate.js'), 'utf8');
+  // The poll interval IS the latency on every release for an always-on app.
+  const m = src.match(/const CHECK_INTERVAL_MS = (\d+) \* 60 \* 1000;/);
+  assert.ok(m, 'the interval must be a named constant');
+  assert.ok(Number(m[1]) <= 30, 'and no longer than half an hour');
+  // The two moments a machine is most likely to be behind are the two a fixed
+  // interval handles worst: waking from sleep, and regaining a network.
+  assert.match(src, /powerMonitor\.on\('resume'/);
+  assert.match(src, /powerMonitor\.on\('unlock-screen'/);
+  // A check while one is already downloading would fight the download.
+  assert.match(src, /status === 'downloading' \|\| state\.status === 'downloaded'\) return;/);
+});
+
+test('the licence the installer shows is pure ASCII', () => {
+  // NSIS reads LicenseData as ANSI. A UTF-8 em dash arrives as "a€"" — visible
+  // mojibake on the first screen a paying customer ever sees. Typography is
+  // worth nothing in a licence; being unambiguously readable is worth
+  // everything, so no encoding assumption is allowed to break it.
+  const raw = fs.readFileSync(here('eula.txt'));
+  const bad = [...raw].filter((b) => b > 127);
+  assert.strictEqual(bad.length, 0,
+    `eula.txt must be ASCII; found ${bad.length} high bytes`);
+});
+
+// ── Update smoothness ────────────────────────────────────────────────────────
+
+test('a transient update failure is retried, not shown', () => {
+  const src = fs.readFileSync(here('main', 'autoUpdate.js'), 'utf8');
+  // One failed check is almost never permanent — a laptop that just woke, a
+  // proxy mid-handshake, a CDN blip. The old code went red on the first one and
+  // then did nothing until the app restarted.
+  assert.match(src, /const RETRY_DELAYS_MS = \[/);
+  assert.match(src, /FAILURES_BEFORE_SURFACING/);
+  assert.match(src, /consecutiveFailures >= FAILURES_BEFORE_SURFACING/);
+  // Widening delays, so a long outage does not mean a tight loop.
+  const delays = src.match(/const RETRY_DELAYS_MS = \[([^\]]+)\]/)[1];
+  assert.ok(/30 \* 1000/.test(delays) && /10 \* 60 \* 1000/.test(delays),
+    'delays must widen from seconds to minutes');
+  // Success has to clear the counter or the third blip of the week trips it.
+  assert.ok((src.match(/consecutiveFailures = 0;/g) || []).length >= 2,
+    'every success path must reset the failure count');
+});
+
+test('a signature failure is never absorbed', () => {
+  const src = fs.readFileSync(here('main', 'autoUpdate.js'), 'utf8');
+  // Retrying re-downloads the same bad bytes, and the user needs to know their
+  // update is not coming.
+  assert.match(src, /const hard = info\.kind === 'signature';/);
+  assert.match(src, /if \(hard\) return;/);
+});
+
+test('update errors are classified into something a person can act on', () => {
+  const src = fs.readFileSync(here('main', 'autoUpdate.js'), 'utf8');
+  assert.match(src, /function classifyError\(err\)/);
+  for (const kind of ['offline', 'blocked', 'missing', 'unreachable', 'signature']) {
+    assert.ok(src.includes(`'${kind}'`), `must distinguish ${kind}`);
+  }
+  // "No internet" is the user's to fix; "a security product is intercepting
+  // HTTPS" is not. A single generic message erases that difference.
+  assert.match(src, /No internet connection\./);
+  assert.match(src, /blocking the update server/);
+  // And the renderer must show the specific message rather than its own.
+  const ui = fs.readFileSync(here('renderer', 'updates.js'), 'utf8');
+  assert.match(ui, /status = s\.error \|\|/);
+});
+
+test('the ready state says doing nothing is fine', () => {
+  const ui = fs.readFileSync(here('renderer', 'updates.js'), 'utf8');
+  // autoInstallOnAppQuit is on, so it is true — and it turns a demand into an
+  // offer. Nobody wants to be told to restart mid-task.
+  assert.match(ui, /installs when you next quit main/);
+});
+
+// ── First run ────────────────────────────────────────────────────────────────
+
+test('the installer shows no wizard, and says so consistently', () => {
+  const nsis = JSON.parse(fs.readFileSync(here('package.json'), 'utf8')).build.nsis;
+  assert.strictEqual(nsis.oneClick, true, 'one-click means no pages at all');
+  assert.strictEqual(nsis.allowToChangeInstallationDirectory, false,
+    'electron-builder rejects a directory page in a one-click build');
+  assert.strictEqual(nsis.runAfterFinish, true, 'the app must open by itself');
+  // A one-click installer has no licence page and no Welcome/Finish pages, so
+  // leaving those keys set would claim something untrue about the build.
+  assert.ok(!('license' in nsis), 'a one-click build cannot show a licence page');
+  assert.ok(!('installerSidebar' in nsis), 'sidebars are Welcome/Finish-page art');
+});
+
+test('the welcome screen can never lock a new user out', () => {
+  const src = fs.readFileSync(here('main', 'firstRun.js'), 'utf8');
+  // Marked on OPEN, not on close: a crash mid-welcome must not make it greet
+  // the user on every launch forever.
+  const open = src.indexOf('markWelcomed(logger);');
+  const create = src.indexOf('new BrowserWindow');
+  assert.ok(open !== -1 && open < create, 'the marker is written before the window exists');
+  // Any failure reading the marker counts as "already welcomed".
+  assert.match(src, /catch \(e\) \{\s*return true;/);
+  // And the renderer always has a way out even with no bridge.
+  const ui = fs.readFileSync(here('renderer', 'first-run.js'), 'utf8');
+  assert.match(ui, /window\.close\(\)/);
+  assert.match(ui, /'Enter' \|\| e\.key === 'Escape'/);
+});
+
+test('the welcome window is not throttled before it is shown', () => {
+  const src = fs.readFileSync(here('main', 'firstRun.js'), 'utf8');
+  // Chromium freezes animation in a window that has not been shown — the same
+  // trap the voice overlay hit. The entrance is the first thing anyone sees.
+  assert.match(src, /backgroundThrottling: false/);
+  assert.match(src, /lockNavigation\(win, logger\)/);
+});
+
+test('the welcome screen introduces no colour the app does not have', () => {
+  const html = fs.readFileSync(here('first-run.html'), 'utf8');
+  // The app's own --accent is white; black, white and the greys between them
+  // are the whole palette.
+  const hexes = (html.match(/#[0-9a-fA-F]{3,8}\b/g) || []).map((h) => h.toLowerCase());
+  for (const hex of hexes) {
+    const n = hex.slice(1);
+    if (n.length !== 6) continue;
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(n.slice(i, i + 2), 16));
+    const spread = Math.max(r, g, b) - Math.min(r, g, b);
+    assert.ok(spread <= 12, `${hex} is a colour, not a grey (spread ${spread})`);
+  }
+});
+
+test('every window HTML the main process loads is actually packaged', () => {
+  // The failure this prevents: a new BrowserWindow's page is left out of
+  // package.json's `files` whitelist, so loadFile fails in the packaged build
+  // only. The window still opens — and a transparent one opens as nothing at
+  // all, with no error raised anywhere. It works perfectly in `npm start`.
+  const pkg = JSON.parse(fs.readFileSync(here('package.json'), 'utf8'));
+  const globs = pkg.build.files;
+  const covered = (rel) =>
+    globs.some((g) => g === rel ||
+      (g.endsWith('/**/*') && rel.startsWith(g.slice(0, -5) + '/')));
+
+  const sources = ['main.js', ...fs.readdirSync(here('main'))
+    .filter((f) => f.endsWith('.js')).map((f) => 'main/' + f)];
+  const missing = [];
+  for (const src of sources) {
+    const text = fs.readFileSync(here(src), 'utf8');
+    for (const m of text.matchAll(/loadFile\(\s*path\.join\(([^)]*)\)/g)) {
+      const html = (m[1].match(/'([^']*\.html)'/) || [])[1];
+      if (html && !covered(html)) missing.push(`${src} loads ${html}`);
+    }
+    for (const m of text.matchAll(/loadFile\(\s*'([^']*\.html)'/g)) {
+      if (!covered(m[1])) missing.push(`${src} loads ${m[1]}`);
+    }
+  }
+  assert.deepStrictEqual(missing, [], 'these pages would be missing from a packaged build');
 });
