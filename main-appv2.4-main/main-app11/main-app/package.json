@@ -1,6 +1,6 @@
 {
   "name": "main-app",
-  "version": "4.3.1",
+  "version": "4.4.0",
   "description": "main",
   "main": "main.js",
   "scripts": {
@@ -50,6 +50,10 @@
       "first-run-preload.js",
       "timer-float.html",
       "timer-float-preload.js",
+      "study-float.html",
+      "study-float-preload.js",
+      "screen-draw.html",
+      "screen-draw-preload.js",
       "mini-player.html",
       "mini-player-preload.js",
       "phone-remote.html",

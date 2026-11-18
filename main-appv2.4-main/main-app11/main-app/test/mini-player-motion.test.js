@@ -166,6 +166,7 @@ function boot({ reducedMotion = false } = {}) {
     },
     matchMedia: () => ({ matches: reducedMotion, addEventListener() {} }),
     addEventListener() {},
+    removeEventListener() {},
     miniPlayer: {
       ready: () => Promise.resolve(null),
       action: (a, v) => { actions.push([a, v]); return Promise.resolve({ ok: true }); },
@@ -475,6 +476,48 @@ test('reduced motion: nothing animates, and the bar still moves', () => {
   page.advance(9000);
   assert.notEqual(page.elements['seek-rail'].style.transform, before, 'a tick carries it instead');
   assert.equal(page.elements['title'].textContent, 'Other');
+});
+
+test('a song with no timed lyrics gets no lyric row, and one with them gets it back', () => {
+  const page = boot();
+  const none = { status: 'none', synced: false, lines: [] };
+  page.apply(stateAt(page, 10000, { lyrics: none, presence: 'out' }));
+  assert.ok(page.body.classList.contains('lyric-hidden'), 'arriving without lyrics: compact straight away');
+  page.apply(stateAt(page, 10000, { lyrics: none }));
+  page.advance(500);
+
+  // The next song has lyrics: main is asked for room first, then the row opens.
+  const other = Object.assign({}, TRACK, { id: 'b', name: 'Other' });
+  page.apply(stateAt(page, 0, { track: other, lyrics: { status: 'loading', synced: false, lines: [] } }));
+  page.advance(400);
+  assert.ok(page.body.classList.contains('lyric-hidden'), 'still looking: the row stays as it was');
+  const heights = page.counts.heights.length;
+  page.apply(stateAt(page, 400, { track: other }));
+  assert.equal(page.counts.heights.length, heights + 1, 'room asked for at once');
+  assert.equal(page.counts.heights.at(-1), 123 + 46);
+  assert.ok(page.body.classList.contains('lyric-hidden'), 'not open before the room is there');
+  page.advance(800);
+  assert.ok(!page.body.classList.contains('lyric-hidden'), 'open');
+  assert.ok(page.curRow(), 'with its lines');
+
+  // A song with only untimed words: folded away (they couldn't follow the music).
+  const third = Object.assign({}, TRACK, { id: 'c', name: 'Third' });
+  page.apply(stateAt(page, 0, { track: third, lyrics: { status: 'ready', synced: false, lines: [{ t: null, text: 'plain' }] } }));
+  assert.ok(!page.body.classList.contains('lyric-hidden'), 'it folds first, then the layout changes');
+  const before = page.counts.heights.length;
+  page.advance(200);
+  assert.equal(page.counts.heights.length, before, 'no size reports while it folds');
+  page.advance(400);
+  assert.ok(page.body.classList.contains('lyric-hidden'));
+  assert.equal(page.counts.heights.length, before + 1, 'then one, for the compact card');
+});
+
+test('with the lyric line switched off there is never a row, whatever the song', () => {
+  const page = boot();
+  page.apply(stateAt(page, 10000, { prefs: Object.assign({}, PREFS, { lyrics: false }) }));
+  page.advance(1000);
+  assert.ok(page.body.classList.contains('no-lyrics'));
+  assert.equal(page.curRow(), undefined);
 });
 
 test('the rest dots only count when there is time to count', () => {

@@ -31,6 +31,10 @@ class BoundedCache {
     }
   }
 
+  delete(key) {
+    return this.map.delete(key);
+  }
+
   get size() {
     return this.map.size;
   }

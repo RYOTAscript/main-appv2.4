@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Content-Security-Policy: the floating formula sheet renders only its own
+     local markup, the vendored KaTeX (script, stylesheet and fonts) and the
+     vendored icon font, and talks to the main process over its narrow preload
+     bridge. Everything else is denied. style-src needs 'unsafe-inline'
+     because KaTeX positions glyphs with inline style attributes; script-src
+     keeps it only to match the other documents — this page has no inline
+     script or handlers. -->
+<meta http-equiv="Content-Security-Policy" content="
+    default-src 'none';
+    script-src 'self' 'unsafe-inline' file:;
+    style-src 'self' 'unsafe-inline' file:;
+    img-src 'self' file: data:;
+    font-src 'self' file: data:;
+    connect-src 'none';
+    object-src 'none';
+    frame-src 'none';
+    child-src 'none';
+    worker-src 'none';
+    base-uri 'none';
+    form-action 'none';">
+<title>Formula sheet</title>
+<link rel="stylesheet" href="styles/vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="styles/vendor/katex/katex.min.css">
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        color: #f5f5f5;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+    * { box-sizing: border-box; }
+
+    .sf {
+        --c: #60a5fa;
+        --s: 1;
+        --ink: #f5f5f5;
+        --muted: rgba(255, 255, 255, 0.55);
+        --rule: rgba(255, 255, 255, 0.08);
+        --thumb: rgba(255, 255, 255, 0.2);
+        --head: rgb(22, 22, 26);
+        position: fixed;
+        inset: 0;
+        padding: 4px;
+    }
+    .card {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        border-radius: 16px;
+        background: rgba(12, 12, 15, 0.84);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+        color: var(--ink);
+        overflow: hidden;
+    }
+    .style-paper { --ink: #1c1917; --muted: rgba(28, 25, 23, 0.55); --rule: rgba(28, 25, 23, 0.1); --thumb: rgba(28, 25, 23, 0.22); --head: #fbfaf6; }
+    .style-clear { --head: rgba(20, 20, 24, 0.9); }
+    .style-paper .card { background: #fbfaf6; border-color: rgba(0, 0, 0, 0.12); }
+    .style-clear .card { background: transparent; border-color: transparent; box-shadow: none; }
+    .style-clear .body { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.55); }
+    .style-clear:hover .card { background: rgba(12, 12, 15, 0.4); border-color: rgba(255, 255, 255, 0.08); }
+
+    /* header: the drag handle */
+    .head {
+        position: relative;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 8px 6px 12px;
+        border-bottom: 1px solid var(--rule);
+        -webkit-app-region: drag;
+        min-height: 32px;
+        transition: opacity 0.18s ease;
+    }
+    .style-clear .head { border-bottom-color: transparent; opacity: 0; }
+    .style-clear:hover .head { opacity: 1; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; box-shadow: 0 0 6px var(--c); }
+    .title {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+        flex: 1;
+    }
+    .subject { font-size: 10px; color: var(--muted); white-space: nowrap; padding-right: 4px; }
+    /* The tools sit OVER the right end of the header, so the subject can sit
+       at the edge while they're hidden. */
+    .tools {
+        position: absolute;
+        right: 5px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        gap: 3px;
+        padding-left: 14px;
+        background: linear-gradient(90deg, transparent, var(--head) 14px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.18s ease;
+    }
+    .sf:hover .tools { pointer-events: auto; }
+    .sf:hover .tools { opacity: 1; }
+    button {
+        -webkit-app-region: no-drag;
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        height: 22px;
+        min-width: 22px;
+        padding: 0 5px;
+        border-radius: 7px;
+        font: 600 10.5px/1 inherit;
+        font-family: inherit;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+    button:hover { background: var(--rule); color: var(--ink); }
+    button:focus-visible { outline: 2px solid var(--c); outline-offset: 1px; }
+
+    /* the sheet */
+    .scroll {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 8px 14px 14px;
+        /* Standard properties: once scrollbar-width is set, Chromium ignores
+           ::-webkit-scrollbar, and without a colour the track is drawn white. */
+        scrollbar-width: thin;
+        scrollbar-color: var(--thumb) transparent;
+    }
+    .body {
+        font-size: calc(14px * var(--s));
+        column-width: calc(250px * var(--s));
+        column-gap: 22px;
+        column-rule: 1px solid var(--rule);
+    }
+    .row { break-inside: avoid; }
+    .row.h {
+        break-after: avoid;
+        margin: 0.9em 0 0.35em;
+        padding-bottom: 0.25em;
+        border-bottom: 1px solid var(--rule);
+        font-size: 0.72em;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--c);
+    }
+    .row.h:first-child { margin-top: 0.2em; }
+    /* Pale sheet colours (lime, amber) need more ink on paper. */
+    .style-paper .row.h { color: color-mix(in srgb, var(--c) 58%, #1c1917); }
+    .row.t { margin: 0.4em 0; font-size: 0.82em; line-height: 1.45; color: var(--muted); }
+    .row.f { padding: 0.32em 0 0.38em; }
+    .lab { font-size: 0.7em; color: var(--muted); margin-bottom: 0.15em; letter-spacing: 0.02em; }
+    .math {
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 0.12em 0;
+        scrollbar-width: none;
+        color: var(--ink);
+    }
+    .math::-webkit-scrollbar { display: none; }
+    .math .katex { font-size: 1.12em; }
+    .note { font-size: 0.68em; color: var(--muted); margin-top: 0.1em; font-style: italic; }
+    .bad { font-family: 'JetBrains Mono', Consolas, monospace; font-size: 0.8em; color: #f59e0b; word-break: break-word; }
+    .hide-labels .lab { display: none; }
+    .hide-notes .note { display: none; }
+    .empty { font-size: 12px; color: var(--muted); line-height: 1.5; padding: 10px 2px; }
+
+    /* resize grip (bottom-right) */
+    .grip {
+        position: absolute;
+        right: 2px;
+        bottom: 2px;
+        width: 16px;
+        height: 16px;
+        cursor: nwse-resize;
+        -webkit-app-region: no-drag;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+        background:
+            linear-gradient(135deg, transparent 0 55%, var(--muted) 55% 62%, transparent 62% 72%, var(--muted) 72% 79%, transparent 79%);
+    }
+    .sf:hover .grip, .resizing .grip { opacity: 1; }
+
+    /* ghost (click-through) mode */
+    .ghost .tools, .ghost .grip { display: none; }
+    .ghost .card { border-color: transparent; }
+    .ghost-handle {
+        display: none;
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        width: 22px;
+        height: 22px;
+        font-size: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        color: #fff;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+        z-index: 2;
+    }
+    .ghost .ghost-handle { display: inline-flex; }
+    .ghost.near .ghost-handle { opacity: 1; }
+</style>
+</head>
+<body>
+    <div id="sf" class="sf style-glass">
+        <div class="card">
+            <header class="head">
+                <span class="dot"></span>
+                <span class="title" id="sf-title"></span>
+                <span class="subject" id="sf-subject"></span>
+                <div class="tools">
+                    <button type="button" id="sf-smaller" title="Smaller text (−)">A−</button>
+                    <button type="button" id="sf-bigger" title="Bigger text (+)">A+</button>
+                    <button type="button" id="sf-ghost" title="Click-through: let clicks pass to the window below"><i class="fas fa-ghost"></i></button>
+                    <button type="button" id="sf-more" title="More (right-click)"><i class="fas fa-ellipsis"></i></button>
+                    <button type="button" id="sf-close" title="Close (Esc)"><i class="fas fa-xmark"></i></button>
+                </div>
+            </header>
+            <div class="scroll" id="sf-scroll"><div class="body" id="sf-body"></div></div>
+            <div class="grip" id="sf-grip" title="Drag to resize"></div>
+            <button type="button" id="sf-unghost" class="ghost-handle" title="Leave click-through mode"><i class="fas fa-lock-open"></i></button>
+        </div>
+    </div>
+    <script src="styles/vendor/katex/katex.min.js"></script>
+    <script src="styles/vendor/katex/contrib/mhchem.min.js"></script>
+    <script src="renderer/study-engine.js"></script>
+    <script src="renderer/study-float.js"></script>
+</body>
+</html>

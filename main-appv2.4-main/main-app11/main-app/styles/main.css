@@ -6092,6 +6092,16 @@
         .fsl-cfg-hint { font-size: 11px; color: #6f6f6f; line-height: 1.5; margin-top: 2px; }
         .fsl-cfg-hint b { color: #9a9a9a; font-weight: 600; }
 
+        /* ── Draw on Screen panel (renderer/screen-draw.js) ── shares .fsl-cfg. */
+        .sdraw-keys { display: flex; align-items: center; gap: 4px; }
+        .sdraw-kbd {
+            min-width: 92px; padding: 6px 10px; border-radius: 9px; text-align: center;
+            font-size: 11.5px; font-weight: 600; color: #e5e5e5;
+            background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .sdraw-kbd.is-listening { color: var(--accent-solid); border-color: rgba(var(--accent), 0.5); background: rgba(var(--accent), 0.12); }
+        .sdraw-start { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
         /* ── Phone Remote panel (renderer/phone-remote.js) ──
            Shares the .fsl-cfg vocabulary; adds the status line and the pairing code,
            which is drawn dark-on-white whatever the theme — cameras need the contrast. */

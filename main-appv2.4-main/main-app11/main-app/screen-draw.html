@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Content-Security-Policy: the drawing overlay renders only its own markup
+     and canvases, the frozen frame main hands it (a data: URL) and the vendored
+     Inter font, and talks to main over its narrow preload bridge — everything
+     else is denied. It has no inline script or handlers. -->
+<meta http-equiv="Content-Security-Policy" content="
+    default-src 'none';
+    script-src 'self' file:;
+    style-src 'self' 'unsafe-inline' file:;
+    img-src 'self' file: data:;
+    font-src 'self' file: data:;
+    connect-src 'none';
+    object-src 'none';
+    frame-src 'none';
+    child-src 'none';
+    worker-src 'none';
+    base-uri 'none';
+    form-action 'none';">
+<title>Draw on Screen</title>
+<link rel="stylesheet" href="styles/vendor/fonts/fonts.css">
+<style>
+    :root {
+        --settle: cubic-bezier(0.16, 1, 0.3, 1);
+        --ink: #ff3b30;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+        font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; }
+    #bg { visibility: hidden; }
+    .is-frozen #bg { visibility: visible; }
+    #wet { cursor: none; touch-action: none; }
+    .is-through #wet { pointer-events: none; }
+
+    /* A frozen frame says so with a thin border, so nobody waits for a video
+       that has stopped. */
+    .frame-edge {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        box-shadow: inset 0 0 0 2px rgba(10, 132, 255, 0.85), inset 0 0 24px rgba(10, 132, 255, 0.35);
+        opacity: 0;
+        transition: opacity 0.35s ease;
+    }
+    .is-frozen .frame-edge { opacity: 1; }
+
+    /* The brush under the pointer: its size and colour, so you see what you'll get. */
+    .cursor {
+        position: fixed;
+        left: 0;
+        top: 0;
+        z-index: 3;
+        border-radius: 50%;
+        border: 1.5px solid var(--ink);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+        opacity: 0;
+        transition: opacity 0.12s ease, width 0.15s ease, height 0.15s ease;
+    }
+    .cursor.is-on { opacity: 1; }
+    .is-through .cursor, .over-bar .cursor { opacity: 0; }
+    .cursor.is-eraser { border-color: #fff; border-style: dashed; }
+
+    /* ── The toolbar ── a dark glass pill that stays out of the way: it fades
+       while you draw and can be dragged anywhere along the top or bottom. */
+    .bar {
+        position: fixed;
+        z-index: 5;
+        top: 18px;
+        left: 50%;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        /* left: 50% would cap a shrink-to-fit width at half the screen and
+           wrap the colours and sizes onto extra rows. */
+        width: max-content;
+        padding: 6px;
+        border-radius: 18px;
+        color: #fff;
+        background: rgba(18, 18, 22, 0.78);
+        -webkit-backdrop-filter: blur(22px) saturate(1.8);
+        backdrop-filter: blur(22px) saturate(1.8);
+        box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22), inset 0 1.5px 1px -1px rgba(255, 255, 255, 0.5), 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 14px 34px -10px rgba(0, 0, 0, 0.6);
+        transform: translateX(-50%);
+        transition: opacity 0.25s ease;
+        animation: bar-in 0.5s var(--settle);
+    }
+    .bar.at-bottom { top: auto; bottom: 18px; }
+    @keyframes bar-in { from { opacity: 0; transform: translateX(-50%) translateY(-12px) scale(0.96); } }
+    .bar.at-bottom { animation-name: bar-in-up; }
+    @keyframes bar-in-up { from { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.96); } }
+    .is-drawing .bar { opacity: 0.18; pointer-events: none; }
+    .is-capturing .bar, .is-capturing .cursor, .is-capturing .toast { opacity: 0 !important; transition: none; }
+
+    .grip {
+        width: 14px;
+        height: 30px;
+        margin: 0 1px 0 2px;
+        border-radius: 6px;
+        cursor: grab;
+        background:
+            radial-gradient(circle, rgba(255, 255, 255, 0.45) 1.2px, transparent 1.6px) 0 0 / 6px 6px;
+        background-position: center;
+    }
+    .grip:active { cursor: grabbing; }
+    .sep { width: 1px; height: 22px; margin: 0 4px; background: rgba(255, 255, 255, 0.14); }
+
+    .btn {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        border: 0;
+        border-radius: 10px;
+        color: rgba(255, 255, 255, 0.82);
+        background: transparent;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease, transform 0.4s var(--settle);
+    }
+    .btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+    .btn:active { transform: scale(0.88); transition-duration: 0.08s; }
+    .btn.is-on { background: rgba(255, 255, 255, 0.92); color: #0a0a0c; }
+    .btn:disabled { opacity: 0.35; cursor: default; }
+    .btn:disabled:hover { background: transparent; }
+    .btn svg { width: 17px; height: 17px; }
+
+    #swatches, #sizes { display: flex; align-items: center; }
+    #swatches { gap: 2px; padding: 0 2px; }
+
+    .swatch {
+        width: 20px;
+        height: 20px;
+        margin: 0 2px;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: var(--c);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+        cursor: pointer;
+        transition: transform 0.35s var(--settle), box-shadow 0.2s ease;
+    }
+    .swatch:hover { transform: scale(1.15); }
+    .swatch.is-on { box-shadow: 0 0 0 2px rgba(18, 18, 22, 1), 0 0 0 4px #fff; }
+
+    .size {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 32px;
+        padding: 0;
+        border: 0;
+        border-radius: 9px;
+        background: transparent;
+        cursor: pointer;
+    }
+    .size:hover { background: rgba(255, 255, 255, 0.1); }
+    .size i { display: block; border-radius: 50%; background: rgba(255, 255, 255, 0.55); }
+    .size.is-on i { background: #fff; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25); }
+
+    .mode {
+        display: flex;
+        gap: 2px;
+        padding: 3px;
+        border-radius: 11px;
+        background: rgba(255, 255, 255, 0.08);
+    }
+    .mode button {
+        height: 26px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 8px;
+        font: 600 12px/1 'Inter', sans-serif;
+        color: rgba(255, 255, 255, 0.7);
+        background: transparent;
+        cursor: pointer;
+        transition: background-color 0.2s ease, color 0.2s ease;
+    }
+    .mode button.is-on { color: #0a0a0c; background: rgba(255, 255, 255, 0.92); }
+    .mode button:disabled { opacity: 0.4; cursor: default; }
+
+    /* Tooltips: the key for each tool, so the shortcuts teach themselves. */
+    [data-tip]:hover::after {
+        content: attr(data-tip);
+        position: absolute;
+        top: calc(100% + 10px);
+        left: 50%;
+        padding: 5px 8px;
+        border-radius: 7px;
+        white-space: nowrap;
+        font: 500 11.5px/1 'Inter', sans-serif;
+        color: #fff;
+        background: rgba(18, 18, 22, 0.92);
+        box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.18);
+        transform: translateX(-50%);
+        pointer-events: none;
+    }
+    .at-bottom [data-tip]:hover::after { top: auto; bottom: calc(100% + 10px); }
+
+    .toast {
+        position: fixed;
+        z-index: 6;
+        left: 50%;
+        bottom: 34px;
+        padding: 10px 16px;
+        border-radius: 14px;
+        font: 600 13px/1.3 'Inter', sans-serif;
+        color: #fff;
+        background: rgba(18, 18, 22, 0.86);
+        -webkit-backdrop-filter: blur(20px);
+        backdrop-filter: blur(20px);
+        box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.2), 0 12px 30px -10px rgba(0, 0, 0, 0.6);
+        transform: translateX(-50%) translateY(12px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease, transform 0.45s var(--settle);
+    }
+    .toast.is-on { opacity: 1; transform: translateX(-50%); }
+    .toast.is-link { pointer-events: auto; cursor: pointer; }
+    .toast small { display: block; margin-top: 2px; font-weight: 500; color: rgba(255, 255, 255, 0.6); }
+    .at-bottom ~ .toast { bottom: auto; top: 34px; }
+
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<canvas id="ink"></canvas>
+<canvas id="wet"></canvas>
+<div class="frame-edge"></div>
+<div class="cursor" id="cursor"></div>
+
+<div class="bar" id="bar" role="toolbar" aria-label="Drawing tools">
+    <div class="grip" id="grip" title="Drag to move"></div>
+    <button type="button" class="btn" data-tool="pen" data-tip="Pen  P" aria-label="Pen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+    </button>
+    <button type="button" class="btn" data-tool="highlighter" data-tip="Highlighter  H" aria-label="Highlighter">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-6 6v3h9l3-3"/><path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+    </button>
+    <button type="button" class="btn" data-tool="laser" data-tip="Laser pointer  K" aria-label="Laser pointer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="M4.9 4.9l2.1 2.1"/><path d="M17 17l2.1 2.1"/><path d="M4.9 19.1L7 17"/><path d="M17 7l2.1-2.1"/></svg>
+    </button>
+    <button type="button" class="btn" data-tool="arrow" data-tip="Arrow  A" aria-label="Arrow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19L19 5"/><path d="M9 5h10v10"/></svg>
+    </button>
+    <button type="button" class="btn" data-tool="line" data-tip="Line  L" aria-label="Line">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 19L19 5"/></svg>
+    </button>
+    <button type="button" class="btn" data-tool="rect" data-tip="Rectangle  R" aria-label="Rectangle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2"/></svg>
+    </button>
+    <button type="button" class="btn" data-tool="ellipse" data-tip="Ellipse  O" aria-label="Ellipse">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="8.5" ry="7"/></svg>
+    </button>
+    <button type="button" class="btn" data-tool="eraser" data-tip="Eraser  E" aria-label="Eraser">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 21h10"/><path d="M5.6 13.6l7.8-7.8a2 2 0 0 1 2.8 0l3 3a2 2 0 0 1 0 2.8L13.4 17.4a2 2 0 0 1-1.4.6H8.8a2 2 0 0 1-1.4-.6l-1.8-1.8a2 2 0 0 1 0-2z"/><path d="M9 10l5 5"/></svg>
+    </button>
+    <div class="sep"></div>
+    <div id="swatches" role="radiogroup" aria-label="Colour"></div>
+    <div class="sep"></div>
+    <div id="sizes" role="radiogroup" aria-label="Size"></div>
+    <div class="sep"></div>
+    <button type="button" class="btn" id="undo" data-tip="Undo  Ctrl+Z" aria-label="Undo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+    </button>
+    <button type="button" class="btn" id="redo" data-tip="Redo  Ctrl+Y" aria-label="Redo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+    </button>
+    <button type="button" class="btn" id="clear" data-tip="Clear  Del" aria-label="Clear the drawing">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4h6v3"/></svg>
+    </button>
+    <div class="sep"></div>
+    <div class="mode" role="radiogroup" aria-label="Live or frozen">
+        <button type="button" id="mode-live" data-tip="Draw over the live screen  F">Live</button>
+        <button type="button" id="mode-freeze" data-tip="Freeze the screen and draw on it  F">Freeze</button>
+    </div>
+    <button type="button" class="btn" id="through" data-tip="Click through to the apps underneath  T" aria-label="Click through">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l7 17 2.5-7.5L21 11z"/><path d="M14 14l6 6"/></svg>
+    </button>
+    <div class="sep"></div>
+    <button type="button" class="btn" id="copy" data-tip="Copy  Ctrl+C" aria-label="Copy to the clipboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+    </button>
+    <button type="button" class="btn" id="save" data-tip="Save  Ctrl+S" aria-label="Save as a picture">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+    </button>
+    <button type="button" class="btn" id="close" data-tip="Close  Esc" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>
+    </button>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="renderer/draw-engine.js"></script>
+<script src="renderer/screen-draw-overlay.js"></script>
+</body>
+</html>

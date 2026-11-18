@@ -7,7 +7,7 @@ open-source components listed below. Each is the property of its respective
 authors and is provided under its own license. This file is distributed with
 the application to satisfy those licenses' notice and source-offer requirements.
 
-Last updated: 2026-08. Contact for any request below: mainappsupport@gmail.com
+Last updated: 2026-11. Contact for any request below: mainappsupport@gmail.com
 
 
 --------------------------------------------------------------------------------
@@ -132,6 +132,39 @@ via the user's own Homebrew installation:
 
 "main" only invokes these tools if the user chooses to install them; it does not
 redistribute them, and no copy of them ships inside the application.
+
+
+--------------------------------------------------------------------------------
+7. KaTeX (MIT License) and its mhchem extension (Apache License 2.0)
+--------------------------------------------------------------------------------
+
+main bundles KaTeX 0.16.29 (`katex.min.js`, `katex.min.css` and its woff2
+fonts, unmodified, under `styles/vendor/katex/`) to typeset the formulas in the
+Study widget, and KaTeX's `mhchem` extension (`contrib/mhchem.min.js`) for
+chemical equations.
+
+KaTeX — Copyright (c) 2013-2020 Khan Academy and other contributors.
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions: The above copyright
+  notice and this permission notice shall be included in all copies or
+  substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS",
+  WITHOUT WARRANTY OF ANY KIND.
+  (Full text: styles/vendor/katex/LICENSE.)  Upstream: https://katex.org
+
+mhchem for KaTeX — a port of mhchem for MathJax.
+  Copyright (c) 2011-2015 The MathJax Consortium
+  Copyright (c) 2015-2018 Martin Hensel
+  Licensed under the Apache License, Version 2.0 (the "License"); you may not
+  use this file except in compliance with the License. You may obtain a copy
+  of the License at http://www.apache.org/licenses/LICENSE-2.0. Unless
+  required by applicable law or agreed to in writing, software distributed
+  under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+  CONDITIONS OF ANY KIND, either express or implied. See the License for the
+  specific language governing permissions and limitations under the License.
 
 
 For any question about the licenses above, or to request source code for any

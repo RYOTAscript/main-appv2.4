@@ -284,6 +284,21 @@
             if (typeof applyCalendarEnabled === 'function') {
                 await applyCalendarEnabled(!!prefs.calendar);
             }
+            // Study: tell main whether to run the formula overlays and their
+            // hotkeys (it owns the sheets), then refresh the panel.
+            if (typeof applyStudyEnabled === 'function') {
+                await applyStudyEnabled(!!prefs.study);
+            }
+            if (typeof renderStudyPanel === 'function') renderStudyPanel();
+            // Draw on Screen: main binds or drops the drawing hotkeys.
+            if (typeof applyScreenDrawEnabled === 'function') {
+                await applyScreenDrawEnabled(!!prefs.screenDraw);
+            }
+            // Bass Boost: main binds or drops its hotkey and starts or stops the
+            // audio engine (the boost's own power switch is a separate setting).
+            if (typeof applyBassBoostEnabled === 'function') {
+                await applyBassBoostEnabled(!!prefs.bassBoost);
+            }
             // Quick Notes Enhanced: swap the Quick Notes card between the basic
             // textarea and the multi-note editor, and refresh its panel.
             if (typeof applyNotesEnhancedEnabled === 'function') {

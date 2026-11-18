@@ -483,6 +483,12 @@
                 await window.electronAPI.volumeMixerMuteMaster(false);
                 return { ok: true };
             },
+            // ── Bass Boost (renderer/bass-boost.js) ──
+            'bass.on': () => bassBoostVoicePower(true),
+            'bass.off': () => bassBoostVoicePower(false),
+            'bass.more': () => bassBoostVoiceNudge(3),
+            'bass.less': () => bassBoostVoiceNudge(-3),
+            'bass.max': () => bassBoostVoicePreset('earthquake'),
             'mic.mute': async () => {
                 if (!window.electronAPI?.getMicMuteStatus) return { ok: false, message: 'Mic Mute isn’t available' };
                 const muted = await window.electronAPI.getMicMuteStatus();

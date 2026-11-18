@@ -36,3 +36,15 @@ fonts.googleapis.com in `styles/main.css` (now `vendor/fonts/fonts.css`).
 
 License: both families are SIL Open Font License 1.1. Bundling is
 permitted.
+
+## katex/
+
+KaTeX 0.16.29 (`katex.min.js`, `katex.min.css`, the woff2 fonts only — the
+stylesheet lists woff2 first and Chromium never requests the woff/ttf
+fallbacks) plus `contrib/mhchem.min.js` for chemical equations, unmodified,
+from the npm package. Used by the Study widget (formula overlays): the overlay
+page loads it with plain script tags; the main window loads it on demand from
+`renderer/study.js`.
+
+License: KaTeX is MIT (`katex/LICENSE`); mhchem is Apache-2.0 (header in the
+file). Both are listed in THIRD-PARTY-NOTICES.txt. Bundling is permitted.

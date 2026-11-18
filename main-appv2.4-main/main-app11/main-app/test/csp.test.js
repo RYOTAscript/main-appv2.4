@@ -32,6 +32,8 @@ const HTML_FILES = [
   'mic-mute-overlay.html',
   'area-select-overlay.html',
   'timer-float.html',
+  'study-float.html',
+  'screen-draw.html',
   'mini-player.html',
   'phone-remote.html',
 ];

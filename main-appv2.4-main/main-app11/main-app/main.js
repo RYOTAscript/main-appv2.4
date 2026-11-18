@@ -59,6 +59,9 @@ const debloat = require('./main/debloat');
 const revoUninstaller = require('./main/revoUninstaller');
 const calendar = require('./main/calendar');
 const timers = require('./main/timers');
+const study = require('./main/study');
+const screenDraw = require('./main/screenDraw');
+const bassBoost = require('./main/bassBoost');
 const miniPlayer = require('./main/miniPlayer');
 const phoneRemote = require('./main/phoneRemote');
 const license = require('./main/license');
@@ -269,6 +272,9 @@ if (!gotSingleInstanceLock) {
   let claudeLimitModule = null;
   let calendarModule = null;
   let timersModule = null;
+  let studyModule = null;
+  let screenDrawModule = null;
+  let bassBoostModule = null;
   let lyricsModule = null;
   let miniPlayerModule = null;
   let phoneRemoteModule = null;
@@ -570,6 +576,12 @@ if (!gotSingleInstanceLock) {
     // scheduler (renderer timers throttle while hidden) and the floating
     // always-on-top timer windows.
     timersModule = timers.init(ctx);
+    // Study: owns the formula sheets and the floating always-on-top formula
+    // overlays (and their show/hide + click-through hotkeys).
+    studyModule = study.init(ctx);
+    // Draw on Screen: the drawing overlay and its hotkeys — live over the
+    // screen, or on a frozen frame of it.
+    screenDrawModule = screenDraw.init(ctx);
     // Corner Player: the tiny always-on-top Spotify player. It polls Spotify
     // from main through the Spotify module (renderer timers throttle while the
     // launcher sits hidden — exactly when the corner player is on screen).
@@ -607,6 +619,9 @@ if (!gotSingleInstanceLock) {
       debloat.init(ctx);
       revoUninstaller.init(ctx);
       gameModeModule = gameMode.init(ctx);
+      // Bass Boost: the Spotify-only equaliser. Its C# helper captures Spotify
+      // (process loopback), hides Spotify's own sound and plays the boosted copy.
+      bassBoostModule = bassBoost.init(ctx);
     }
 
     // macOS-only feature modules (mac substitutes for the Windows-only widgets).
@@ -781,6 +796,9 @@ if (!gotSingleInstanceLock) {
     if (voiceAssistantModule) voiceAssistantModule.teardown();
     if (calendarModule) calendarModule.teardown();
     if (timersModule) timersModule.teardown();
+    if (studyModule) studyModule.teardown();
+    if (screenDrawModule) screenDrawModule.teardown();
+    if (bassBoostModule) bassBoostModule.teardown();
     if (miniPlayerModule) miniPlayerModule.teardown();
     if (phoneRemoteModule) phoneRemoteModule.teardown();
     logger.system('Application quit');
@@ -895,6 +913,9 @@ if (!gotSingleInstanceLock) {
     if (crosshairModule) crosshairModule.reapplyHotkey();
     if (volumeMixerModule) volumeMixerModule.reapplyHotkeys();
     if (timersModule) timersModule.reapplyHotkeys();
+    if (studyModule) studyModule.reapplyHotkeys();
+    if (screenDrawModule) screenDrawModule.reapplyHotkeys();
+    if (bassBoostModule) bassBoostModule.reapplyHotkeys();
     if (voiceAssistantModule) voiceAssistantModule.resumeTriggers();
     logger.log('All hotkeys re-enabled');
     return { success: true };

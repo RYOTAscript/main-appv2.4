@@ -19,6 +19,9 @@ const WIN_ONLY = [
   // Offline speech recognition via System.Speech; macOS has no equivalent
   // command recogniser reachable from osascript.
   'voiceAssistant',
+  // Process-loopback capture + per-app routing (main/bassBoostHostScript.js);
+  // macOS has no way to capture one app's audio without a virtual driver.
+  'bassBoost',
 ];
 
 function loadRegistry() {

@@ -3,25 +3,17 @@ const { ipcMain } = require('electron');
 // store (works behind a TLS-inspecting proxy/AV). See main/netClient.js.
 const { netFetch: safeFetch } = require('./netClient');
 const { BoundedCache } = require('./boundedCache');
+const M = require('./lyricsMatch');
 
 const LRCLIB_BASE = 'https://lrclib.net/api';
+// A lookup that failed on the network is retried after this, not remembered
+// as "no lyrics" for the rest of the session.
+const RETRY_AFTER_ERROR_MS = 60 * 1000;
 
-// Parses an LRC string ("[mm:ss.xx] line text\n...") into
-// [{ time: <ms>, text: <string> }, ...] sorted by time.
+// LRC → [{ time, text }], with the swearing a clean transcription starred out
+// put back (see main/lyricsMatch.js).
 function parseSyncedLyrics(lrc) {
-  if (!lrc) return [];
-  const lineRe = /\[(\d{2}):(\d{2}(?:\.\d{1,3})?)\]\s*(.*)/;
-  const lines = [];
-  for (const rawLine of lrc.split('\n')) {
-    const match = rawLine.match(lineRe);
-    if (!match) continue;
-    const minutes = parseInt(match[1], 10);
-    const seconds = parseFloat(match[2]);
-    const text = match[3].trim();
-    if (!text) continue; // skip blank/instrumental-gap markers
-    lines.push({ time: Math.round((minutes * 60 + seconds) * 1000), text });
-  }
-  return lines.sort((a, b) => a.time - b.time);
+  return M.parseLrc(lrc).map((l) => ({ time: l.time, text: M.uncensor(l.text) }));
 }
 
 // Plain (untimed) lyrics fallback — used only when lrclib has no synced version.
@@ -30,7 +22,7 @@ function parsePlainLyrics(plain) {
   return plain.split('\n')
     .map(line => line.trim())
     .filter(line => line.length > 0 && line.length < 200)
-    .map(text => ({ time: null, text }));
+    .map(text => ({ time: null, text: M.uncensor(text) }));
 }
 
 function init(ctx) {
@@ -43,52 +35,66 @@ function init(ctx) {
     `main-launcher/${APP_VERSION} (+https://main-website-eosin-beta.vercel.app; mainappsupport@gmail.com)`;
   const lyricsCache = new BoundedCache(300);
 
+  // { data } on an answer (null data for "nothing here"), { error } when the
+  // network failed — the two must not be confused, or a dropped connection
+  // gets remembered as "this song has no lyrics".
   async function lrclibRequest(pathName, params) {
     try {
       const query = new URLSearchParams(params).toString();
       const response = await safeFetch(`${LRCLIB_BASE}${pathName}?${query}`, {
         headers: { 'User-Agent': LRCLIB_USER_AGENT }
       });
-      if (!response.ok) return null;
-      return await response.json();
+      if (response.status === 404) return { data: null };
+      if (!response.ok) return { error: `HTTP ${response.status}` };
+      return { data: await response.json() };
     } catch (e) {
       logger.debug('LRCLIB request failed', { error: e.message, pathName });
-      return null;
+      return { error: e.message };
     }
   }
 
+  // Every plausible lrclib entry for the song, then the best of them
+  // (lyricsMatch.pickBest): right length, timed, and not the clean version.
   async function fetchLrclibLyrics(trackName, artistName, albumName, durationMs) {
     const durationSec = durationMs ? Math.round(durationMs / 1000) : undefined;
+    const want = { title: trackName, artist: artistName, album: albumName, durationSec };
+    const title = M.cleanTitle(trackName) || trackName;
+    const artist = M.primaryArtist(artistName) || artistName;
+    const candidates = [];
+    let answered = false;
+    const ask = async (pathName, params) => {
+      const r = await lrclibRequest(pathName, params);
+      if (r.error) return;
+      answered = true;
+      if (Array.isArray(r.data)) candidates.push(...r.data);
+      else if (r.data) candidates.push(r.data);
+    };
+    const good = () => {
+      const best = M.pickBest(candidates, want);
+      return best && best.syncedLyrics && !M.countMasked(best.syncedLyrics) ? best : null;
+    };
 
-    // 1. Exact match — most reliable, lrclib matches duration within ±2s.
+    // 1. lrclib's own exact lookup — right most of the time on its own.
     if (durationSec) {
-      const exact = await lrclibRequest('/get', {
-        track_name: trackName,
-        artist_name: artistName,
+      await ask('/get', {
+        track_name: trackName, artist_name: artistName,
         ...(albumName ? { album_name: albumName } : {}),
         duration: durationSec
       });
-      if (exact && (exact.syncedLyrics || exact.plainLyrics)) return exact;
-    }
-
-    // 2. Fuzzy search fallback. Only accept a result whose duration actually matches
-    // the real track — otherwise it's very likely a cover, remix, or different song
-    // with a similar title, which would show completely wrong ("random") lyrics
-    // instead of correctly reporting that no lyrics were found.
-    const results = await lrclibRequest('/search', {
-      track_name: trackName,
-      artist_name: artistName
-    });
-    if (Array.isArray(results) && results.length > 0) {
-      if (durationSec) {
-        const closeMatches = results.filter(r => Math.abs((r.duration || 0) - durationSec) <= 3);
-        if (closeMatches.length === 0) return null; // no real match — report "not found", don't guess
-        return closeMatches.find(r => r.syncedLyrics) || closeMatches[0];
+      if (good()) return { data: good() };
+      if (title !== trackName || artist !== artistName) {
+        await ask('/get', { track_name: title, artist_name: artist, duration: durationSec });
+        if (good()) return { data: good() };
       }
-      // No track duration to verify against (rare) — best effort, take the top hit.
-      return results.find(r => r.syncedLyrics) || results[0];
     }
-    return null;
+    // 2. Search: by title and artist, then by words alone. Every result is
+    // scored; one that isn't this recording's length is never taken (it's a
+    // cover, a remix or a different song, and would show the wrong words).
+    await ask('/search', { track_name: title, artist_name: artist });
+    if (!good()) await ask('/search', { q: `${artist} ${title}` });
+    const best = M.pickBest(candidates, want);
+    if (best) return { data: best };
+    return answered ? { data: null } : { error: true };
   }
 
   async function getLyricsWithTimestamps(trackName, artistName, albumName, durationMs) {
@@ -101,7 +107,16 @@ function init(ctx) {
 
     try {
       logger.debug('Fetching lyrics from lrclib.net for', { trackName, artistName });
-      const data = await fetchLrclibLyrics(trackName, artistName, albumName, durationMs);
+      const found = await fetchLrclibLyrics(trackName, artistName, albumName, durationMs);
+      if (found.error) {
+        // Not cached as "not found": asked again after a minute.
+        const result = { success: false, reason: 'network' };
+        lyricsCache.set(cacheKey, result);
+        const retry = setTimeout(() => { if (lyricsCache.get(cacheKey) === result) lyricsCache.delete(cacheKey); }, RETRY_AFTER_ERROR_MS);
+        if (retry.unref) retry.unref();   // never what keeps the app (or a test) running
+        return result;
+      }
+      const data = found.data;
 
       if (!data) {
         const result = { success: false, reason: 'lyrics_not_found' };

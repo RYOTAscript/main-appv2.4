@@ -29,6 +29,7 @@
     }
     * { box-sizing: border-box; }
     html, body {
+        height: 100%;
         margin: 0;
         padding: 0;
         background: transparent;
@@ -39,8 +40,18 @@
         cursor: default;
     }
     /* Room around the card for its shadow — matches PAD in
-       renderer/mini-player-engine.js. */
-    .wrap { padding: 20px; }
+       renderer/mini-player-engine.js. The card sits against the window's edge
+       nearest its screen corner, so when its height changes (the lyric row
+       folding away) the window can follow a moment later without the card
+       moving on screen. */
+    .wrap {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        height: 100%;
+        padding: 20px;
+    }
+    .corner-top .wrap { justify-content: flex-start; }
 
     /* Invisible until main says it's on screen, then it arrives (see
        enterCard in renderer/mini-player-window.js). */
@@ -95,8 +106,10 @@
     .tools:hover, .tools:focus-within { opacity: 1; }
     /* Without the lyric line there's no free corner above the controls, so the
        two buttons stack at the card's right edge instead. */
-    .no-lyrics .tools { top: 50%; transform: translateY(-50%); flex-direction: column; gap: 4px; }
-    .no-lyrics .row { padding-right: 38px; }
+    .no-lyrics .tools,
+    .lyric-hidden .tools { top: 50%; transform: translateY(-50%); flex-direction: column; gap: 4px; }
+    .no-lyrics .row,
+    .lyric-hidden .row { padding-right: 38px; }
     .tool {
         display: flex;
         align-items: center;
@@ -130,7 +143,10 @@
     }
     .style-glass .lyric { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif; }
     .style-white .lyric { font-size: 13px; }
-    .no-lyrics .lyric { display: none; }
+    /* .no-lyrics: the lyric line is switched off. .lyric-hidden: this song has
+       no timed lyrics, so there's nothing to show (setLyricRow folds it away). */
+    .no-lyrics .lyric,
+    .lyric-hidden .lyric { display: none; }
     .lyric-rows { position: absolute; inset: 0; }
     .lyric-measure { position: absolute; left: 0; top: 0; visibility: hidden; white-space: nowrap; }
     .lyric-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

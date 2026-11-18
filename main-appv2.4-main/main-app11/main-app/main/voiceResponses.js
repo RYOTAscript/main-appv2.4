@@ -77,6 +77,12 @@ const COMMANDS = Object.freeze({
   'spotify.queue':       { speech: ['Queued', 'Added to the queue', 'Lined it up'] },
   'spotify.sleepCancel': { speech: ['Sleep timer off', 'Cancelled the sleep timer'] },
 
+  'bass.on':   { speech: ['Bass boost on', 'Bringing the bass', 'Bass is up'] },
+  'bass.off':  { speech: ['Bass boost off', 'Back to normal', 'Bass boost is off'] },
+  'bass.more': { speech: ['More bass', 'Turned the bass up', 'Heavier'] },
+  'bass.less': { speech: ['Less bass', 'Turned the bass down', 'Easing off the bass'] },
+  'bass.max':  { speech: ['Earthquake mode', 'Maximum bass', 'Hold on to something'] },
+
   // ── System audio ──
   'system.mute':    { family: 'muted' },
   'system.unmute':  { family: 'unmuted' },

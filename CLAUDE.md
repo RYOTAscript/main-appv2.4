@@ -37,18 +37,20 @@ background operation. **Windows and macOS are both supported** (see
 (`isWindows`/`isMac`): Windows → `shellUtils`/PowerShell, macOS → `osascript`
 (+ `defaults`/`runFile`, or a free Homebrew CLI via `main/macTools.js`).
 
-**Registry: 36 widget entries.** Windows shows 30, macOS shows 27. Three kinds:
+**Registry: 39 widget entries.** Windows shows 33, macOS shows 29. Three kinds:
 - **Cross-platform** (no `platforms` field): most widgets, incl. some with a
   different backend per OS — bluetooth (WinRT ↔ `blueutil`), screenResolution
   (↔ `displayplacer`), claudeLimit (SendKeys ↔ osascript; the `~/.claude` reader
   is shared), gameMode (Win32 watcher ↔ osascript poll). A `main/<feat>Mac.js`
   registers the SAME IPC channels on mac; the Windows module is init-skipped there.
-- **`platforms: ['win32']`** — Windows-only. Three have NO mac equivalent:
+- **`platforms: ['win32']`** — Windows-only. Four have NO mac equivalent:
   **controllerMacros** (a virtual gamepad needs a DriverKit kext),
   **autoClicker** (SendInput + GDI screen capture; macOS needs a signed
   Accessibility/Screen-Recording path) and **voiceAssistant** (offline
   grammar recognition via .NET `System.Speech`; macOS exposes no equivalent
-  command recognizer through osascript). Six have a **mac
+  command recognizer through osascript) and **bassBoost** (per-process
+  loopback capture + per-app output routing; macOS can't capture one app's
+  audio without a virtual audio driver). Six have a **mac
   substitute** shipped as a separate darwin-only widget: taskbar→**dockStyler**,
   debloat→**macTweaks**, revoUninstaller→**appUninstaller**,
   appInstaller→**appInstallerMac** (Homebrew), fpsOptimizer→**macFreeUp**,
@@ -91,7 +93,9 @@ installer, MIT tools, install-on-demand — see [[legal-to-sell-rule]]).
 - **Child windows:** besides the main overlay, Main spawns dedicated
   frameless/transparent windows — e.g. the crosshair overlay
   (`main/crosshair.js`), the mic-mute overlay (`main/micMute.js`), the
-  floating timers (`main/timers.js`), the corner player (`main/miniPlayer.js`), the hidden Phone Remote socket window (`main/phoneRemote.js`),
+  floating timers (`main/timers.js`), the floating formula sheets
+  (`main/study.js`), the corner player (`main/miniPlayer.js`), the hidden Phone Remote socket window (`main/phoneRemote.js`),
+  the Draw on Screen overlay (`main/screenDraw.js`),
   the first-run welcome (`main/firstRun.js`) and the license gate. FPS-optimizer
   kill sweeps protect all of them by PID + image name so they can never
   self-terminate. **Each gets its own narrow preload** (`<window>-preload.js`)
@@ -127,10 +131,10 @@ mini widgets. To add a widget:
    `main/<id>.js` + a `preload.js` method.
 3. Add any Tailwind classes → **rebuild CSS** (see gotchas).
 
-The registry holds **36 widget entries** across 12 categories (Audio, Clipboard,
+The registry holds **39 widget entries** across 12 categories (Audio, Clipboard,
 Displays, Gaming, Media, Productivity, Searching, Social, Spotify, System,
-Utilities, Weather); the Widget Library shows the OS-filtered subset — **30 on
-Windows, 27 on macOS**. The Widget Library, its search index, the dashboard Mini
+Utilities, Weather); the Widget Library shows the OS-filtered subset — **33 on
+Windows, 29 on macOS**. The Widget Library, its search index, the dashboard Mini
 Widgets strip, and the Settings summary **all generate from this registry** —
 never hardcode widget lists in UI code.
 
@@ -139,10 +143,10 @@ app derives `MINI_WIDGETS` from it by filtering to the current OS via
 `renderer/widget-platform.js` (loaded before `core.js`; uses
 `window.electronAPI.platform`). A widget with no `platforms` field runs
 everywhere. `platforms: ['win32']` marks Windows-only widgets — `macros`,
-`controllerMacros`, `autoClicker` and `voiceAssistant` (no mac equivalent) plus
+`controllerMacros`, `autoClicker`, `voiceAssistant` and `bassBoost` (no mac equivalent) plus
 `taskbar`, `debloat`, `revoUninstaller`, `appInstaller`, `fpsOptimizer` (each has a
 separate `platforms: ['darwin']` substitute widget). See §2's registry note for the full
-mapping. On Windows the filter keeps all 30 Windows widgets and defaults to
+mapping. On Windows the filter keeps all 33 Windows widgets and defaults to
 `win32` when the platform can't be read, so behaviour there is unchanged. Every
 consumer reads the filtered `MINI_WIDGETS`, so gating one entry hides it
 everywhere at once.
@@ -280,9 +284,25 @@ state.
   unknown keys outright, so you cannot leave a `"_comment_"` field in there to
   explain a decision — the build fails at `validateConfiguration`. Document it
   here instead.
+- **`scrollbar-width` switches off `::-webkit-scrollbar`.** Once an element
+  has the standard `scrollbar-width`, Chromium ignores its `::-webkit-scrollbar*`
+  rules — and with no `scrollbar-color` the track is drawn WHITE on a dark
+  card. Set `scrollbar-color` alongside it (see `study-float.html`).
+- **The Widget Library owns Escape.** It claims Escape on `document` in the
+  capture phase to close its detail view, so a panel's own keydown listener
+  never sees it. A panel that needs Escape for itself (the Study editor closes
+  a row with it) adds a capture listener on `window`, which runs first, and
+  calls `stopImmediatePropagation()` only when the key is really its own.
 - **Spotify:** preserve the PKCE OAuth flow and safe token-refresh logic.
 - **Lyrics:** LRC timing is race-sensitive; don't introduce async that reorders
-  line application.
+  line application. Which lrclib entry wins is decided by the pure
+  `main/lyricsMatch.js` (`pickBest`/`scoreCandidate`): duration must be within
+  3s, synced beats plain, and censored entries (`f***`, "clean"/"edited" in the
+  name) lose to uncensored ones. Whatever still arrives starred out is filled
+  back in by `uncensor()` from a fixed word list, keeping the case — the user
+  asked that swearing never be covered. A NETWORK failure is cached as
+  `reason: 'network'` for only 60s (an `unref()`'d timer, or the test process
+  hangs) — never as "no lyrics", which used to stick for the whole session.
 
 ---
 
@@ -574,6 +594,63 @@ AST — no LLM). Useful facts it surfaced, worth knowing before refactoring:
   stay for the voice executors, and a pre-2.0 `localStorage.timerState` is handed
   to main once via `timer:import-legacy`. Covered by `test/timer-engine.test.js`
   and `test/timer-wiring.test.js`.
+- **Study (registry id `study`) is formula sheets as always-on-top overlays,
+  on the Timers' split.** `renderer/study-engine.js` is the pure UMD engine —
+  the shorthand → LaTeX converter (`toTex`), store/sheet/float sanitisers, the
+  starter sheets (8, Maths/Calculus/Physics/Chemistry, school + first-year
+  uni), window geometry — loaded by the panel, the overlays AND
+  `main/study.js`. Main owns `study.json` (atomic), the overlay windows
+  (`study-float.html`, its own `study-float-preload.js`,
+  `backgroundThrottling: false`, `screen-saver` level, max 4) and two optional
+  hotkeys (show/hide all; click-through on/off). An overlay never names a sheet
+  id — main resolves it from `event.sender` — and may change only its LOOK
+  (`FLOAT_PREF_KEYS`), never content. Frameless transparent windows have no
+  native resize border on Windows, so resizing is a grip in the page that asks
+  main for a size (`study-float:resize-to`, clamped by `E.resizeWithin`).
+  Formulas are typeset by **KaTeX 0.16.29 + mhchem, vendored in
+  `styles/vendor/katex/`** (MIT / Apache-2.0, in THIRD-PARTY-NOTICES); the
+  overlay loads it with script tags, the main window loads it ON DEMAND from
+  `renderer/study.js` (`SD_KATEX`) — it is ~300 KB, don't add it to main.html.
+  KaTeX's HTML is the ONE innerHTML sink (always `E.renderFormula`, whose
+  `RENDER_OPTIONS` are frozen with `trust: false`, fresh `macros` per call, so
+  `\href`/`\html*` stay inert and a `\gdef` can't leak); every other piece of
+  user text is `textContent`, and the panel has no inline handlers (one
+  delegated listener per event on its root). The shorthand's rules: a SPACE
+  ends a fraction's side (`1/2 mv^2` is ½mv², `mv^2/r` is mv²/r), a bracketed
+  side loses its brackets, two+ spaces are a `\quad`, a trailing `+`/`-` after
+  a superscript number is a charge (`SO_4^2-`) unless an operand follows
+  (`x^2-1`), `\text{}`/`\ce{}`/`\mathrm{}` arguments are never parsed, and
+  call-only words (`bar`, `dot`, `abs`…) are letters unless followed by `(`.
+  Covered by `test/study-engine.test.js` (every starter rendered by the real
+  KaTeX, injection cases), `-wiring` and `-main` (main with Electron stubbed).
+- **Draw on Screen (registry id `screenDraw`) is one overlay window, two
+  modes.** A global hotkey (default `Ctrl+Alt+D`, plus an optional second one
+  that opens the OTHER mode) opens a frameless transparent window over the
+  display under the cursor (`screen-draw.html`, its own
+  `screen-draw-preload.js`, `backgroundThrottling: false`, `screen-saver`
+  level). **Live** is that window over whatever is running; **Freeze** is the
+  same window with a `desktopCapturer` still painted behind the ink — so F
+  switches between them in place, without a new window. Freezing from live
+  sets the window's opacity to 0 for the capture (`captureUnder`) so the
+  ink isn't photographed into its own background. The cover follows
+  `main/areaSelect.js`'s rules (`fullscreen: true` + `resizable: true` on
+  Windows; Escape via `before-input-event`, so it works even if the page is
+  broken; `did-fail-load`/`render-process-gone` close it — a transparent
+  window that failed to load would otherwise eat every click on the display).
+  Click-through (T, live only) is `setIgnoreMouseEvents(true, {forward})`;
+  the page reports hovering its toolbar so the toolbar stays usable, and the
+  hotkey resumes drawing. `renderer/draw-engine.js` is the pure UMD engine
+  (prefs, RDP `simplify`, midpoint-quadratic `smoothPath`, pen pressure,
+  Shift-snapped shapes, eraser hit-testing, an undo history in which erase and
+  clear are undoable steps). The overlay may change only its tools and toolbar
+  spot (`OVERLAY_PREF_KEYS`), every overlay channel checks its sender, and
+  the page has no innerHTML. Save writes `Pictures/main drawings/`; a live
+  drawing is saved by capturing the screen (ink included) with the toolbar
+  hidden, a frozen one by compositing the page's canvases. Started from the
+  panel, the launcher hides first and comes back on close. The toolbar needs
+  `width: max-content`: at `left: 50%` a shrink-to-fit bar is capped at half
+  the screen and wraps. Covered by `test/draw-engine.test.js` and
+  `test/screen-draw.test.js` (wiring + main with Electron stubbed).
 - **The Corner Player (registry id `miniPlayer`) polls Spotify from MAIN.** It is
   a tiny always-on-top card (`mini-player.html`, its own
   `mini-player-preload.js`, `backgroundThrottling: false`) that is on screen
@@ -604,7 +681,12 @@ AST — no LLM). Useful facts it surfaced, worth knowing before refactoring:
   it somebody really moved the song), `settledLine` never steps back for a
   small correction, and main holds a command's result over a stale poll
   (`applyHolds`, the Phone Remote's rule) and rides out a few failed polls
-  before giving up on the song. The lyric rows are a conveyor — the next line
+  before giving up on the song. A song with no TIMED lyrics gets no lyric row
+  at all (`wantsRow`; a loading or trackless state keeps whatever is there, so
+  the row doesn't flicker between songs): the row folds away (`setLyricRow`,
+  WAAPI) and the window shrinks after it, and opening it grows the window
+  FIRST, then unfolds. The card is pinned to its corner edge with flex, so a
+  resize never moves it on screen. The lyric rows are a conveyor — the next line
   glides up into the current one; only transform and opacity animate. The glow
   is a `::before` copy of the line (it fades without repainting) with the SAME
   text-shadow as the launcher's `.lyrics-slot-current` (test-pinned), and each
@@ -661,7 +743,8 @@ AST — no LLM). Useful facts it surfaced, worth knowing before refactoring:
   can't wind the phone back. `main/phoneRemoteHost.js` is the Electron-free
   session logic (polls Spotify ONLY while the relay reports a phone watching,
   holds a command's result over a stale poll, lyrics once per song, queue on
-  request); `main/phoneRemote.js` is the glue: the secret (safeStorage), the
+  request; outgoing messages are sealed one at a time so they leave in order —
+  lyrics carry no seq, and a "ready" overtaken by its "loading" stuck the phone); `main/phoneRemote.js` is the glue: the secret (safeStorage), the
   panel IPC, and the relay socket — which lives in a HIDDEN WINDOW's preload
   (`phone-remote.html` + `phone-remote-preload.js`, exposes nothing), not in
   Node, because Chromium's network stack honours the OS certificate store and
@@ -672,6 +755,49 @@ AST — no LLM). Useful facts it surfaced, worth knowing before refactoring:
   `main/spotify.js` exports (`setVolume`/`isSaved`/`setSaved`/`getQueue` were
   added beside the corner player's). Covered by `test/phone-remote-host.test.js`
   and `test/phone-remote-wiring.test.js`; the relay has its own `npm test`.
+- **Bass Boost (registry id `bassBoost`, Windows-only) is a Spotify-only EQ with no
+  driver.** `main/bassBoostHostScript.js` is a persistent PowerShell/C# helper
+  (the macros/voice pattern) and its header records the measurements the design
+  rests on: process-loopback capture (`VAD\Process_Loopback`) of Spotify's tree
+  is taken AFTER Spotify's session volume/mute (muting Spotify in the mixer
+  silences the capture) but BEFORE the endpoint (muting the device it plays on
+  does not). So Spotify is ROUTED to a spare output via the undocumented
+  `AudioPolicyConfig` factory (per-app default device, vtable slots 25/26 on the
+  21H2+ IID) and that output is MUTED; the copy runs through the DSP and renders
+  to the real speakers in shared mode, ~40 ms behind (a 10 ms cushion starves
+  once and settles at 20 ms on its own — that's the floor here). Every system
+  change is written to `bass-boost-restore.txt` BEFORE it is made and undone on
+  STOP / EXIT / stdin EOF / next boot (main starts the helper at init if the
+  file exists). A per-app route can only be reset while Spotify runs (the API
+  takes a pid), so a reset due while it is closed stays `pending` and the
+  helper stays alive until Spotify reappears. **Electron's children live in a
+  kill-on-close job**, so the helper dies the instant main quits or crashes and
+  stdin-EOF cleanup never runs; `detached: true` is no way out (a console-less
+  PowerShell exits at once with piped stdio). So the host starts a WATCHDOG
+  (the same script with `-WatchPid`) — processes the host starts break away
+  from the job silently — which waits for the host to die, then restores, and
+  stands down if a new host holds the `Local\MainBassBoostHost` mutex. Measured:
+  main killed mid-boost, Spotify back in ~3 s. COM interfaces there are declared
+  with `[PreserveSig]` on EVERY method: without it the CLR assumes a hidden
+  `[out, retval]` and returns 0 for failures (on x64 it even appears to work,
+  which is why the prototype hid this). The filter design is the pure UMD
+  `renderer/bass-engine.js` (fixed 14-biquad chain so state survives knob turns,
+  speaker profiles in `SPEAKERS` — `eris35` (the user's PreSonus Eris E3.5:
+  rated 80 Hz–20 kHz, 25 W/side, measured ~100 Hz midbass bump + recessed
+  mids) floors the guard at 60 Hz, aims BASS as a bump at ≥70 Hz, caps it at
+  +12 dB and corrects the speaker; CLARITY cuts the boost's 150–350 Hz skirt;
+  the BASS band gets its OWN limiter on an LR4 crossover so a kick never ducks
+  the vocals (preamp only protects mids + bounds the bass drive to 12 dB).
+  Split the bands with a real LR4 LP + HP pair: subtracting a low-passed copy
+  from the full signal leaves the bass almost untouched — the LP's ~70° phase
+  shift at 75 Hz cancels the subtraction (measured: the mids still ducked
+  7.7 dB). `TESTMIX` in the host proves the mids keep their gain under loud
+  bass), shared by
+  main (builds the `CHAIN` line) and the panel (draws the curve);
+  `test/bass-boost.test.js` compiles the real host and checks its measured gain
+  against the engine's curve to 0.05 dB. The panel (`renderer/bass-boost.js`,
+  `styles/bass-boost.css`) is built once and updated in place, delegated
+  listeners only, and its spectrum rAF loop stops the moment its div is gone.
 - **Spotify's Web API changed under the app (Feb/Mar 2026 dev-mode migration).**
   Removed endpoints answer 404, and `spotifyApiRequest` maps any 404 to
   `{ _noContent: true, _notFound: true }` — so a removed endpoint or "no active

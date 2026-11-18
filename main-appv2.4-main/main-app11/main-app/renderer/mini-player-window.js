@@ -66,6 +66,8 @@
     const SPIN_DOWN_MS = 1200;
     const SKIP_MEMORY_MS = 4000;   // how long a pressed skip explains the next song
     const REST_AFTER_MS = 260;     // off screen: once the exit has played, everything stops
+    const ROW_FOLD_MS = 340;       // the lyric row folding away or opening
+    const ROW_GROW_WAIT_MS = 160;  // longest wait for main to make room before it opens
     const ROLES =['is-cur', 'is-next', 'is-past', 'is-below', 'is-faded'];
 
     const calmQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -96,6 +98,9 @@
     let skipAt = 0;
     let layoutSig = null;     // style + lyric-row on/off the window was sized for
     let lastHeight = 0;
+    let rowShown = true;      // the lyric row is in the card (as the markup starts)
+    let rowTimers = [];
+    let holdHeight = false;   // mid-fold: the card's height is in motion, don't report it
 
     function prefs() {
         return (state && state.prefs) || {};
@@ -111,6 +116,7 @@
         const white = p.style === 'white';
         els.body.classList.toggle('style-white', white);
         els.body.classList.toggle('style-glass', !white);
+        els.body.classList.toggle('corner-top', String(p.corner || '').startsWith('top'));
         els.body.classList.toggle('no-lyrics', p.lyrics === false);
         els.body.classList.toggle('is-playing', !!s.playing);
         els.body.classList.toggle('is-paused', !s.playing);
@@ -153,9 +159,12 @@
             setSpin(spinning, live);
         }
         showTime(!!moved.jump);
+        const row = wantsRow(s);
+        const rowChanged = row !== null && row !== rowShown;
+        if (rowChanged) setLyricRow(row, live);
         renderLyric({ jumped: !!moved.jump, live, rebuild: restyled || arriving });
         schedule();
-        reportHeight(restyled);
+        reportHeight(restyled || (rowChanged && !live));
 
         if (arriving) enterCard();
         else if (departing) leaveCard();
@@ -597,7 +606,88 @@
         for (const a of spins.values()) a.pause();
     }
 
+    // ── The lyric row comes and goes with the song ──────────────────────────
+    // Only a song with TIMED lyrics gets the row; one with none (or with words
+    // that can't follow the music) is just the compact card. While a lookup is
+    // still running the row stays as it was, so a quick one never folds and
+    // reopens it. null: nothing to decide yet.
+    function wantsRow(s) {
+        if (prefs().lyrics === false) return false;
+        if (!s.track) return null;
+        const lyr = s.lyrics || {};
+        if (lyr.status === 'loading') return null;
+        return lyr.status === 'ready' && !!lyr.synced && Array.isArray(lyr.lines) && lyr.lines.length > 0;
+    }
+
+    // Folding the row away: it shrinks out, then the compact layout takes over
+    // and main fits the window to it. Opening: main makes room first (the card
+    // is pinned to its corner, so the room appears on the far side), then the
+    // row grows into it. Off screen or restyling, it just changes.
+    // The row's own height (.lyric: 32px plus its 14px top margin).
+    const ROW_HEIGHT = 46;
+    const ROW_FRAMES = [{ height: '0px', marginTop: '0px', opacity: 0 }, { height: '32px', marginTop: '14px', opacity: 1 }];
+
+    function later(ms, fn) {
+        rowTimers.push(setTimeout(fn, ms));
+    }
+
+    function stopRowMotion() {
+        rowTimers.forEach(clearTimeout);
+        rowTimers = [];
+        window.removeEventListener('resize', openRow);
+        stopMotion(els.lyric);
+        stopMotion(els.tools);
+    }
+
+    function setLyricRow(show, live) {
+        rowShown = show;
+        stopRowMotion();
+        if (!live) {
+            holdHeight = false;
+            els.body.classList.toggle('lyric-hidden', !show);
+            if (show) renderLyric({ rebuild: true });
+            return;   // apply() reports the new height
+        }
+        holdHeight = true;
+        if (!show) {
+            els.lyric.animate(ROW_FRAMES.slice().reverse(), { duration: ROW_FOLD_MS, easing: SETTLE, fill: 'forwards' });
+            // The corner buttons move to the side in the compact card: they
+            // fade out on the way and back in where they land.
+            els.tools.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, delay: ROW_FOLD_MS - 140, fill: 'forwards' });
+            later(ROW_FOLD_MS, () => {
+                els.body.classList.add('lyric-hidden');
+                stopRowMotion();
+                els.tools.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'ease-out' });
+                holdHeight = false;
+                reportHeight(true);
+            });
+            return;
+        }
+        // The card with the row back in, measured before anything moves; the
+        // row opens once the window has grown (or after a short wait).
+        api.laidOut(els.card.offsetHeight + ROW_HEIGHT);
+        window.addEventListener('resize', openRow);
+        later(ROW_GROW_WAIT_MS, openRow);
+    }
+
+    function openRow() {
+        window.removeEventListener('resize', openRow);
+        if (!rowShown || !holdHeight || !els.body.classList.contains('lyric-hidden')) return;
+        rowTimers.forEach(clearTimeout);
+        rowTimers = [];
+        els.tools.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100, fill: 'forwards' });
+        later(100, () => {
+            stopMotion(els.tools);
+            els.body.classList.remove('lyric-hidden');
+            renderLyric({ rebuild: true });
+            els.lyric.animate(ROW_FRAMES, { duration: ROW_FOLD_MS, easing: SETTLE });
+            els.tools.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'ease-out' });
+            later(ROW_FOLD_MS, () => { holdHeight = false; reportHeight(true); });
+        });
+    }
+
     function reportHeight(force) {
+        if (holdHeight) return;
         // Layout height: a transform in mid-entrance must not resize the window.
         const h = els.card.offsetHeight;
         if (!h || (!force && h === lastHeight)) return;

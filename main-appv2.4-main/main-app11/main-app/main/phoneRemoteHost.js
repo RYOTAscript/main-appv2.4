@@ -268,13 +268,21 @@ class RemoteHost {
     };
   }
 
-  async publish(payload) {
-    if (!this.key || this.phones === 0) return;
-    try {
-      this.sendRaw(await this.P.seal(this.key, this.P.TO_PHONE, payload));
-    } catch (e) {
-      this.logger.warn('Phone Remote: could not send', { error: e && e.message });
-    }
+  // Sealing is async and two seals in flight can finish in either order, so
+  // messages queue and leave in the order they were made. States carry a seq
+  // the phone checks, but lyrics don't: a 'ready' overtaken by its own
+  // 'loading' left the phone showing "loading" for the whole song.
+  publish(payload) {
+    if (!this.key || this.phones === 0) return Promise.resolve();
+    const key = this.key;
+    this.outbox = (this.outbox || Promise.resolve()).then(async () => {
+      try {
+        this.sendRaw(await this.P.seal(key, this.P.TO_PHONE, payload));
+      } catch (e) {
+        this.logger.warn('Phone Remote: could not send', { error: e && e.message });
+      }
+    });
+    return this.outbox;
   }
 
   publishState() { return this.publish(this.stateMessage()); }

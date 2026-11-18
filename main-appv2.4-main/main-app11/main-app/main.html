@@ -42,7 +42,9 @@
     <link rel="stylesheet" href="styles/backgrounds.css">
     <link rel="stylesheet" href="styles/calendar.css">
     <link rel="stylesheet" href="styles/timer.css">
+    <link rel="stylesheet" href="styles/study.css">
     <link rel="stylesheet" href="styles/player-style.css">
+    <link rel="stylesheet" href="styles/bass-boost.css">
     <!-- Tailwind must load LAST: the old CDN injected its styles at runtime after
          all stylesheets, so utilities like `hidden` win equal-specificity ties
          against component classes in main.css (e.g. .spotify-enhanced-widget). -->
@@ -1245,6 +1247,12 @@
     <script src="renderer/timer.js"></script>
     <script src="renderer/calendar-engine.js"></script>
     <script src="renderer/calendar.js"></script>
+    <!-- Study: KaTeX itself is loaded on demand by study.js, not here. -->
+    <script src="renderer/study-engine.js"></script>
+    <script src="renderer/study.js"></script>
+    <script src="renderer/screen-draw.js"></script>
+    <script src="renderer/bass-engine.js"></script>
+    <script src="renderer/bass-boost.js"></script>
     <script src="renderer/notes-enhanced.js"></script>
     <script src="renderer/quick-launch.js"></script>
     <script src="renderer/game-mode.js"></script>

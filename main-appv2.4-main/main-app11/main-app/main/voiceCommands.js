@@ -473,6 +473,37 @@ const COMMANDS = Object.freeze([
     reply: 'Checking'
   },
 
+  // ── Bass Boost (the Spotify equaliser) ──
+  {
+    id: 'bass.on', title: 'Bass Boost on', category: 'Spotify',
+    phrases: ['bass boost on', 'turn on bass boost', 'turn on the bass boost', 'enable bass boost',
+      'boost the bass', 'switch on bass boost'
+    ],
+    reply: 'Bass Boost on'
+  },
+  {
+    id: 'bass.off', title: 'Bass Boost off', category: 'Spotify',
+    phrases: ['bass boost off', 'turn off bass boost', 'turn off the bass boost', 'disable bass boost',
+      'stop boosting the bass', 'switch off bass boost'
+    ],
+    reply: 'Bass Boost off'
+  },
+  {
+    id: 'bass.more', title: 'More bass', category: 'Spotify',
+    phrases: ['more bass', 'turn the bass up', 'bass up', 'increase the bass', 'give me more bass'],
+    reply: 'More bass'
+  },
+  {
+    id: 'bass.less', title: 'Less bass', category: 'Spotify',
+    phrases: ['less bass', 'turn the bass down', 'bass down', 'reduce the bass', 'decrease the bass'],
+    reply: 'Less bass'
+  },
+  {
+    id: 'bass.max', title: 'Maximum bass', category: 'Spotify',
+    phrases: ['max bass', 'maximum bass', 'full bass', 'earthquake mode', 'make the bass extreme'],
+    reply: 'Earthquake mode'
+  },
+
   // ── System audio & microphone ──
   {
     id: 'system.mute', title: 'Mute system audio', category: 'System',
@@ -2265,6 +2296,10 @@ const INVERSE_COMMANDS = Object.freeze({
   'bluetooth.off': 'bluetooth.on',
   'crosshair.show': 'crosshair.hide',
   'crosshair.hide': 'crosshair.show',
+  'bass.on': 'bass.off',
+  'bass.off': 'bass.on',
+  'bass.more': 'bass.less',
+  'bass.less': 'bass.more',
   'gameMode.on': 'gameMode.off',
   'gameMode.off': 'gameMode.on',
   'autoClicker.start': 'autoClicker.stop',

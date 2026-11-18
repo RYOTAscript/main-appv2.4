@@ -469,6 +469,66 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('timer:open', listener);
   },
 
+  // Mini Widgets: Study (cross-platform). Main owns the formula sheets and the
+  // floating always-on-top formula overlays (main/study.js); these are the
+  // panel's calls.
+  studyGet: () => ipcRenderer.invoke('study:get'),
+  studySetEnabled: (enabled) => ipcRenderer.invoke('study:set-enabled', !!enabled),
+  studyCreate: (opts) => ipcRenderer.invoke('study:create', opts || {}),
+  studyUpdate: (id, patch) => ipcRenderer.invoke('study:update', id, patch || {}),
+  studyDuplicate: (id) => ipcRenderer.invoke('study:duplicate', id),
+  studyRemove: (id) => ipcRenderer.invoke('study:remove', id),
+  studyReorder: (ids) => ipcRenderer.invoke('study:reorder', Array.isArray(ids) ? ids : []),
+  studySetSettings: (patch) => ipcRenderer.invoke('study:set-settings', patch || {}),
+  studyFloatOpen: (id) => ipcRenderer.invoke('study:float-open', id),
+  studyFloatClose: (id) => ipcRenderer.invoke('study:float-close', id),
+  studyFloatCloseAll: () => ipcRenderer.invoke('study:float-close-all'),
+  studyFloatPrefs: (id, patch) => ipcRenderer.invoke('study:float-prefs', id, patch || {}),
+  studyFloatSnap: (id, corner) => ipcRenderer.invoke('study:float-snap', id, corner),
+  studyToggleOverlays: () => ipcRenderer.invoke('study:toggle-overlays'),
+  studyExport: (ids) => ipcRenderer.invoke('study:export', Array.isArray(ids) ? ids : []),
+  studyImport: () => ipcRenderer.invoke('study:import'),
+  onStudyChanged: (cb) => {
+    const listener = (_e, s) => { try { cb(s); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('study:changed', listener);
+    return () => ipcRenderer.removeListener('study:changed', listener);
+  },
+  // Draw on Screen: the hotkey-driven drawing overlay (main/screenDraw.js).
+  screenDrawGet: () => ipcRenderer.invoke('screen-draw:get'),
+  screenDrawSetEnabled: (enabled) => ipcRenderer.invoke('screen-draw:set-enabled', !!enabled),
+  screenDrawSetPrefs: (patch) => ipcRenderer.invoke('screen-draw:set-prefs', patch || {}),
+  screenDrawOpen: (mode) => ipcRenderer.invoke('screen-draw:open', mode === 'freeze' ? 'freeze' : 'live'),
+  onScreenDrawChanged: (cb) => {
+    const listener = (_e, p) => { try { cb(p); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('screen-draw:changed', listener);
+    return () => ipcRenderer.removeListener('screen-draw:changed', listener);
+  },
+  // Bass Boost: the Spotify-only equaliser (main/bassBoost.js).
+  bassGet: () => ipcRenderer.invoke('bass:get'),
+  bassSetEnabled: (enabled) => ipcRenderer.invoke('bass:set-enabled', !!enabled),
+  bassSetPower: (on) => ipcRenderer.invoke('bass:set-power', !!on),
+  bassSetPrefs: (patch) => ipcRenderer.invoke('bass:set-prefs', patch || {}),
+  bassSavePreset: (name) => ipcRenderer.invoke('bass:save-preset', String(name || '')),
+  bassDeletePreset: (id) => ipcRenderer.invoke('bass:delete-preset', String(id || '')),
+  bassDevices: () => ipcRenderer.invoke('bass:devices'),
+  bassMeter: (on) => ipcRenderer.invoke('bass:meter', !!on),
+  bassNudge: (deltaDb) => ipcRenderer.invoke('bass:nudge', Number(deltaDb) || 0),
+  onBassChanged: (cb) => {
+    const listener = (_e, s) => { try { cb(s); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('bass:changed', listener);
+    return () => ipcRenderer.removeListener('bass:changed', listener);
+  },
+  onBassMeter: (cb) => {
+    const listener = (_e, m) => { try { cb(m); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('bass:meter', listener);
+    return () => ipcRenderer.removeListener('bass:meter', listener);
+  },
+  onStudyOpen: (cb) => {
+    const listener = (_e, p) => { try { cb(p); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('study:open', listener);
+    return () => ipcRenderer.removeListener('study:open', listener);
+  },
+
   // Mini Widgets: Corner Player (cross-platform). Main owns the always-on-top
   // corner window and polls Spotify for it (main/miniPlayer.js); these are the
   // panel's calls.
