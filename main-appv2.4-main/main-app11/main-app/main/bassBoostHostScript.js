@@ -63,7 +63,7 @@
 //
 // Bump BASS_HOST_SCRIPT_VERSION on any change to the script body: the cached
 // .ps1 is only rewritten on a version change (scriptCache.ensureVersionedScript).
-const BASS_HOST_SCRIPT_VERSION = 3;
+const BASS_HOST_SCRIPT_VERSION = 4;
 
 const CSHARP = String.raw`
 using System;
@@ -321,9 +321,10 @@ public static class Host {
         for (int i = 0; ; i++) {
             Mutex m;
             if (Mutex.TryOpenExisting(MUTEX, out m)) { m.Dispose(); return; }   // a new host took over
-            if (!File.Exists(restorePath)) return;                               // nothing left to undo
+            if (!File.Exists(restorePath) && !File.Exists(LedgerPath())) return;  // nothing left to undo
             try { RestoreFromFile(); } catch (Exception) { }
-            if (!File.Exists(restorePath)) return;
+            try { SweepLedger(); } catch (Exception) { }
+            if (!File.Exists(restorePath) && !File.Exists(LedgerPath())) return;
             Thread.Sleep(i < 30 ? 2000 : 10000);   // pending: wait for Spotify to reopen
         }
     }
@@ -362,6 +363,7 @@ public static class Host {
     // ── main audio thread ──
     static void AudioLoop() {
         try { RestoreFromFile(); } catch (Exception e) { Log("restore failed: " + e.Message); }
+        try { SweepLedger(); } catch (Exception e) { Log("mute sweep failed: " + e.Message); }
         Emit("READY");
         Status("off", "");
         long nextTick = 0;
@@ -461,7 +463,7 @@ public static class Host {
         string sink = PickSink(devs, target);
         if (sink == null) {
             StopStream(); UndoRoute(); curTarget = target;
-            Status("nosink", "Needs a second audio output to hide Spotify's own sound");
+            Status("nosink", "Only one audio output is connected — Bass Boost plays on one and hides Spotify's own sound on another. Check your speakers are plugged in");
             return;
         }
         if (routeSink != null && routeSink != sink) UndoRoute();
@@ -905,13 +907,44 @@ public static class Host {
     static void SetMute(string id, int m) { Guid ctx = Guid.Empty; Check(EpVol(id).SetMute(m, ref ctx), "Muting an output"); }
 
     // ── Spotify ──
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct PROCESSENTRY32W {
+        public uint dwSize, cntUsage, th32ProcessID; public IntPtr th32DefaultHeapID;
+        public uint th32ModuleID, cntThreads, th32ParentProcessID; public int pcPriClassBase; public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szExeFile;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint pid);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32FirstW(IntPtr snap, ref PROCESSENTRY32W e);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32NextW(IntPtr snap, ref PROCESSENTRY32W e);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+
+    // Spotify's MAIN process: the Spotify.exe whose parent is not Spotify.
+    // The per-app route API only accepts that one: handed a renderer,
+    // utility or crashpad child it answers E_INVALIDARG (0x80070057). Picking
+    // by start time used to land on a child, because they all start within
+    // the same few milliseconds.
     static uint SpotifyRoot() {
-        System.Diagnostics.Process best = null;
-        DateTime t = DateTime.MaxValue;
-        foreach (System.Diagnostics.Process p in System.Diagnostics.Process.GetProcessesByName("Spotify")) {
-            try { if (p.StartTime < t) { t = p.StartTime; best = p; } } catch (Exception) { }
+        Dictionary<uint, uint> parent = new Dictionary<uint, uint>();
+        IntPtr snap = CreateToolhelp32Snapshot(0x2, 0);
+        if (snap != IntPtr.Zero && snap != new IntPtr(-1)) {
+            try {
+                PROCESSENTRY32W e = new PROCESSENTRY32W();
+                e.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32W));
+                bool ok = Process32FirstW(snap, ref e);
+                while (ok) {
+                    if (string.Equals(e.szExeFile, "Spotify.exe", StringComparison.OrdinalIgnoreCase)) parent[e.th32ProcessID] = e.th32ParentProcessID;
+                    ok = Process32NextW(snap, ref e);
+                }
+            } finally { CloseHandle(snap); }
         }
-        return best == null ? 0u : (uint)best.Id;
+        uint best = 0; int bestKids = -1;
+        foreach (KeyValuePair<uint, uint> kv in parent) {
+            if (parent.ContainsKey(kv.Value)) continue;            // a child of another Spotify
+            int kids = 0;
+            foreach (uint pp in parent.Values) if (pp == kv.Key) kids++;
+            if (kids > bestKids) { bestKids = kids; best = kv.Key; }
+        }
+        return best;
     }
 
     // ── per-app route ──
@@ -949,19 +982,91 @@ public static class Host {
         } finally { if (h != IntPtr.Zero) WindowsDeleteString(h); }
     }
 
+    // ── mute ledger ──
+    // Every output this engine mutes is written here FIRST, with the mute
+    // state it had before we ever touched it, and only struck off once it has
+    // been put back. So a mute of ours can never be mistaken for the user's
+    // own: two hosts overlapping, a crash or a kill could record OUR mute as
+    // "it was already muted", and undoing that left the laptop speakers
+    // silent for good. Anything still listed at boot is put back.
+    static string LedgerPath() { return restorePath == null ? null : restorePath + ".mutes"; }
+
+    static Dictionary<string, int> LedgerRead() {
+        Dictionary<string, int> d = new Dictionary<string, int>();
+        string p = LedgerPath();
+        if (p == null || !File.Exists(p)) return d;
+        try {
+            foreach (string line in File.ReadAllLines(p)) {
+                int tab = line.IndexOf('\t');
+                if (tab > 0) d[line.Substring(0, tab)] = line.Substring(tab + 1).Trim() == "1" ? 1 : 0;
+            }
+        } catch (Exception) { }
+        return d;
+    }
+
+    static void LedgerWrite(Dictionary<string, int> d) {
+        string p = LedgerPath();
+        if (p == null) return;
+        try {
+            if (d.Count == 0) { if (File.Exists(p)) File.Delete(p); return; }
+            StringBuilder b = new StringBuilder();
+            foreach (KeyValuePair<string, int> kv in d) b.Append(kv.Key).Append('\t').Append(kv.Value).Append('\n');
+            string tmp = p + ".tmp";
+            File.WriteAllText(tmp, b.ToString(), new UTF8Encoding(false));
+            if (File.Exists(p)) File.Delete(p);
+            File.Move(tmp, p);
+        } catch (Exception e) { Log("couldn't save the mute ledger: " + e.Message); }
+    }
+
+    // The mute state an output had before this engine ever muted it.
+    static int OriginalMute(string id) {
+        int v;
+        if (LedgerRead().TryGetValue(id, out v)) return v;
+        return GetMute(id);
+    }
+
+    static void MuteSink(string id, int original) {
+        Dictionary<string, int> d = LedgerRead();
+        if (!d.ContainsKey(id)) { d[id] = original; LedgerWrite(d); }
+        SetMute(id, 1);
+    }
+
+    static void UnmuteSink(string id) {
+        Dictionary<string, int> d = LedgerRead();
+        int original;
+        if (!d.TryGetValue(id, out original)) original = sinkPrevMute;
+        SetMute(id, original);
+        d.Remove(id);
+        LedgerWrite(d);
+    }
+
+    // Put back every output still listed (one we muted and never restored).
+    // One that isn't connected right now stays listed and is retried later.
+    static void SweepLedger() {
+        Dictionary<string, int> d = LedgerRead();
+        if (d.Count == 0) return;
+        Dictionary<string, int> left = new Dictionary<string, int>();
+        foreach (KeyValuePair<string, int> kv in d) {
+            if (sinkMuteApplied && kv.Key == routeSink) { left[kv.Key] = kv.Value; continue; }
+            try { SetMute(kv.Key, kv.Value); Log("put back an output's mute left by an earlier session"); }
+            catch (Exception) { left[kv.Key] = kv.Value; }
+        }
+        LedgerWrite(left);
+    }
+
     static void ApplyRoute(uint pid, string sink, string target) {
         if (!routeApplied) {
             string prev = GetRoute(pid);
             if (prev != null && prev.IndexOf(sink, StringComparison.OrdinalIgnoreCase) >= 0) prev = null;
             routePrev = prev;
             routeSink = sink;
-            sinkPrevMute = GetMute(sink);
+            sinkPrevMute = OriginalMute(sink);
             routeApplied = true;
             sinkMuteApplied = true;
             SaveRestore();
             int targetMuted = GetMute(target);
             SetRoute(pid, FullId(sink));
-            SetMute(sink, 1);
+            MuteSink(sink, sinkPrevMute);
             routedPid = pid;
             if (targetMuted == 0 && GetMute(target) == 1) {
                 // The two outputs share one mute switch, so hiding Spotify's own
@@ -977,12 +1082,12 @@ public static class Host {
         string now = GetRoute(pid);
         if (now == null || now.IndexOf(sink, StringComparison.OrdinalIgnoreCase) < 0) SetRoute(pid, FullId(sink));
         routedPid = pid;
-        if (GetMute(sink) == 0) SetMute(sink, 1);
+        if (GetMute(sink) == 0) MuteSink(sink, sinkPrevMute);
     }
 
     static void UndoRoute() {
         if (sinkMuteApplied && routeSink != null) {
-            try { SetMute(routeSink, sinkPrevMute); } catch (Exception e) { Log("unmute failed: " + e.Message); }
+            try { UnmuteSink(routeSink); } catch (Exception e) { Log("unmute failed: " + e.Message); }
             sinkMuteApplied = false;
         }
         if (routeApplied) {

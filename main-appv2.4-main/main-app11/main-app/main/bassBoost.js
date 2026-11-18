@@ -381,8 +381,9 @@ function init(ctx) {
   });
 
   // A previous run that was killed outright left Spotify routed to a muted
-  // output: start the helper now, which puts it back on boot.
-  if (fs.existsSync(RESTORE_PATH)) {
+  // output, or an output muted (the host's mute ledger, RESTORE_PATH +
+  // '.mutes'): start the helper now, which puts both back on boot.
+  if (fs.existsSync(RESTORE_PATH) || fs.existsSync(RESTORE_PATH + '.mutes')) {
     logger.log('Bass Boost: restore file found, putting audio settings back', 'INFO');
     ensureHost();
   }

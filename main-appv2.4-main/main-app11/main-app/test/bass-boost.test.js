@@ -316,3 +316,67 @@ test('a restore file with nothing left to undo is cleaned up on boot', { skip: !
   assert.match(r.stdout, /READY/);
   assert.equal(r.restoreLeft, false);
 });
+
+// ── Leftover mutes and Spotify's main process (reflection into the real host) ──
+// Runs PowerShell against the compiled C# without changing the machine's
+// audio: mutes are only read, or "restored" to the value they already have.
+function runReflect(body) {
+  const { BASS_HOST_SCRIPT_CONTENT } = require('../main/bassBoostHostScript');
+  const cs = BASS_HOST_SCRIPT_CONTENT.slice(BASS_HOST_SCRIPT_CONTENT.indexOf("@'") + 2, BASS_HOST_SCRIPT_CONTENT.lastIndexOf("'@"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bass-reflect-'));
+  fs.writeFileSync(path.join(dir, 'host.cs'), cs, 'utf8');
+  const script = path.join(dir, 'probe.ps1');
+  fs.writeFileSync(script, [
+    "$ErrorActionPreference = 'Stop'",
+    'Add-Type -Path "$PSScriptRoot/host.cs"',
+    '$t = [MainBassBoost.Host]',
+    "$bf = [Reflection.BindingFlags]'NonPublic,Static,Public'",
+    'function M($n) { $t.GetMethod($n, $bf) }',
+    "$t.GetField('restorePath', $bf).SetValue($null, (Join-Path $PSScriptRoot 'restore.txt'))",
+    body
+  ].join('\n'), 'utf8');
+  const res = spawnSync('powershell.exe', ['-NoProfile', '-MTA', '-ExecutionPolicy', 'Bypass', '-File', script], { encoding: 'utf8', timeout: 90000, windowsHide: true });
+  fs.rmSync(dir, { recursive: true, force: true });
+  return (res.stdout || '') + (res.stderr || '');
+}
+
+test('a mute in the ledger is never mistaken for the user\'s own', { skip: !onWindows, timeout: 120000 }, () => {
+  // Ledger says "this output was UNmuted before we muted it" for a real
+  // output: OriginalMute must answer 0 whatever the output reads now, and
+  // the sweep puts it back to its ledger value (here: its current value, so
+  // nothing on this machine changes) and strikes it off.
+  const out = runReflect([
+    "$dev = (M 'ActiveOutputs').Invoke($null, @())[0]",
+    "if ($null -eq $dev) { 'NODEVICE'; exit }",
+    "$now = (M 'GetMute').Invoke($null, @($dev.Id))",
+    "$ledger = (Join-Path $PSScriptRoot 'restore.txt.mutes')",
+    "Set-Content -Path $ledger -Value ($dev.Id + \"`t\" + (1 - $now)) -NoNewline",
+    "'ORIG ' + (M 'OriginalMute').Invoke($null, @($dev.Id)) + ' NOW ' + $now",
+    "Set-Content -Path $ledger -Value ($dev.Id + \"`t\" + $now) -NoNewline",
+    "Set-Content -Path $ledger -Value (\"{0.0.0.00000000}.{00000000-0000-0000-0000-000000000000}`t0`n\" + $dev.Id + \"`t\" + $now)",
+    "(M 'SweepLedger').Invoke($null, @()) | Out-Null",
+    "'AFTER ' + (M 'GetMute').Invoke($null, @($dev.Id))",
+    "'LEFT ' + ((Get-Content $ledger -ErrorAction SilentlyContinue) -join '|')"
+  ].join('\n'));
+  if (/NODEVICE/.test(out)) return;
+  const m = /ORIG (\d) NOW (\d)/.exec(out);
+  assert.ok(m, out);
+  assert.equal(Number(m[1]), 1 - Number(m[2]), 'the ledger value wins over what the output reads now');
+  assert.match(out, new RegExp('AFTER ' + m[2]), 'mute put back to its original value');
+  const left = /LEFT (.*)/.exec(out)[1];
+  assert.match(left, /00000000-0000-0000-0000-000000000000/, 'an output that is not connected stays listed for later');
+  assert.equal(left.split('|').length, 1, 'the restored output is struck off');
+});
+
+test('Spotify\'s main process is the one whose parent is not Spotify', { skip: !onWindows, timeout: 120000 }, () => {
+  const out = runReflect([
+    "$root = (M 'SpotifyRoot').Invoke($null, @())",
+    "'ROOT ' + $root",
+    "if ($root -ne 0) { $par = (Get-CimInstance Win32_Process -Filter \"ProcessId=$root\").ParentProcessId; 'PARENT ' + (Get-CimInstance Win32_Process -Filter \"ProcessId=$par\").Name; 'ROUTE ' + $(try { (M 'GetRoute').Invoke($null, @([uint32]$root)); 'ok' } catch { 'fail ' + $_.Exception.InnerException.Message }) }"
+  ].join('\n'));
+  const root = Number((/ROOT (\d+)/.exec(out) || [])[1]);
+  if (!root) return;   // Spotify isn't running here
+  assert.doesNotMatch(out, /PARENT Spotify\.exe/i, out);
+  assert.match(out, /ROUTE\s+ok/, 'the route API accepts it: ' + out);
+  assert.doesNotMatch(out, /ROUTE fail/);
+});

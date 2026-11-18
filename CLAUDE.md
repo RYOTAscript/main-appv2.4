@@ -777,7 +777,15 @@ AST — no LLM). Useful facts it surfaced, worth knowing before refactoring:
   (the same script with `-WatchPid`) — processes the host starts break away
   from the job silently — which waits for the host to die, then restores, and
   stands down if a new host holds the `Local\MainBassBoostHost` mutex. Measured:
-  main killed mid-boost, Spotify back in ~3 s. COM interfaces there are declared
+  main killed mid-boost, Spotify back in ~3 s. Every output the engine mutes also goes in a
+  MUTE LEDGER (`bass-boost-restore.txt.mutes`: id + the mute state it had
+  before we EVER touched it), struck off only once restored and swept on every
+  boot: before it, an overlapping/killed host could record OUR mute as "it was
+  already muted", and the laptop speakers were left silent for good (seen on
+  the user's PC, 2026-11-18). Spotify's main process is found by PARENT (the
+  Spotify.exe whose parent isn't Spotify), never start time: the route API
+  answers E_INVALIDARG (0x80070057) for any child, and they all start in the
+  same millisecond. COM interfaces there are declared
   with `[PreserveSig]` on EVERY method: without it the CLR assumes a hidden
   `[out, retval]` and returns 0 for failures (on x64 it even appears to work,
   which is why the prototype hid this). The filter design is the pure UMD

@@ -228,9 +228,15 @@
             const devItems = [{ value: '', label: 'Windows default' + (def ? ' — ' + def.name : '') }].concat(devs.map(d => ({ value: d.id, label: d.name })));
             if (p.device && !devs.some(d => d.id === p.device)) devItems.push({ value: p.device, label: 'Saved device (not connected)' });
             bbSetOptions(root.querySelector('[data-device]'), devItems, p.device || '');
-            const sinkItems = [{ value: '', label: 'Automatic' + (s.status && s.status.sink ? ' — ' + s.status.sink : '') }].concat(devs.map(d => ({ value: d.id, label: d.name })));
-            if (p.sink && !devs.some(d => d.id === p.sink)) sinkItems.push({ value: p.sink, label: 'Saved output (not connected)' });
-            bbSetOptions(root.querySelector('[data-sink]'), sinkItems, p.sink || '');
+            // The output the boost plays on can't also be where Spotify is hidden
+            // (the engine ignores that choice), so it isn't offered — and a saved
+            // choice that has become the speakers reads as Automatic.
+            const targetId = p.device && devs.some(d => d.id === p.device) ? p.device : (def ? def.id : '');
+            const sinkDevs = devs.filter(d => d.id !== targetId);
+            const sinkItems = [{ value: '', label: 'Automatic' + (s.status && s.status.sink ? ' — ' + s.status.sink : '') }].concat(sinkDevs.map(d => ({ value: d.id, label: d.name })));
+            const sinkValue = p.sink && p.sink !== targetId ? p.sink : '';
+            if (sinkValue && !devs.some(d => d.id === sinkValue)) sinkItems.push({ value: sinkValue, label: 'Saved output (not connected)' });
+            bbSetOptions(root.querySelector('[data-sink]'), sinkItems, sinkValue);
 
             const hk = root.querySelector('[data-hotkey]');
             hk.textContent = bbBinding ? 'Press a shortcut…' : bbHotkeyText(p.hotkey);
