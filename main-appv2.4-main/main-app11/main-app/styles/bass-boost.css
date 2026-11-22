@@ -237,6 +237,12 @@
 .bb-seg-btn.is-on { color: #000; background: #e8e8e8; }
 
 .bb-cfg .fsl-cfg-hint { margin-top: 0; }
+.bb-diag {
+    margin: 0; padding: 10px 12px; border-radius: 9px; max-height: 220px; overflow: auto;
+    font: 500 10.5px/1.5 'JetBrains Mono', monospace; color: #cfcfcf; white-space: pre-wrap; word-break: break-word;
+    background: #050505; border: 1px solid #222; user-select: text;
+    scrollbar-width: thin; scrollbar-color: #333 transparent;
+}
 
 @media (prefers-reduced-motion: reduce) {
     .bb-status.is-wait::before { animation: none; }

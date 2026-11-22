@@ -44,6 +44,9 @@
 //                                    the DSP chain (built by renderer/
 //                                    bass-engine.js); takes effect next packet
 //   METER <0|1>                      stream spectrum frames
+//   FORCECAP <n|-1>                  test hook: use only capture variant n
+//   CAPTEST                          try every capture variant against Spotify
+//                                    (no routing); prints CAPTEST lines
 //   DEVICES                          list the active outputs
 //   TESTDSP <hz>                     run a sine through the chain, print gain
 //   TESTMIX <loHz> <loAmp> <hiHz> <hiAmp>
@@ -55,6 +58,9 @@
 //   STATUS {json}                    state + device names + pending flag
 //   DEVICES [json]
 //   CHAIN-OK <n>
+//   RATE <hz>                        the pipeline runs at this rate now (a
+//                                    44.1 kHz capture fallback was needed);
+//                                    main rebuilds the chain for it
 //   LV <hex> <gr> <peak> <lat> <bgr> 32 spectrum bands (0-255), final-limiter
 //                                    gain reduction (0-255 = 0..-24 dB), output
 //                                    peak, latency ms, bass-limiter reduction
@@ -63,7 +69,7 @@
 //
 // Bump BASS_HOST_SCRIPT_VERSION on any change to the script body: the cached
 // .ps1 is only rewritten on a version change (scriptCache.ensureVersionedScript).
-const BASS_HOST_SCRIPT_VERSION = 4;
+const BASS_HOST_SCRIPT_VERSION = 5;
 
 const CSHARP = String.raw`
 using System;
@@ -196,7 +202,7 @@ public sealed class Chain {
 public sealed class Dev { public string Id; public string Name; public bool IsDefault; }
 
 public static class Host {
-    const int RATE = 48000;
+    static int RATE = 48000;
     const int METER_N = 2048;
     const int BANDS = 32;
     const uint LOOPBACK = 0x00020000, EVENTCB = 0x00040000, AUTOCONVERT = 0x80000000, SRCDEFAULT = 0x08000000;
@@ -378,8 +384,8 @@ public static class Host {
                 nextTick = now + 1000;
             }
             if (capSvc != null && !streamLost) {
-                waits[0] = capEvent; waits[1] = cmdEvent;
-                WaitHandle.WaitAny(waits, 15);
+                if (capEvent != null) { waits[0] = capEvent; waits[1] = cmdEvent; WaitHandle.WaitAny(waits, 15); }
+                else cmdEvent.WaitOne(5);       // timer-driven capture variant
                 try { Pump(); } catch (Exception e) { streamLost = true; Log("stream error: " + e.Message); }
             } else {
                 cmdEvent.WaitOne(250);
@@ -410,6 +416,8 @@ public static class Host {
             return;
         }
         if (op == "METER") { meterOn = t.Length > 1 && t[1] == "1"; return; }
+        if (op == "CAPTEST") { CapTest(); return; }
+        if (op == "FORCECAP") { forceCap = t.Length > 1 ? int.Parse(t[1], CultureInfo.InvariantCulture) : -1; streamLost = true; return; }
         if (op == "DEVICES") { Emit("DEVICES " + DevicesJson()); return; }
         if (op == "CHAIN") { ParseChain(t); return; }
         if (op == "TESTDSP") { TestDsp(t.Length > 1 ? D(t[1]) : 60); return; }
@@ -519,22 +527,149 @@ public static class Host {
     }
 
     // ── stream ──
-    static IntPtr MakeFormat() {
+    static IntPtr MakeFormat(int rate, bool pcm16) {
         IntPtr f = Marshal.AllocCoTaskMem(18);
-        Marshal.WriteInt16(f, 0, 3);           // WAVE_FORMAT_IEEE_FLOAT
+        int block = pcm16 ? 4 : 8;
+        Marshal.WriteInt16(f, 0, (short)(pcm16 ? 1 : 3));   // WAVE_FORMAT_PCM / _IEEE_FLOAT
         Marshal.WriteInt16(f, 2, 2);
-        Marshal.WriteInt32(f, 4, RATE);
-        Marshal.WriteInt32(f, 8, RATE * 8);
-        Marshal.WriteInt16(f, 12, 8);
-        Marshal.WriteInt16(f, 14, 32);
+        Marshal.WriteInt32(f, 4, rate);
+        Marshal.WriteInt32(f, 8, rate * block);
+        Marshal.WriteInt16(f, 12, (short)block);
+        Marshal.WriteInt16(f, 14, (short)(pcm16 ? 16 : 32));
         Marshal.WriteInt16(f, 16, 0);
         return f;
+    }
+
+    // ── capture ladder ──
+    // Process-loopback capture is fussier on some Windows builds than on
+    // others: a format or flag one build accepts, another rejects at
+    // Initialize ("Listening to Spotify failed"). So capture is opened by
+    // trying these in order, most capable first, ending with Microsoft's own
+    // ApplicationLoopback sample settings (16-bit, 44.1 kHz, event-driven) and
+    // finally a timer-driven variant that needs no audio event at all. The one
+    // that works is remembered for next time; every failure is logged with
+    // its stage and code.
+    sealed class CapVariant {
+        public readonly string Name; public readonly int Rate; public readonly bool Pcm16; public readonly uint Flags; public readonly bool Event;
+        public CapVariant(string name, int rate, bool pcm16, uint flags, bool ev) { Name = name; Rate = rate; Pcm16 = pcm16; Flags = flags; Event = ev; }
+    }
+    static readonly CapVariant[] CAP_VARIANTS = new CapVariant[] {
+        new CapVariant("float 48k + SRC", 48000, false, LOOPBACK | EVENTCB | AUTOCONVERT | SRCDEFAULT, true),
+        new CapVariant("float 48k", 48000, false, LOOPBACK | EVENTCB | AUTOCONVERT, true),
+        new CapVariant("pcm16 48k", 48000, true, LOOPBACK | EVENTCB | AUTOCONVERT, true),
+        new CapVariant("pcm16 44.1k (Microsoft sample)", 44100, true, LOOPBACK | EVENTCB | AUTOCONVERT, true),
+        new CapVariant("float 48k, timer-driven", 48000, false, LOOPBACK | AUTOCONVERT, false),
+        new CapVariant("pcm16 44.1k, timer-driven", 44100, true, LOOPBACK | AUTOCONVERT, false)
+    };
+    static int lastGoodCap = 0;
+    static int forceCap = -1;          // test hook (FORCECAP n)
+    static bool capPcm16 = false;
+    static short[] sbuf = new short[4096];
+    static string capName = "";
+
+    // One attempt: a FRESH client per try (a client whose Initialize failed is
+    // not reliably reusable). Returns null on success, else "stage (0x...)".
+    static string TryCapture(uint pid, CapVariant v) {
+        int ahr;
+        IAudioClient c = ActivateLoopback(pid, out ahr);
+        if (c == null) return "activate (0x" + ahr.ToString("X8") + ")";
+        IntPtr fmt = MakeFormat(v.Rate, v.Pcm16);
+        AutoResetEvent ev = null;
+        try {
+            int hr = c.Initialize(0, v.Flags, 200000, 0, fmt, IntPtr.Zero);
+            if (hr < 0) { Release(c); return "Initialize (0x" + hr.ToString("X8") + ")"; }
+            if (v.Event) {
+                ev = new AutoResetEvent(false);
+                hr = c.SetEventHandle(ev.SafeWaitHandle.DangerousGetHandle());
+                if (hr < 0) { ev.Close(); Release(c); return "SetEventHandle (0x" + hr.ToString("X8") + ")"; }
+            }
+            object o; Guid iid = IID_Capture;
+            hr = c.GetService(ref iid, out o);
+            if (hr < 0) { if (ev != null) ev.Close(); Release(c); return "GetService (0x" + hr.ToString("X8") + ")"; }
+            capClient = c; capSvc = (IAudioCaptureClient)o; capEvent = ev; capPcm16 = v.Pcm16; capName = v.Name;
+            return null;
+        } finally { Marshal.FreeCoTaskMem(fmt); }
+    }
+
+    // Diagnostic: open every capture variant on its own against Spotify,
+    // read ~0.6 s from it, report what worked. Touches no routing, no mutes
+    // and no speakers, so it is safe to run any time.
+    static void CapTest() {
+        uint pid = SpotifyRoot();
+        Emit("CAPTEST build " + WindowsBuild() + " spotify " + pid);
+        if (pid == 0) return;
+        if (capSvc != null) { Emit("CAPTEST busy"); return; }
+        for (int i = 0; i < CAP_VARIANTS.Length; i++) {
+            CapVariant v = CAP_VARIANTS[i];
+            string err = TryCapture(pid, v);
+            if (err != null) { Emit("CAPTEST " + i + " FAIL " + err + " | " + v.Name); continue; }
+            long frames = 0; double sum = 0;
+            try {
+                capClient.Start();
+                Stopwatch sw = Stopwatch.StartNew();
+                while (sw.ElapsedMilliseconds < 600) {
+                    if (capEvent != null) capEvent.WaitOne(20); else Thread.Sleep(5);
+                    uint pk; capSvc.GetNextPacketSize(out pk);
+                    while (pk > 0) {
+                        IntPtr data; uint fr, fl; ulong a, b;
+                        if (capSvc.GetBuffer(out data, out fr, out fl, out a, out b) < 0) break;
+                        int n = (int)fr;
+                        if ((fl & 2) == 0 && data != IntPtr.Zero) {
+                            if (v.Pcm16) { short[] t = new short[n * 2]; Marshal.Copy(data, t, 0, n * 2); for (int k = 0; k < t.Length; k++) { double x = t[k] / 32768.0; sum += x * x; } }
+                            else { float[] t = new float[n * 2]; Marshal.Copy(data, t, 0, n * 2); for (int k = 0; k < t.Length; k++) sum += t[k] * (double)t[k]; }
+                        }
+                        frames += n;
+                        capSvc.ReleaseBuffer(fr);
+                        capSvc.GetNextPacketSize(out pk);
+                    }
+                }
+            } catch (Exception e) { Emit("CAPTEST " + i + " FAIL read " + e.Message + " | " + v.Name); }
+            double rms = frames > 0 ? Math.Sqrt(sum / (frames * 2)) : 0;
+            Emit("CAPTEST " + i + " OK frames " + frames + " rms " + rms.ToString("F4", CultureInfo.InvariantCulture) + " | " + v.Name);
+            StopStream();
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct OSVERSIONINFOW { public int size, major, minor, build, platform; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string csd; }
+    [DllImport("ntdll.dll")] static extern int RtlGetVersion(ref OSVERSIONINFOW v);
+    static int winBuild = -1;
+    // The real build (Environment.OSVersion lies to unmanifested .NET apps).
+    static int WindowsBuild() {
+        if (winBuild >= 0) return winBuild;
+        try { OSVERSIONINFOW v = new OSVERSIONINFOW(); v.size = Marshal.SizeOf(typeof(OSVERSIONINFOW)); RtlGetVersion(ref v); winBuild = v.build; }
+        catch (Exception) { winBuild = 0; }
+        return winBuild;
     }
 
     static void Check(int hr, string what) { if (hr < 0) throw new Exception(what + " failed (0x" + hr.ToString("X8") + ")"); }
 
     static void StartStream(uint pid, string target) {
-        IntPtr fmt = MakeFormat();
+        int build = WindowsBuild();
+        if (build > 0 && build < 19041)
+            throw new Exception("Bass Boost needs Windows 10 version 2004 or newer, or Windows 11 (this PC is build " + build + ")");
+
+        // 1. Spotify's audio, down the ladder.
+        List<int> order = new List<int>();
+        if (forceCap >= 0 && forceCap < CAP_VARIANTS.Length) order.Add(forceCap);
+        else { order.Add(lastGoodCap); for (int i = 0; i < CAP_VARIANTS.Length; i++) if (i != lastGoodCap) order.Add(i); }
+        string tried = "", lastErr = "";
+        int chosen = -1;
+        foreach (int i in order) {
+            string err = TryCapture(pid, CAP_VARIANTS[i]);
+            if (err == null) { chosen = i; break; }
+            lastErr = err;
+            tried += CAP_VARIANTS[i].Name + ": " + err + "; ";
+        }
+        if (tried.Length > 0) Log("capture attempts on Windows build " + build + ": " + tried);
+        if (chosen < 0)
+            throw new Exception("Listening to Spotify failed on Windows build " + build + " — " + lastErr);
+        lastGoodCap = chosen;
+        int rate = CAP_VARIANTS[chosen].Rate;
+        if (rate != RATE) { RATE = rate; win = null; Emit("RATE " + RATE); }
+
+        // 2. The speakers, at the same rate (float; Windows converts if it must).
+        IntPtr fmt = MakeFormat(RATE, false);
         try {
             IMMDeviceEnumerator en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCo();
             IMMDevice dev;
@@ -543,21 +678,18 @@ public static class Host {
             Guid iid = IID_IAudioClient;
             Check(dev.Activate(ref iid, 23, IntPtr.Zero, out o), "Opening the speakers");
             renClient = (IAudioClient)o;
-            Check(renClient.Initialize(0, AUTOCONVERT | SRCDEFAULT, 1000000, 0, fmt, IntPtr.Zero), "Starting the speakers");
+            int hr = renClient.Initialize(0, AUTOCONVERT | SRCDEFAULT, 1000000, 0, fmt, IntPtr.Zero);
+            if (hr < 0) {
+                // Same story as capture: some builds refuse the quality flag.
+                Release(renClient);
+                Check(dev.Activate(ref iid, 23, IntPtr.Zero, out o), "Opening the speakers");
+                renClient = (IAudioClient)o;
+                Check(renClient.Initialize(0, AUTOCONVERT, 1000000, 0, fmt, IntPtr.Zero), "Starting the speakers");
+            }
             Check(renClient.GetBufferSize(out renFrames), "Starting the speakers");
             iid = IID_Render;
             Check(renClient.GetService(ref iid, out o), "Starting the speakers");
             renSvc = (IAudioRenderClient)o;
-
-            int ahr;
-            capClient = ActivateLoopback(pid, out ahr);
-            if (capClient == null) throw new Exception("Couldn't listen to Spotify (0x" + ahr.ToString("X8") + ")");
-            Check(capClient.Initialize(0, LOOPBACK | EVENTCB | AUTOCONVERT | SRCDEFAULT, 200000, 0, fmt, IntPtr.Zero), "Listening to Spotify");
-            capEvent = new AutoResetEvent(false);
-            Check(capClient.SetEventHandle(capEvent.SafeWaitHandle.DangerousGetHandle()), "Listening to Spotify");
-            iid = IID_Capture;
-            Check(capClient.GetService(ref iid, out o), "Listening to Spotify");
-            capSvc = (IAudioCaptureClient)o;
 
             Check(renClient.Start(), "Starting the speakers");
             Check(capClient.Start(), "Listening to Spotify");
@@ -565,6 +697,7 @@ public static class Host {
             curTarget = target;
             streamLost = false;
             ResetDsp();
+            Log("listening to Spotify via " + capName + " at " + RATE + " Hz on Windows build " + build);
         } finally {
             Marshal.FreeCoTaskMem(fmt);
         }
@@ -638,6 +771,11 @@ public static class Host {
             int n = (int)fr;
             if (buf.Length < n * 2) buf = new float[n * 2];
             if ((fl & 2) != 0 || data == IntPtr.Zero) Array.Clear(buf, 0, n * 2);
+            else if (capPcm16) {
+                if (sbuf.Length < n * 2) sbuf = new short[n * 2];
+                Marshal.Copy(data, sbuf, 0, n * 2);
+                for (int i = 0; i < n * 2; i++) buf[i] = sbuf[i] / 32768f;
+            }
             else Marshal.Copy(data, buf, 0, n * 2);
             capSvc.ReleaseBuffer(fr);
             Process(buf, n);
@@ -656,14 +794,15 @@ public static class Host {
         if (hr < 0) { streamLost = true; return; }
         int free = (int)renFrames - (int)pad;
         int offset = 0;
-        if (pad == 0 && free >= 960 + n) {
+        int prime = RATE / 50, cap = RATE * 3 / 50;             // 20 ms cushion, 60 ms ceiling
+        if (pad == 0 && free >= prime + n) {
             IntPtr sp;
-            if (renSvc.GetBuffer(960, out sp) >= 0) { Marshal.Copy(silence, 0, sp, 1920); renSvc.ReleaseBuffer(960, 0); pad = 960; free -= 960; }
+            if (renSvc.GetBuffer((uint)prime, out sp) >= 0) { Marshal.Copy(silence, 0, sp, prime * 2); renSvc.ReleaseBuffer((uint)prime, 0); pad = (uint)prime; free -= prime; }
         }
-        int over = (int)pad + n - 2880;
+        int over = (int)pad + n - cap;
         if (over > 0) { int drop = Math.Min(over, n); offset += drop; n -= drop; }
         if (n > free) n = free;
-        latAcc += (pad + n) / 48.0; latN++;
+        latAcc += (pad + n) / (RATE / 1000.0); latN++;
         if (n <= 0) return;
         IntPtr p;
         hr = renSvc.GetBuffer((uint)n, out p);
@@ -949,12 +1088,26 @@ public static class Host {
 
     // ── per-app route ──
     static IntPtr policy = IntPtr.Zero;
+    // The factory's interface ID changed in build 21390: Windows 11 answers
+    // only IID_Policy, Windows 10 (19041–19045) only IID_PolicyDownlevel —
+    // each rejects the other with E_NOINTERFACE (verified on 26200). The
+    // vtable is the same on both (slots 25/26), so only the ID differs.
+    static Guid IID_PolicyDownlevel = new Guid("2a59116d-6c4f-45e0-a74f-707e3fef9258");
     static IntPtr Policy() {
         if (policy != IntPtr.Zero) return policy;
         string cls = "Windows.Media.Internal.AudioPolicyConfig";
         IntPtr h;
         Check(WindowsCreateString(cls, cls.Length, out h), "Audio routing");
-        try { Guid g = IID_Policy; Check(RoGetActivationFactory(h, ref g, out policy), "Audio routing"); }
+        try {
+            bool modern = WindowsBuild() >= 21390 || WindowsBuild() == 0;
+            Guid first = modern ? IID_Policy : IID_PolicyDownlevel;
+            Guid second = modern ? IID_PolicyDownlevel : IID_Policy;
+            int hr = RoGetActivationFactory(h, ref first, out policy);
+            if (hr < 0) {
+                int hr2 = RoGetActivationFactory(h, ref second, out policy);
+                if (hr2 < 0) throw new Exception("Audio routing isn't available on Windows build " + WindowsBuild() + " (0x" + hr.ToString("X8") + "/0x" + hr2.ToString("X8") + ")");
+            }
+        }
         finally { WindowsDeleteString(h); }
         return policy;
     }

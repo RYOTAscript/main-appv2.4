@@ -380,3 +380,78 @@ test('Spotify\'s main process is the one whose parent is not Spotify', { skip: !
   assert.match(out, /ROUTE\s+ok/, 'the route API accepts it: ' + out);
   assert.doesNotMatch(out, /ROUTE fail/);
 });
+
+// ── Capture fallbacks (the "Listening to Spotify failed" fix) ──
+test('main rebuilds the chain when the host reports a new rate', () => {
+  const src = read('main', 'bassBoost.js');
+  assert.match(src, /line\.startsWith\('RATE '\)/);
+  assert.match(src, /E\.buildChain\(prefs, rate\)/);
+  assert.ok(!/E\.buildChain\(prefs\)\)/.test(src), 'every chain is built for the host rate');
+  const { BASS_HOST_SCRIPT_CONTENT } = require('../main/bassBoostHostScript');
+  assert.match(BASS_HOST_SCRIPT_CONTENT, /Emit\("RATE " \+ RATE\)/);
+});
+
+test('the capture ladder ends with Microsoft\'s own sample settings and a timer-driven mode', () => {
+  const { BASS_HOST_SCRIPT_CONTENT: s } = require('../main/bassBoostHostScript');
+  const ladder = s.slice(s.indexOf('CAP_VARIANTS = new CapVariant[]'), s.indexOf('static int lastGoodCap'));
+  assert.match(ladder, /44100, true, LOOPBACK \| EVENTCB \| AUTOCONVERT, true/, 'the ApplicationLoopback sample: 16-bit 44.1k, event-driven');
+  assert.match(ladder, /LOOPBACK \| AUTOCONVERT, false\)/, 'a variant that needs no audio event');
+});
+
+test('every capture variant opens against the real Spotify', { skip: !onWindows, timeout: 120000 }, () => {
+  const r = runHost(['CAPTEST']);
+  const head = /CAPTEST build (\d+) spotify (\d+)/.exec(r.stdout);
+  assert.ok(head, r.stdout + r.stderr);
+  if (head[2] === '0') return;   // Spotify isn't running here
+  const lines = r.stdout.split(/\r?\n/).filter((l) => /^CAPTEST \d+ /.test(l));
+  assert.equal(lines.length, 6, r.stdout);
+  for (const l of lines) {
+    assert.match(l, / OK frames (\d+)/, l);
+    const frames = Number(/frames (\d+)/.exec(l)[1]);
+    assert.ok(frames > 10000, 'audio actually flowed: ' + l);
+  }
+});
+
+test('at 44.1 kHz the C# DSP still matches the curve', { skip: !onWindows, timeout: 120000 }, () => {
+  const prefs = E.sanitizePrefs(Object.assign({}, E.PRESETS.find((p) => p.id === 'eris'), { harmonics: 0, speaker: 'eris35' }));
+  const chain = E.buildChain(prefs, 44100);
+  const freqs = [60, 75, 150, 1000, 8000];
+  const out = runReflect([
+    "(F 'RATE').GetValue($null) | Out-Null",
+    "$t.GetField('RATE', $bf).SetValue($null, 44100)",
+    "$line = '" + E.chainLine(chain) + "'",
+    "(M 'ParseChain').Invoke($null, @(,[string[]]($line -split ' '))) | Out-Null",
+    ...freqs.map((f) => "(M 'TestDsp').Invoke($null, @([double]" + f + ")) | Out-Null"),
+    "$q = $t.GetField('outQ', $bf).GetValue($null); $x = $null; while ($q.TryTake([ref]$x)) { $x }"
+  ].join('\n').replace("(F 'RATE').GetValue($null) | Out-Null\n", ''));
+  const lin = (f) => E.biquads(prefs, 44100).reduce((d, q) => d + E.magnitudeDb(q, f, 44100), 0) + chain.preampDb;
+  for (const f of freqs) {
+    const m = new RegExp('^TESTDSP ' + f + ' (-?[0-9.]+)', 'm').exec(out);
+    assert.ok(m, out);
+    assert.ok(Math.abs(Number(m[1]) - lin(f)) < 0.05, `${f} Hz at 44.1k: host ${m[1]} vs engine ${lin(f).toFixed(3)}`);
+  }
+});
+
+test('per-app routing knows the Windows 10 interface as well as the Windows 11 one', () => {
+  const { BASS_HOST_SCRIPT_CONTENT: s } = require('../main/bassBoostHostScript');
+  assert.match(s, /ab3d4648-e242-459f-b02f-541c70306324/i, 'Windows 11 (21390+)');
+  assert.match(s, /2a59116d-6c4f-45e0-a74f-707e3fef9258/i, 'Windows 10 (19041-19045)');
+  const policy = s.slice(s.indexOf('static IntPtr Policy()'), s.indexOf('static IntPtr Slot('));
+  assert.match(policy, /WindowsBuild\(\) >= 21390/);
+  assert.match(policy, /RoGetActivationFactory\(h, ref second/, 'falls back to the other interface');
+});
+
+test('routing works on this machine through the build-selected interface', { skip: !onWindows, timeout: 120000 }, () => {
+  const out = runReflect([
+    "$p = (M 'Policy').Invoke($null, @())",
+    "'POLICY ' + ($p -ne [IntPtr]::Zero) + ' BUILD ' + (M 'WindowsBuild').Invoke($null, @())"
+  ].join('\n'));
+  assert.match(out, /POLICY True BUILD \d+/, out);
+});
+
+test('the panel can produce a diagnostics report', () => {
+  const panel = read('renderer', 'bass-boost.js');
+  assert.match(panel, /data-act="diagnose"/);
+  assert.match(panel, /now\.textContent = bbDiagText/, 'the report is shown as text, never HTML');
+  assert.match(read('main', 'bassBoost.js'), /handle\('bass:diagnose'/);
+});

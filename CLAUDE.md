@@ -785,7 +785,20 @@ AST — no LLM). Useful facts it surfaced, worth knowing before refactoring:
   the user's PC, 2026-11-18). Spotify's main process is found by PARENT (the
   Spotify.exe whose parent isn't Spotify), never start time: the route API
   answers E_INVALIDARG (0x80070057) for any child, and they all start in the
-  same millisecond. COM interfaces there are declared
+  same millisecond. **Windows 10 differs in two places.** The routing factory's
+  interface ID changed in build 21390: Windows 11 answers only `ab3d4648-…`,
+  Windows 10 (19041–19045) only the downlevel `2a59116d-…` (each rejects the
+  other with E_NOINTERFACE; same vtable) — `Policy()` picks by
+  `RtlGetVersion` build and falls back to the other. And process-loopback
+  `Initialize` is pickier on some builds ("Listening to Spotify failed"), so
+  capture walks a LADDER (`CAP_VARIANTS`: float 48k + SRC flag → float 48k →
+  PCM16 48k → Microsoft's ApplicationLoopback sample, PCM16 44.1k → two
+  timer-driven variants), remembering the winner; a 44.1k winner makes the
+  host emit `RATE 44100` and main rebuilds the chain at that rate
+  (`buildChain(prefs, rate)`). Below build 19041 there is no process loopback
+  at all. The panel's **Run diagnostics** (`bass:diagnose`, host `CAPTEST`)
+  tries every variant without routing anything and gives the user a report to
+  copy. COM interfaces there are declared
   with `[PreserveSig]` on EVERY method: without it the CLR assumes a hidden
   `[out, retval]` and returns 0 for failures (on x64 it even appears to work,
   which is why the prototype hid this). The filter design is the pure UMD

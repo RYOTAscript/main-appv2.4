@@ -326,7 +326,10 @@
   function dbToLin(db) { return Math.pow(10, db / 20); }
 
   // Everything the host needs, as numbers.
-  function buildChain(prefs) {
+  // `fs` is the rate the host is really running at (48 kHz unless a capture
+  // fallback needed 44.1 kHz — the host reports it with a RATE line).
+  function buildChain(prefs, fs) {
+    const r = fs || SAMPLE_RATE;
     const { p, freq } = effective(prefs);
     const pre = preampDb(p);
     const harmF = clamp(freq * 1.2, 40, 200);
@@ -339,15 +342,15 @@
       ceil: CEILING,
       releaseMs: RELEASE_MS,
       harm: (p.harmonics / 100) * 1.6,
-      harmLp: lowPass(harmF, 0.7071, SAMPLE_RATE),
-      harmHp: highPass(harmF * 1.7, 0.7071, SAMPLE_RATE),
+      harmLp: lowPass(harmF, 0.7071, r),
+      harmHp: highPass(harmF * 1.7, 0.7071, r),
       crossoverHz: xo,
-      xoLp: lowPass(xo, 0.7071, SAMPLE_RATE),
-      xoHp: highPass(xo, 0.7071, SAMPLE_RATE),
+      xoLp: lowPass(xo, 0.7071, r),
+      xoHp: highPass(xo, 0.7071, r),
       bassCeil: BASS_CEILING,
       bassAttackMs: BASS_ATTACK_MS,
       bassReleaseMs: BASS_RELEASE_MS,
-      biquads: biquads(p)
+      biquads: biquads(p, r)
     };
   }
 

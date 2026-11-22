@@ -43,6 +43,9 @@ function init(ctx) {
   let devices = [];
   let deviceWaiters = [];
   let meterWanted = false;
+  let rate = E.SAMPLE_RATE;   // the host's pipeline rate (RATE line)
+  const recentLogs = [];       // the host's last LOG lines, for the diagnostics report
+  let capTest = null;          // { lines, done } while a CAPTEST runs
   let chainTimer = null;
   let idleTimer = null;
   let boundHotkey = null;
@@ -124,6 +127,7 @@ function init(ctx) {
     }
     ready = false;
     buffer = '';
+    rate = E.SAMPLE_RATE;          // a fresh host starts at 48 kHz
     const me = proc;
     const startTimer = setTimeout(() => {
       if (proc === me && !ready) {
@@ -166,7 +170,7 @@ function init(ctx) {
       ready = true;
       clearTimeout(startTimer);
       logger.success('Bass Boost engine started');
-      send(E.chainLine(E.buildChain(prefs)));
+      send(E.chainLine(E.buildChain(prefs, rate)));
       if (meterWanted) send('METER 1');
       syncHost();
       return;
@@ -197,7 +201,31 @@ function init(ctx) {
       broadcast();
       return;
     }
-    if (line.startsWith('LOG ')) { logger.log('Bass Boost: ' + line.slice(4), 'INFO'); return; }
+    if (line.startsWith('LOG ')) {
+      logger.log('Bass Boost: ' + line.slice(4), 'INFO');
+      recentLogs.push(new Date().toISOString().slice(11, 19) + ' ' + line.slice(4));
+      if (recentLogs.length > 15) recentLogs.shift();
+      return;
+    }
+    if (line.startsWith('CAPTEST')) {
+      if (capTest) {
+        capTest.lines.push(line.slice(8));
+        const variants = capTest.lines.filter((l) => /^\d+ /.test(l)).length;
+        if (variants >= 6 || / spotify 0$/.test(line) || / busy$/.test(line)) capTest.done();
+      }
+      return;
+    }
+    if (line.startsWith('RATE ')) {
+      // A capture fallback runs the pipeline at another rate: rebuild the
+      // filters for it, or every frequency would be off by the ratio.
+      const r = parseInt(line.slice(5), 10);
+      if (r >= 8000 && r <= 192000 && r !== rate) {
+        rate = r;
+        logger.log(`Bass Boost: pipeline now at ${rate} Hz`, 'INFO');
+        send(E.chainLine(E.buildChain(prefs, rate)));
+      }
+      return;
+    }
     if (line.startsWith('CHAIN-OK')) return;
   }
 
@@ -256,7 +284,7 @@ function init(ctx) {
     if (chainTimer) return;
     chainTimer = setTimeout(() => {
       chainTimer = null;
-      send(E.chainLine(E.buildChain(prefs)));
+      send(E.chainLine(E.buildChain(prefs, rate)));
     }, CHAIN_COALESCE_MS);
   }
 
@@ -373,6 +401,42 @@ function init(ctx) {
   });
   handle('bass:devices', async () => publicState({ devices: await listDevices() }));
   handle('bass:meter', (on) => setMeter(on));
+  // A plain-text report the user can copy and send: the Windows build, what
+  // the engine says, the outputs it sees, its recent log, and — while no
+  // stream is running — every capture variant tried against Spotify.
+  handle('bass:diagnose', async () => {
+    if (!proc) ensureHost();
+    const t0 = Date.now();
+    while ((!proc || !ready) && Date.now() - t0 < 30000) await new Promise((r) => setTimeout(r, 200));
+    if (!proc || !ready) return { ok: false, report: 'The audio engine did not start.' };
+    const devs = await listDevices();
+    const lines = await new Promise((resolve) => {
+      const job = { lines: [], done: null };
+      const timer = setTimeout(() => finish(), 20000);
+      function finish() { clearTimeout(timer); if (capTest === job) capTest = null; resolve(job.lines); }
+      job.done = finish;
+      capTest = job;
+      send('CAPTEST');
+    });
+    const report = [
+      `main ${ctx.APP_VERSION || ''} — Bass Boost diagnostics`,
+      ...lines.filter((l) => /^build /.test(l)).map((l) => {
+        const m = /^build (\d+) spotify (\d+)/.exec(l);
+        if (!m) return l;
+        const kind = Number(m[1]) >= 22000 ? 'Windows 11' : Number(m[1]) >= 10240 ? 'Windows 10' : 'Windows';
+        return `${kind} build ${m[1]} — Spotify ${m[2] === '0' ? 'NOT RUNNING (open Spotify, play a song, run this again)' : 'running (pid ' + m[2] + ')'}`;
+      }),
+      `Status: ${status.state}${status.message ? ' — ' + status.message : ''}`,
+      `Speakers profile: ${prefs.speaker}; power ${prefs.on ? 'on' : 'off'}; pipeline ${rate} Hz`,
+      'Outputs: ' + (devs.length ? devs.map((d) => d.name + (d.default ? ' (default)' : '')).join(', ') : 'none'),
+      'Capture test (no routing, nothing changed):',
+      ...lines.filter((l) => !/^build /.test(l)).map((l) => '  ' + l),
+      'Recent engine log:',
+      ...recentLogs.map((l) => '  ' + l)
+    ].join('\n');
+    scheduleIdleExit();
+    return { ok: true, report };
+  });
   // Voice + quick nudges: change the BASS knob by a step and switch on.
   handle('bass:nudge', (delta) => {
     const d = Number(delta);

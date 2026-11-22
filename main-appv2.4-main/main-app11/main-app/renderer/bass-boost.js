@@ -142,6 +142,10 @@
                         `<div class="fsl-cfg-row"><span class="fsl-cfg-label">Power hotkey</span><div class="sdraw-keys"><span class="sdraw-kbd" data-hotkey></span>` +
                             `<button type="button" class="fsl-seg-btn no-drag" data-act="bind"></button>` +
                             `<button type="button" class="fsl-seg-btn no-drag" data-act="unbind" title="Clear this shortcut"><i class="fas fa-xmark"></i></button></div></div>` +
+                        `<div class="fsl-cfg-row"><span class="fsl-cfg-label">Not working?</span><div class="sdraw-keys">` +
+                            `<button type="button" class="fsl-seg-btn no-drag" data-act="diagnose"><i class="fas fa-stethoscope"></i><span>Run diagnostics</span></button>` +
+                            `<button type="button" class="fsl-seg-btn no-drag hidden" data-act="diag-copy"><i class="fas fa-copy"></i><span>Copy</span></button></div></div>` +
+                        `<pre class="bb-diag hidden" data-diag></pre>` +
                         `<p class="fsl-cfg-hint">Only Spotify is boosted. While it's on, Spotify plays on the spare output (muted) and you hear the boosted copy on your speakers, about 40 ms later — too little to notice on music. Spotify's own volume slider still works. ` +
                             `<b>Clarity</b> cuts the muddy range where a big boost buries vocals, and the bass has its own limiter, so a kick never ducks the rest of the song. Pick <b>your speakers</b> and the boost is aimed where they can actually play it. <b>Drag</b> a dial up or down (Shift = fine), <b>scroll</b> to nudge, <b>double-click</b> to reset. ` +
                             `Everything goes back to normal when you switch it off or close main.</p>` +
@@ -426,6 +430,8 @@
                 case 'delete': bbCall('bassDeletePreset', bbLocal.preset); break;
                 case 'bind': if (bbBinding) bbEndBind(); else bbBeginBind(); break;
                 case 'unbind': bbCall('bassSetPrefs', { hotkey: '' }); break;
+                case 'diagnose': bbDiagnose(btn); break;
+                case 'diag-copy': bbCopyDiagnostics(); break;
             }
         }
 
@@ -455,6 +461,35 @@
             if (s && s.error) { showToast(s.error, true); return; }
             bbToggleSave(false);
             showToast(`Saved “${name}”`);
+        }
+
+        // ── Diagnostics ──────────────────────────────────────────────────────
+        // Asks main for a plain-text report (Windows build, status, outputs,
+        // every capture variant tried against Spotify, recent engine log) and
+        // shows it, textContent only, ready to copy and send.
+        let bbDiagText = '';
+        async function bbDiagnose(btn) {
+            if (!window.electronAPI?.bassDiagnose) return;
+            const root = document.querySelector('#bass-boost-panel .bb-root');
+            const pre = root && root.querySelector('[data-diag]');
+            if (!pre) return;
+            btn.disabled = true;
+            pre.classList.remove('hidden');
+            pre.textContent = 'Testing… (about 5 seconds)';
+            try {
+                const r = await window.electronAPI.bassDiagnose();
+                bbDiagText = (r && r.report) || 'No report.';
+            } catch (e) { bbDiagText = 'Diagnostics failed.'; }
+            const now = document.querySelector('#bass-boost-panel [data-diag]');
+            if (now) now.textContent = bbDiagText;
+            const copy = document.querySelector('#bass-boost-panel [data-act="diag-copy"]');
+            if (copy) copy.classList.remove('hidden');
+            btn.disabled = false;
+        }
+
+        async function bbCopyDiagnostics() {
+            try { await navigator.clipboard.writeText(bbDiagText); showToast('Diagnostics copied'); }
+            catch (e) { showToast('Couldn’t copy — select the text instead', true); }
         }
 
         // ── Recording the hotkey (same rules as Draw on Screen) ────────────────

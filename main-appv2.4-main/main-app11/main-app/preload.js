@@ -513,6 +513,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   bassDevices: () => ipcRenderer.invoke('bass:devices'),
   bassMeter: (on) => ipcRenderer.invoke('bass:meter', !!on),
   bassNudge: (deltaDb) => ipcRenderer.invoke('bass:nudge', Number(deltaDb) || 0),
+  bassDiagnose: () => ipcRenderer.invoke('bass:diagnose'),
   onBassChanged: (cb) => {
     const listener = (_e, s) => { try { cb(s); } catch (err) { /* ignore */ } };
     ipcRenderer.on('bass:changed', listener);
