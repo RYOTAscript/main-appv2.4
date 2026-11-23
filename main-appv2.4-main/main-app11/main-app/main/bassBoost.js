@@ -210,8 +210,7 @@ function init(ctx) {
     if (line.startsWith('CAPTEST')) {
       if (capTest) {
         capTest.lines.push(line.slice(8));
-        const variants = capTest.lines.filter((l) => /^\d+ /.test(l)).length;
-        if (variants >= 6 || / spotify 0$/.test(line) || / busy$/.test(line)) capTest.done();
+        if (/ done$| spotify 0$| busy$/.test(line)) capTest.done();
       }
       return;
     }
@@ -430,7 +429,8 @@ function init(ctx) {
       `Speakers profile: ${prefs.speaker}; power ${prefs.on ? 'on' : 'off'}; pipeline ${rate} Hz`,
       'Outputs: ' + (devs.length ? devs.map((d) => d.name + (d.default ? ' (default)' : '')).join(', ') : 'none'),
       'Capture test (no routing, nothing changed):',
-      ...lines.filter((l) => !/^build /.test(l)).map((l) => '  ' + l),
+      ...lines.filter((l) => /^mix /.test(l)).map((l) => 'Default output mix format: ' + l.slice(4)),
+      ...lines.filter((l) => !/^build |^mix |^done$/.test(l)).map((l) => '  ' + l),
       'Recent engine log:',
       ...recentLogs.map((l) => '  ' + l)
     ].join('\n');

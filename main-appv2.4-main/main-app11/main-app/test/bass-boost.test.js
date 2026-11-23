@@ -404,7 +404,9 @@ test('every capture variant opens against the real Spotify', { skip: !onWindows,
   assert.ok(head, r.stdout + r.stderr);
   if (head[2] === '0') return;   // Spotify isn't running here
   const lines = r.stdout.split(/\r?\n/).filter((l) => /^CAPTEST \d+ /.test(l));
-  assert.equal(lines.length, 6, r.stdout);
+  assert.ok(lines.length >= 10, r.stdout);
+  assert.match(r.stdout, /^CAPTEST done/m);
+  assert.match(r.stdout, /^CAPTEST mix \d+ Hz/m);
   for (const l of lines) {
     assert.match(l, / OK frames (\d+)/, l);
     const frames = Number(/frames (\d+)/.exec(l)[1]);

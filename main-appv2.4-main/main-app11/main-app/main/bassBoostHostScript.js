@@ -69,7 +69,7 @@
 //
 // Bump BASS_HOST_SCRIPT_VERSION on any change to the script body: the cached
 // .ps1 is only rewritten on a version change (scriptCache.ensureVersionedScript).
-const BASS_HOST_SCRIPT_VERSION = 5;
+const BASS_HOST_SCRIPT_VERSION = 6;
 
 const CSHARP = String.raw`
 using System;
@@ -527,16 +527,30 @@ public static class Host {
     }
 
     // ── stream ──
-    static IntPtr MakeFormat(int rate, bool pcm16) {
-        IntPtr f = Marshal.AllocCoTaskMem(18);
+    static IntPtr MakeFormat(int rate, bool pcm16) { return MakeFormat(rate, pcm16, false); }
+
+    // ext = WAVEFORMATEXTENSIBLE (40 bytes: the 18-byte header with tag
+    // 0xFFFE and cbSize 22, then valid bits, channel mask and subformat GUID).
+    static IntPtr MakeFormat(int rate, bool pcm16, bool ext) {
+        int size = ext ? 40 : 18;
+        IntPtr f = Marshal.AllocCoTaskMem(size);
+        for (int i = 0; i < size; i++) Marshal.WriteByte(f, i, 0);
         int block = pcm16 ? 4 : 8;
-        Marshal.WriteInt16(f, 0, (short)(pcm16 ? 1 : 3));   // WAVE_FORMAT_PCM / _IEEE_FLOAT
+        Marshal.WriteInt16(f, 0, (short)(ext ? unchecked((short)0xFFFE) : (pcm16 ? 1 : 3)));   // EXTENSIBLE / PCM / IEEE_FLOAT
         Marshal.WriteInt16(f, 2, 2);
         Marshal.WriteInt32(f, 4, rate);
         Marshal.WriteInt32(f, 8, rate * block);
         Marshal.WriteInt16(f, 12, (short)block);
         Marshal.WriteInt16(f, 14, (short)(pcm16 ? 16 : 32));
-        Marshal.WriteInt16(f, 16, 0);
+        Marshal.WriteInt16(f, 16, (short)(ext ? 22 : 0));
+        if (ext) {
+            Marshal.WriteInt16(f, 18, (short)(pcm16 ? 16 : 32));      // wValidBitsPerSample
+            Marshal.WriteInt32(f, 20, 0x3);                             // SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT
+            byte[] sub = (pcm16 ? new Guid("00000001-0000-0010-8000-00aa00389b71")      // KSDATAFORMAT_SUBTYPE_PCM
+                                : new Guid("00000003-0000-0010-8000-00aa00389b71"))    // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
+                         .ToByteArray();
+            Marshal.Copy(sub, 0, IntPtr.Add(f, 24), 16);
+        }
         return f;
     }
 
@@ -551,7 +565,11 @@ public static class Host {
     // its stage and code.
     sealed class CapVariant {
         public readonly string Name; public readonly int Rate; public readonly bool Pcm16; public readonly uint Flags; public readonly bool Event;
-        public CapVariant(string name, int rate, bool pcm16, uint flags, bool ev) { Name = name; Rate = rate; Pcm16 = pcm16; Flags = flags; Event = ev; }
+        public readonly bool Ext; public readonly long BufferHns; public readonly bool Win10First;
+        public CapVariant(string name, int rate, bool pcm16, uint flags, bool ev) : this(name, rate, pcm16, flags, ev, false, 200000, false) { }
+        public CapVariant(string name, int rate, bool pcm16, uint flags, bool ev, bool ext, long bufferHns, bool win10First) {
+            Name = name; Rate = rate; Pcm16 = pcm16; Flags = flags; Event = ev; Ext = ext; BufferHns = bufferHns; Win10First = win10First;
+        }
     }
     static readonly CapVariant[] CAP_VARIANTS = new CapVariant[] {
         new CapVariant("float 48k + SRC", 48000, false, LOOPBACK | EVENTCB | AUTOCONVERT | SRCDEFAULT, true),
@@ -559,9 +577,18 @@ public static class Host {
         new CapVariant("pcm16 48k", 48000, true, LOOPBACK | EVENTCB | AUTOCONVERT, true),
         new CapVariant("pcm16 44.1k (Microsoft sample)", 44100, true, LOOPBACK | EVENTCB | AUTOCONVERT, true),
         new CapVariant("float 48k, timer-driven", 48000, false, LOOPBACK | AUTOCONVERT, false),
-        new CapVariant("pcm16 44.1k, timer-driven", 44100, true, LOOPBACK | AUTOCONVERT, false)
+        new CapVariant("pcm16 44.1k, timer-driven", 44100, true, LOOPBACK | AUTOCONVERT, false),
+        // What OBS and win-capture-audio pass, and both work on Windows 10
+        // 2004+ (19041-19045): NO AUTOCONVERTPCM, WAVEFORMATEXTENSIBLE float,
+        // a 5 s buffer. Build 19045 answered E_UNEXPECTED (0x8000FFFF) to every
+        // variant above, all of which carry AUTOCONVERTPCM. Tried first below
+        // build 20348 (the build Microsoft documents process loopback from).
+        new CapVariant("OBS-style float 48k", 48000, false, LOOPBACK | EVENTCB, true, true, 50000000, true),
+        new CapVariant("OBS-style float 44.1k", 44100, false, LOOPBACK | EVENTCB, true, true, 50000000, true),
+        new CapVariant("plain float 48k, no autoconvert", 48000, false, LOOPBACK | EVENTCB, true, false, 50000000, true),
+        new CapVariant("OBS-style float 48k, timer-driven", 48000, false, LOOPBACK, false, true, 50000000, true)
     };
-    static int lastGoodCap = 0;
+    static int lastGoodCap = -1;
     static int forceCap = -1;          // test hook (FORCECAP n)
     static bool capPcm16 = false;
     static short[] sbuf = new short[4096];
@@ -573,10 +600,10 @@ public static class Host {
         int ahr;
         IAudioClient c = ActivateLoopback(pid, out ahr);
         if (c == null) return "activate (0x" + ahr.ToString("X8") + ")";
-        IntPtr fmt = MakeFormat(v.Rate, v.Pcm16);
+        IntPtr fmt = MakeFormat(v.Rate, v.Pcm16, v.Ext);
         AutoResetEvent ev = null;
         try {
-            int hr = c.Initialize(0, v.Flags, 200000, 0, fmt, IntPtr.Zero);
+            int hr = c.Initialize(0, v.Flags, v.BufferHns, 0, fmt, IntPtr.Zero);
             if (hr < 0) { Release(c); return "Initialize (0x" + hr.ToString("X8") + ")"; }
             if (v.Event) {
                 ev = new AutoResetEvent(false);
@@ -591,12 +618,31 @@ public static class Host {
         } finally { Marshal.FreeCoTaskMem(fmt); }
     }
 
+    // The default output's shared-mode mix format, for the diagnostics report.
+    static string MixInfo() {
+        try {
+            IMMDeviceEnumerator en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCo();
+            IMMDevice d;
+            if (en.GetDefaultAudioEndpoint(0, 1, out d) < 0 || d == null) return "no default output";
+            object o; Guid iid = IID_IAudioClient;
+            if (d.Activate(ref iid, 23, IntPtr.Zero, out o) < 0) return "unavailable";
+            IAudioClient c = (IAudioClient)o;
+            IntPtr f;
+            if (c.GetMixFormat(out f) < 0 || f == IntPtr.Zero) { Release(c); return "unavailable"; }
+            int tag = Marshal.ReadInt16(f, 0) & 0xFFFF, ch = Marshal.ReadInt16(f, 2), rate = Marshal.ReadInt32(f, 4), bits = Marshal.ReadInt16(f, 14);
+            Marshal.FreeCoTaskMem(f);
+            Release(c);
+            return rate + " Hz, " + ch + " ch, " + bits + "-bit, tag 0x" + tag.ToString("X4");
+        } catch (Exception e) { return "error " + e.Message; }
+    }
+
     // Diagnostic: open every capture variant on its own against Spotify,
     // read ~0.6 s from it, report what worked. Touches no routing, no mutes
     // and no speakers, so it is safe to run any time.
     static void CapTest() {
         uint pid = SpotifyRoot();
         Emit("CAPTEST build " + WindowsBuild() + " spotify " + pid);
+        Emit("CAPTEST mix " + MixInfo());
         if (pid == 0) return;
         if (capSvc != null) { Emit("CAPTEST busy"); return; }
         for (int i = 0; i < CAP_VARIANTS.Length; i++) {
@@ -628,6 +674,7 @@ public static class Host {
             Emit("CAPTEST " + i + " OK frames " + frames + " rms " + rms.ToString("F4", CultureInfo.InvariantCulture) + " | " + v.Name);
             StopStream();
         }
+        Emit("CAPTEST done");
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -652,7 +699,12 @@ public static class Host {
         // 1. Spotify's audio, down the ladder.
         List<int> order = new List<int>();
         if (forceCap >= 0 && forceCap < CAP_VARIANTS.Length) order.Add(forceCap);
-        else { order.Add(lastGoodCap); for (int i = 0; i < CAP_VARIANTS.Length; i++) if (i != lastGoodCap) order.Add(i); }
+        else {
+            if (lastGoodCap >= 0) order.Add(lastGoodCap);
+            bool win10 = build > 0 && build < 20348;
+            if (win10) for (int i = 0; i < CAP_VARIANTS.Length; i++) if (CAP_VARIANTS[i].Win10First && !order.Contains(i)) order.Add(i);
+            for (int i = 0; i < CAP_VARIANTS.Length; i++) if (!order.Contains(i)) order.Add(i);
+        }
         string tried = "", lastErr = "";
         int chosen = -1;
         foreach (int i in order) {

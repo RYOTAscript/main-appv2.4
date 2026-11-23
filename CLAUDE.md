@@ -793,7 +793,12 @@ AST — no LLM). Useful facts it surfaced, worth knowing before refactoring:
   `Initialize` is pickier on some builds ("Listening to Spotify failed"), so
   capture walks a LADDER (`CAP_VARIANTS`: float 48k + SRC flag → float 48k →
   PCM16 48k → Microsoft's ApplicationLoopback sample, PCM16 44.1k → two
-  timer-driven variants), remembering the winner; a 44.1k winner makes the
+  timer-driven variants → four OBS-style ones), remembering the winner. The
+  user's Windows 10 22H2 PC (19045) answered **E_UNEXPECTED (0x8000FFFF) to
+  every variant carrying `AUTOCONVERTPCM`**; OBS and win-capture-audio, which
+  do work on Windows 10, pass `LOOPBACK | EVENTCALLBACK` only, a
+  WAVEFORMATEXTENSIBLE float format and a 5 s buffer — those variants are
+  tried FIRST below build 20348; a 44.1k winner makes the
   host emit `RATE 44100` and main rebuilds the chain at that rate
   (`buildChain(prefs, rate)`). Below build 19041 there is no process loopback
   at all. The panel's **Run diagnostics** (`bass:diagnose`, host `CAPTEST`)
